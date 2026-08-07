@@ -56,6 +56,8 @@ const required = [
   "plugins/doable-trd-context/skills/doable-trd-intake/references/intake-field-guide.md",
   "plugins/doable-trd-context/skills/doable-trd-intake/references/multi-repo-and-seams.md",
   "plugins/doable-trd-context/skills/doable-trd-intake/references/privacy-and-approval.md",
+  "plugins/doable-trd-context/skills/doable-trd-intake/scripts/init-candidate.mjs",
+  "plugins/doable-trd-context/skills/doable-trd-intake/scripts/patch-candidate.mjs",
   "plugins/doable-trd-context/skills/doable-trd-intake/scripts/validate-and-render.mjs",
   "LICENSE",
   "PRIVACY.md",
@@ -167,26 +169,35 @@ const forbiddenReleaseFiles = allPaths.filter((path) => {
 assert(forbiddenReleaseFiles.length === 0, `forbidden integration files found: ${forbiddenReleaseFiles.map((path) => relative(root, path)).join(", ")}`);
 
 const rendererPath = join(skillRoot, "scripts", "validate-and-render.mjs");
+const initializerPath = join(skillRoot, "scripts", "init-candidate.mjs");
+const patcherPath = join(skillRoot, "scripts", "patch-candidate.mjs");
 const rendererText = readFileSync(rendererPath, "utf8");
+const initializerText = readFileSync(initializerPath, "utf8");
+const patcherText = readFileSync(patcherPath, "utf8");
 const schemaSkillVersion = intakeSchema.properties?.producer?.properties?.skillVersion?.const;
 const rendererSkillVersion = rendererText.match(/const SKILL_VERSION = "([^"]+)";/)?.[1];
 assert(schemaSkillVersion === codexPlugin.version, "schema producer.skillVersion must match the plugin version");
 assert(rendererSkillVersion === codexPlugin.version, "renderer SKILL_VERSION must match the plugin version");
-for (const [pattern, label] of [
-  [/\bfetch\s*\(/, "fetch"],
-  [/\bhttps?\.request\s*\(/, "HTTP request"],
-  [/\bWebSocket\b/, "WebSocket"],
-  [/\b(?:axios|undici)\b/, "network package"],
-  [/\bcurl\b/, "curl"]
+for (const [name, scriptPath, scriptText] of [
+  ["renderer", rendererPath, rendererText],
+  ["initializer", initializerPath, initializerText],
+  ["patcher", patcherPath, patcherText],
 ]) {
-  assert(!pattern.test(rendererText), `renderer must remain network-free; found ${label}`);
+  for (const [pattern, label] of [
+    [/\bfetch\s*\(/, "fetch"],
+    [/\bhttps?\.request\s*\(/, "HTTP request"],
+    [/\bWebSocket\b/, "WebSocket"],
+    [/\b(?:axios|undici)\b/, "network package"],
+    [/\bcurl\b/, "curl"],
+  ]) {
+    assert(!pattern.test(scriptText), `${name} must remain network-free; found ${label}`);
+  }
+  for (const match of scriptText.matchAll(/from\s+["']([^"']+)["']/g)) {
+    assert(match[1].startsWith("node:"), `${name} imports a non-built-in dependency: ${match[1]}`);
+  }
+  const syntax = spawnSync(process.execPath, ["--check", scriptPath], { encoding: "utf8" });
+  assert(syntax.status === 0, `${name} syntax check failed: ${syntax.stderr.trim()}`);
 }
-for (const match of rendererText.matchAll(/from\s+["']([^"']+)["']/g)) {
-  assert(match[1].startsWith("node:"), `renderer imports a non-built-in dependency: ${match[1]}`);
-}
-
-const syntax = spawnSync(process.execPath, ["--check", rendererPath], { encoding: "utf8" });
-assert(syntax.status === 0, `renderer syntax check failed: ${syntax.stderr.trim()}`);
 
 const logo = readFileSync(join(pluginRoot, "assets", "logo.png"));
 assert(logo.subarray(1, 4).toString("ascii") === "PNG", "logo must be a PNG");

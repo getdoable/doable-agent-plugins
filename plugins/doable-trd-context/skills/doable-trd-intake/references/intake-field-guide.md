@@ -88,9 +88,9 @@ Each local evidence item contains:
 - a concise behavioral proposition;
 - a path relative to that repository root, narrow line range, and optional symbol.
 
-Do not quote code. Prefer 3–20-line local anchors and never exceed 80. Use multiple anchors when a claim crosses UI, API, and persistence boundaries. Evidence IDs and locators stay in `doable-intake.json`; render only privacy-safe product behavior in `doable-context.md`.
+Do not quote code. Prefer the narrowest local anchor that actually supports the claim. Use multiple anchors when a claim crosses UI, API, and persistence boundaries, but do not split or reject a truthful anchor merely to satisfy a fixed line-count target. Evidence IDs and locators stay in `doable-intake.json`; render only privacy-safe product behavior in `doable-context.md`.
 
-Start from a compact feature map and retrieve incrementally. A normal target is 12 unique repository files for the first capability and about 3 more per additional capability; 24 unique files triggers a redundancy review but never licenses dropping a material behavior. Count unique locator files, not evidence references, and reuse high-signal files across claims. Prefer one entry/navigation surface, one shared contract or state model, one representative orchestration or validation path, and one relevant test before widening to equivalent components or fields.
+Start from a compact feature map and retrieve incrementally. Let evidence volume follow the named scope, repository seams, actor and permission variants, lifecycle behavior, fixture diversity, and unresolved readiness dimensions rather than a fixed file target. Reuse high-signal files across claims. Prefer one entry/navigation surface, one shared contract or state model, one representative orchestration or validation path, and one relevant test before widening to equivalent components or fields. Prefer owning source declarations to generated aggregate schemas, list test names before opening test bodies, and open only the representative cases that close a named behavior or risk. Capture narrow evidence anchors during that read rather than performing a second evidence-only traversal. Before opening more evidence, name the missing readiness dimension it is expected to close; stop when additional files only repeat behavior already grounded.
 
 ## Supplemental sources
 
@@ -101,6 +101,8 @@ Model Figma frames, screenshots, design documents, tickets, and runtime captures
 - `reference_context`: use when the artifact may aid interpretation but the user has not made it desired behavior.
 
 Each supplemental evidence item uses `supplementalSourceId` plus a stable local `sourceAnchor` such as a frame name, image region, page, or timestamp. Keep the path, private URL, filename, source anchor, and source metadata in `doable-intake.json`; render only the behavioral summary. Do not use a Figma frame to claim current implementation and do not use a runtime screenshot to rewrite desired intent.
+
+When the user supplies a detailed feature brief, PRD, or prompt bundle, first extract its named scope, shared product vocabulary, expected flows/states, invariants, external contracts, and exclusions into a local coverage ledger. Treat the brief as desired behavior only when user authority makes it normative; otherwise it is reference context. For each expected item, record implemented, partial, absent/not found, or unknown from current evidence. Use the vocabulary to join claims across repositories, but do not let a long brief expand the requested feature or turn a target claim into current behavior.
 
 ## Actors and preconditions
 
@@ -119,13 +121,15 @@ If the target must already contain the state, use an `externalized` preparation 
 
 Preparation steps must be substantive enough for a downstream fixture planner to act on: they create, select, or verify prerequisite state and do not merely repeat the feature action being tested. For a feature domain with several capabilities, do not use one omnibus “sample data” fixture: split independent role/permission, eligibility, lifecycle, transaction, and cleanup states, while reusing prerequisites that are genuinely shared. Include cleanup steps when unique data, destructive changes, or shared environments require isolation, and preserve those steps across unrelated refreshes. Never include passwords, tokens, raw environment values, or invented fixture counts.
 
+Before rendering, review only the operations and states already authored. If an initial or error state assumes a non-default permission, eligibility, lifecycle, prior-use, external-system, or seeded-record state, relate that operation or flow to a `testData` item with a preparation recipe, or to a bounded unknown when the preparation path is not grounded. This is a consistency pass, not a new repository scan or model call.
+
 ## Environment and readiness
 
 Use `environment[]` only for conditions that change reachability, behavior, or the oracle: required services, feature flags, seeded deployment state, or whether the deployed build contains the inspected behavior. Write an observable `readinessCheck` rather than a secret or configuration value.
 
-Do not ask for an entry URL, organization, suite, API key, or MCP configuration in this context-only stage. If the user has not supplied a runtime, static repository evidence can still support TRD authoring; mark deployment alignment non-blocking unless a version mismatch prevents choosing the expected behavior. When code, design, and the actual deployed environment differ, preserve all three claims and ask only for the acceptance or deployment decision that affects the test oracle.
+Do not ask for an entry URL, organization, suite, API key, or MCP configuration in this context-only stage. If the user has not identified a target runtime, static repository evidence is sufficient for TRD authoring: do not infer a deployment from a nearby compose file, infrastructure repository, README, or released-image reference, and do not create a deployment-alignment unknown. When code, design, and a user-identified actual deployed environment differ, preserve all three claims and ask only for the acceptance or deployment decision that affects the test oracle. Render environment readiness only as the observable product entry or external API condition; internal process, database, cache, worker, queue, container, and service topology stays local.
 
-When a deployment is supplied, runtime work is a bounded readiness check rather than feature testing. Read the runtime README or status first, then check the relevant Dashboard or API entrypoint once within 60–90 seconds. Reachability establishes only an environment fact. Do not create or mutate feature data or deep-probe APIs. After a 502, inspect local proxy configuration and make at most one proxy-bypassed retry; if it still fails, keep one nonblocking environment unknown and continue from repository evidence.
+When a deployment is supplied, runtime work is a brief bounded readiness check rather than feature testing. Read the runtime README or status first, then check the relevant Dashboard or API entrypoint once. Reachability establishes only an environment fact. Do not create or mutate feature data or deep-probe APIs. After a 502, inspect local proxy configuration and make at most one proxy-bypassed retry; if it still fails, keep one nonblocking environment unknown and continue from repository evidence.
 
 ## Flows
 
@@ -143,6 +147,8 @@ Each flow should expose:
 
 Do not turn helper controls, static policy copy, internal functions, or adjacent features into standalone flows.
 
+Evidence de-duplication must not erase semantically distinct policy switches. Name separate permission, eligibility, actor, usage, reuse, lifecycle, or failure semantics when changing one would change a test oracle, even if the fields share one form or API input. Conversely, do not elevate draft restoration, optimistic state, cache synchronization, or other support mechanics to a shareable rule or interface unless the user requested that behavior or it materially changes the requested visible success/failure oracle.
+
 Executable flows, operations, and observable states require `desired`, `implemented`, or `deployed` evidence. Reference material and Agent inference may explain a rule or interface or motivate a bounded unknown/conflict, but they cannot by themselves establish an executable path or acceptance oracle.
 
 An adjacent consumer that merely demonstrates an effect remains an interface plus observable state or rule. Promote it to an executable flow only under the named-feature downstream boundary above.
@@ -156,6 +162,10 @@ An operation is one ordered segment of executable behavior:
 - `actions`: atomic executable actions, each with a verb;
 - `states`: observable or externally meaningful state around the operation;
 - `notes`: stable details such as allowed values or timing constraints.
+
+Together, the flow and operation must form a testable unit: precondition and reachable entry → trigger through inputs/actions → observable result in states → a grounded oracle. Do not add another artifact for this projection. Before rendering, check the already-authored unit for a missing entry, trigger, result, or oracle and repair only that missing element from evidence already collected.
+
+When the user request names several product surfaces or journey checkpoints, give each one a user-visible or external observation. A cache invalidation, list refresh call, or persisted write does not substitute for asserting what the user sees on the feed, detail view, email, webhook receiver, or other named surface.
 
 Use state roles deliberately:
 
@@ -172,7 +182,11 @@ Static implementation can establish mutation calls, cache operations, and persis
 
 Use rules for permissions, validation, business policy, persistence, data, integration, and testability constraints. Link a rule to the flows/operations it qualifies.
 
+For a material permission, tenancy, privacy, immutability, or safety invariant, distinguish an unavailable or disabled UI affordance from enforcement at an externally reachable API or system boundary. When only client-side evidence is available, preserve the visible behavior but do not claim server-side enforcement; record the unverified enforcement boundary as a risk, interface fact, or bounded unknown only when it changes the test oracle or feasible scope.
+
 Use interfaces for user-visible surfaces, routes, HTTP APIs, events, jobs, storage, flags, and external services that form a test boundary. Summarize the behavioral contract; do not copy payloads or implementation syntax.
+
+The upload describes black-box behavior, not even generic implementation architecture. Keep cache invalidation, transactions, database rows, stores, internal services, queues, workers, containers, and generated-client mechanics in local evidence. Translate them into the product oracle they establish: an updated surface shows the new value, a later query or revisit returns it, a failed operation leaves no partial product state, or an asynchronous outcome becomes externally observable. Do not remove the oracle while removing the mechanism.
 
 ## Unknowns and conflicts
 
