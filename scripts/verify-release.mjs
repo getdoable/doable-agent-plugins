@@ -91,10 +91,10 @@ for (const [host, manifest] of [
 }
 
 assert(semver.test(codexPlugin.version ?? ""), "Codex version must be strict semver");
+assert(semver.test(claudePlugin.version ?? ""), "Claude version must be strict semver");
 assert(semver.test(cursorPlugin.version ?? ""), "Cursor version must be strict semver");
-assert(codexPlugin.version === cursorPlugin.version, "Codex and Cursor versions must match");
+assert(codexPlugin.version === claudePlugin.version && codexPlugin.version === cursorPlugin.version, "all host plugin versions must match");
 assert(packageJson.version === codexPlugin.version, "package and plugin versions must match");
-assert(!("version" in claudePlugin), "Claude plugin version must be omitted during beta to use the Git commit SHA");
 assert(codexPlugin.skills === "./skills/", "Codex skills path must be ./skills/");
 assert(cursorPlugin.skills === "./skills/", "Cursor skills path must be ./skills/");
 assert(codexPlugin.license === "MIT" && cursorPlugin.license === "MIT", "public manifests must use the root MIT license");
