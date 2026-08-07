@@ -10,6 +10,7 @@
     "contextRevision",
     "feature",
     "repositories",
+    "producer",
     "capabilities",
     "actors",
     "preconditions",
@@ -34,8 +35,9 @@
     "producer": {
       "type": "object",
       "additionalProperties": false,
+      "required": ["skillVersion", "host", "model"],
       "properties": {
-        "skillVersion": { "$ref": "#/$defs/nonEmptyString" },
+        "skillVersion": { "const": "0.1.2" },
         "host": { "$ref": "#/$defs/nonEmptyString" },
         "model": { "$ref": "#/$defs/nonEmptyString" }
       }

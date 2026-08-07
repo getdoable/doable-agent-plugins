@@ -90,6 +90,8 @@ Each local evidence item contains:
 
 Do not quote code. Prefer 3–20-line local anchors and never exceed 80. Use multiple anchors when a claim crosses UI, API, and persistence boundaries. Evidence IDs and locators stay in `doable-intake.json`; render only privacy-safe product behavior in `doable-context.md`.
 
+Start from a compact feature map and retrieve incrementally. A normal target is 12 unique repository files for the first capability and about 3 more per additional capability; 24 unique files triggers a redundancy review but never licenses dropping a material behavior. Count unique locator files, not evidence references, and reuse high-signal files across claims. Prefer one entry/navigation surface, one shared contract or state model, one representative orchestration or validation path, and one relevant test before widening to equivalent components or fields.
+
 ## Supplemental sources
 
 Model Figma frames, screenshots, design documents, tickets, and runtime captures separately from repositories:
@@ -122,6 +124,8 @@ Preparation steps must be substantive enough for a downstream fixture planner to
 Use `environment[]` only for conditions that change reachability, behavior, or the oracle: required services, feature flags, seeded deployment state, or whether the deployed build contains the inspected behavior. Write an observable `readinessCheck` rather than a secret or configuration value.
 
 Do not ask for an entry URL, organization, suite, API key, or MCP configuration in this context-only stage. If the user has not supplied a runtime, static repository evidence can still support TRD authoring; mark deployment alignment non-blocking unless a version mismatch prevents choosing the expected behavior. When code, design, and the actual deployed environment differ, preserve all three claims and ask only for the acceptance or deployment decision that affects the test oracle.
+
+When a deployment is supplied, runtime work is a bounded readiness check rather than feature testing. Read the runtime README or status first, then check the relevant Dashboard or API entrypoint once within 60–90 seconds. Reachability establishes only an environment fact. Do not create or mutate feature data or deep-probe APIs. After a 502, inspect local proxy configuration and make at most one proxy-bypassed retry; if it still fails, keep one nonblocking environment unknown and continue from repository evidence.
 
 ## Flows
 

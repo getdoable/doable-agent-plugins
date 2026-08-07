@@ -11,6 +11,7 @@ const execFileAsync = promisify(execFile);
 
 const SCHEMA_VERSION = "doable.feature-intake/v3";
 const CONTEXT_SCHEMA_VERSION = "doable.trd-context/v1";
+const SKILL_VERSION = "0.1.2";
 const ID_PATTERN = /^[A-Z][A-Z0-9_-]*$/;
 const FEATURE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{7,127}$/;
 const TRUTH_PLANES = new Set(["desired", "implemented", "deployed", "reference", "inference"]);
@@ -497,8 +498,13 @@ export function validateIntake(intake, { allowMissingFingerprints = false } = {}
       }
     }
   }
-  if (isObject(intake.producer)) {
+  if (requireObject(intake.producer, "producer", errors)) {
     rejectUnknownKeys(intake.producer, "producer", new Set(["skillVersion", "host", "model"]), errors);
+    if (intake.producer.skillVersion !== SKILL_VERSION) {
+      errors.push(`producer.skillVersion must equal ${SKILL_VERSION}; reload the current Doable Skill before continuing`);
+    }
+    requireString(intake.producer.host, "producer.host", errors);
+    requireString(intake.producer.model, "producer.model", errors);
   }
   const supplementalSourceIds = validateSupplementalSources(
     intake.supplementalSources,
@@ -563,6 +569,20 @@ export function validateIntake(intake, { allowMissingFingerprints = false } = {}
   }
   for (const sourceId of supplementalSourceIds) {
     if (!evidenceSupplementalSourceIds.has(sourceId)) errors.push(`supplemental source ${sourceId} has no evidence; remove sources that were not materially inspected`);
+  }
+  if (Array.isArray(intake.evidence)) {
+    const uniqueRepositoryFiles = new Set(
+      intake.evidence
+        .filter((item) => typeof item?.repositoryId === "string" && typeof item?.locator?.path === "string")
+        .map((item) => `${item.repositoryId}:${item.locator.path}`),
+    );
+    const capabilityCount = Math.max(Array.isArray(intake.capabilities) ? intake.capabilities.length : 0, 1);
+    const normalFileTarget = Math.min(24, 12 + Math.max(0, capabilityCount - 1) * 3);
+    if (uniqueRepositoryFiles.size > normalFileTarget) {
+      warnings.push(
+        `repository evidence spans ${uniqueRepositoryFiles.size} unique files; the normal target for ${capabilityCount} capability/capabilities is ${normalFileTarget}. Confirm each extra file closes a named readiness dimension and remove redundant locators`,
+      );
+    }
   }
   const itemIds = collectItemIds(intake, errors);
   const capabilityIds = new Set((intake.capabilities ?? []).map((item) => item?.id).filter((id) => typeof id === "string"));

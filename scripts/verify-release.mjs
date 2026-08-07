@@ -74,7 +74,7 @@ const cursorPlugin = readJson(join(pluginRoot, ".cursor-plugin", "plugin.json"))
 const codexMarketplace = readJson(join(root, ".agents", "plugins", "marketplace.json"));
 const claudeMarketplace = readJson(join(root, ".claude-plugin", "marketplace.json"));
 const cursorMarketplace = readJson(join(root, ".cursor-plugin", "marketplace.json"));
-readJson(join(skillRoot, "assets", "doable-intake.schema.json"));
+const intakeSchema = readJson(join(skillRoot, "assets", "doable-intake.schema.json"));
 
 const pluginName = "doable-trd-context";
 const semver = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
@@ -168,6 +168,10 @@ assert(forbiddenReleaseFiles.length === 0, `forbidden integration files found: $
 
 const rendererPath = join(skillRoot, "scripts", "validate-and-render.mjs");
 const rendererText = readFileSync(rendererPath, "utf8");
+const schemaSkillVersion = intakeSchema.properties?.producer?.properties?.skillVersion?.const;
+const rendererSkillVersion = rendererText.match(/const SKILL_VERSION = "([^"]+)";/)?.[1];
+assert(schemaSkillVersion === codexPlugin.version, "schema producer.skillVersion must match the plugin version");
+assert(rendererSkillVersion === codexPlugin.version, "renderer SKILL_VERSION must match the plugin version");
 for (const [pattern, label] of [
   [/\bfetch\s*\(/, "fetch"],
   [/\bhttps?\.request\s*\(/, "HTTP request"],

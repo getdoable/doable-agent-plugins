@@ -68,6 +68,8 @@ Prepare Doable context for Checkout using these screenshots as desired behavior.
 
 The output is `.doable/features/<feature-slug>/doable-context.md`. Upload only that file. The neighboring `doable-intake.json` is local-only.
 
+The normal target is a ready context in 10–12 minutes, with a 15-minute exploration stop. For features spanning one to three repositories, the Skill stays in one agent, starts from a compact feature map, and reviews evidence density when more than 24 unique source files were needed. A supplied deployment receives only one 60–90 second readiness check; reachability is never presented as verified feature behavior.
+
 The plugin package is `doable-trd-context`; the workflow Skill inside it is `doable-trd-intake`. Keeping those names distinct preserves compatibility with the existing Skill while making the installed package's purpose clear.
 
 ## Privacy boundary
@@ -82,7 +84,7 @@ claude plugin validate .
 claude plugin validate ./plugins/doable-trd-context
 ```
 
-The release check verifies all three host manifests, the Skill structure, internal references, absence of symlinks and MCP configuration, and common secret/path leaks.
+The release check verifies all three host manifests, exact Skill/schema/renderer version alignment, the Skill structure, internal references, absence of symlinks and MCP configuration, and common secret/path leaks. A context authored by an older cached Skill version fails validation and tells the agent to reload the current plugin.
 
 Use [TESTING.md](TESTING.md) for the fresh-session beta acceptance matrix.
 

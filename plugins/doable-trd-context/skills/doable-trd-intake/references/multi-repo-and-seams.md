@@ -11,7 +11,11 @@ Before deep inspection, build a small local-only table:
 
 Use manifests, route registrations, public entry points, tests, and concise project documentation to establish likely ownership. Do not inventory every package. Mark uncertain ownership as unknown.
 
-If more than three repositories appear relevant, inspect them in separate focused passes. Carry only the feature request, the local orientation table, and unresolved seam questions into each pass. Synthesize once after the per-repository checks; do not ask the customer to manually coordinate multiple prompts.
+For one to three relevant repositories, keep discovery in the primary agent. Build this compact map first, then inspect only the files needed to close the named feature's actor/entry, outcome, validation/failure, fixture, environment, and seam dimensions. Do not launch one subagent per repository or capability; duplicated orientation usually costs more time and context than it saves.
+
+If more than three repositories appear relevant, inspect them in separate focused passes. Use concurrent subagents only when the host truly runs them in parallel and each receives one isolated seam question with a fixed return format. Carry only the feature request, the local orientation table, and unresolved seam questions into each pass. The primary agent remains responsible for de-duplication, truth-plane reconciliation, privacy scrubbing, and the final artifact; do not ask the customer to coordinate multiple prompts.
+
+Prefer evidence already used by several product claims. The normal review threshold is 24 unique repository files across the feature, not 24 evidence references: crossing it requires naming the unresolved readiness dimension that the next read will close.
 
 ## Select the connected feature graph
 
