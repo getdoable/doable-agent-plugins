@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
@@ -16,6 +17,7 @@ const TRUTH_PLANES = new Set(["desired", "implemented", "deployed", "reference",
 const FORBIDDEN_KEYS = /^(?:sourceCode|rawSource|rawContent|snippet|diff|patch|secret|token|password|cookie|environmentValue)$/i;
 const SECRET_PATTERNS = [
   /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/,
+  /\bsk-[A-Za-z0-9_-]{12,}\b/,
   /\b(?:ghp|github_pat|sk_live|sk_test)_[A-Za-z0-9_\-]{12,}\b/,
   /\bAKIA[0-9A-Z]{16}\b/,
   /\bxox[baprs]-[A-Za-z0-9-]{12,}\b/,
@@ -27,14 +29,126 @@ const SECRET_PATTERNS = [
 ];
 const VERB_PREFIX = /^(?:add|apply|authenticate|choose|click|close|configure|confirm|create|delete|deselect|edit|ensure|enter|expand|filter|generate|hover|install|invite|load|navigate|open|populate|provision|publish|refresh|remove|reset|restore|return|run|save|search|seed|select|send|sign|start|stop|submit|tap|toggle|type|upload|verify|visit|wait)\b/i;
 const WORKFLOW_CONSTRAINT = /\b(?:repository|source code|network|modify the repo|coding agent|pinned commit)\b/i;
+const META_SUCCESS_CRITERION = /(?:\b(?:TRD|intake)\b|\b(?:prepare|create|generate).{0,30}\bcontext\b|上下文|准备.{0,20}(?:TRD|context)|创建.{0,12}TRD)/i;
 const SUSPECTED_RUNTIME_DEFECT = /\b(?:stale|remain(?:s)? visible|continue(?:s)? to (?:show|display)|not (?:refresh|update|invalidate)|missing invalidation)\b/i;
 const SELF_RESOLVABLE_RUNTIME_UNKNOWN = /(?:通过|using|by).{0,40}(?:运行时|runtime|browser|UI).{0,30}(?:观察|observe|test|验证|confirm)/i;
-const REPOSITORY_LOCATOR_LEAK = /(?:\b(?:Users|home)\/[A-Za-z0-9_.\/-]+|(?:[A-Za-z0-9_.-]+\/){2,}[A-Za-z0-9_.-]+\.(?:tsx?|jsx?|py|go|rs|java|rb|cs|php|swift|kt|sql|proto|ya?ml|toml|json|md)\b|\b(?:line|lines)\s+\d+\b)/i;
+const LOCAL_LINEAGE_UNKNOWN = /(?:\blocal\s+(?:feature\s+)?(?:identity|lineage|revision\s+history)\b|\blost\s+(?:feature\s+)?(?:identity|lineage|revision\s+history)\b|\bfeature\s*ID\b.{0,50}\b(?:revision|history|lineage)\b|\b(?:revision|history|lineage)\b.{0,50}\bfeature\s*ID\b|(?:丢失|旧|本地).{0,40}(?:feature\s*ID|身份|修订历史|版本历史))/i;
+const REPOSITORY_LOCATOR_LEAK = /(?:\b(?:Users|home)\/[A-Za-z0-9_.\/-]+|(?:[A-Za-z0-9_.-]+\/){2,}[A-Za-z0-9_.-]+\.(?:tsx?|jsx?|py|go|rs|java|rb|cs|php|swift|kt|sql|proto|ya?ml|toml|json|md)\b|\b[A-Za-z0-9][A-Za-z0-9_.-]{1,}\.(?:tsx?|jsx?|py|go|rs|java|rb|cs|php|swift|kt|sql|proto|ya?ml|toml|json|md|png|jpe?g|gif|webp|svg|pdf|docx?|xlsx?|pptx?)\b|(?:^|[\s`])\.(?:doable|git)(?:\/|\b)|\b(?:line|lines)\s+\d+\b)/im;
 const URL_LEAK = /\bhttps?:\/\/[^\s)>]+/i;
 const COMMIT_LEAK = /\b[0-9a-f]{40,64}\b/i;
+const EMAIL_LEAK = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,63}\b/i;
+const INTERNAL_HOST_LEAK = /\b(?:localhost|(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+(?:internal|local|localhost|lan|corp|private|test|invalid))(?::\d{1,5})?\b|\b(?:10\.(?:\d{1,3}\.){2}\d{1,3}|192\.168\.(?:\d{1,3}\.)\d{1,3}|172\.(?:1[6-9]|2\d|3[01])\.(?:\d{1,3}\.)\d{1,3}|127\.(?:\d{1,3}\.){2}\d{1,3})\b/i;
+const BUSINESS_IDENTIFIER_LEAK = /(?:\b(?:tenant|customer|account|organization|org|workspace|order|invoice|subscription|user)(?:\s+(?:id|number|key))?\s*(?:[:=#-]\s*)?(?:[A-Z][A-Z0-9_]*-\d{3,}|\d{6,}|[0-9a-f]{8}-[0-9a-f-]{27,})\b|\b(?:cus|acct|ws|sub|ord|inv)_[A-Za-z0-9]{6,}\b)/i;
+const CODE_SHAPED_PATTERNS = [
+  /```/,
+  /\b(?:const|let|var)\s+[$A-Z_][\w$]*\s*=/i,
+  /(?:if|for|while)\s*\([^\n)]{1,200}\)\s*(?:\{|\breturn\b)/i,
+  /\breturn\s+(?:null|undefined|true|false|[$A-Z_][\w$]*(?:\.|\())[^;\n]*;/i,
+  /\bdef\s+[A-Za-z_]\w*\s*\([^\n)]*\)\s*:/,
+  /\bawait\s+[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*(?:\([^\n)]*\))?)+/,
+  /\b[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+\s*\([^\n)]*\)(?:\.[A-Za-z_$][\w$]*(?:\([^\n)]*\))?)*/,
+  /\b[A-Za-z_]\w*\s*\([^\n)]*\$[A-Za-z_]\w*[^\n)]*\)\s*\{[^\n}]*\{[^\n}]*\}/,
+  /<\/?[a-z][a-z0-9-]*(?:\s+[a-z_:][-a-z0-9_:.]*(?:=(?:"[^"]*"|'[^']*'|[^\s>]+))?)*\s*\/?>/,
+  /(?:\bSELECT\s+[^;\n]{1,120}\s+FROM\s+[A-Za-z_]|\bINSERT\s+INTO\s+[A-Za-z_]|\bUPDATE\s+[A-Za-z_][\w]*\s+SET\s+|\bDELETE\s+FROM\s+[A-Za-z_]|\bWHERE\s+[A-Za-z_][\w]*\s*(?:=|<>|!=|IN\b|LIKE\b))/,
+];
+const CONTENT_HASH_PATTERN = /^[0-9a-f]{64}$/;
 
 function isObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function collectStrings(value, output = []) {
+  if (typeof value === "string") output.push(value);
+  else if (Array.isArray(value)) value.forEach((item) => collectStrings(item, output));
+  else if (isObject(value)) Object.values(value).forEach((item) => collectStrings(item, output));
+  return output;
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function containsDeclaredRepositoryName(text, name) {
+  if (typeof name !== "string" || !name.trim()) return false;
+  const escaped = escapeRegExp(name.trim()).replace(/\s+/g, "\\s+");
+  return new RegExp(`(?<![\\p{L}\\p{N}_])${escaped}(?![\\p{L}\\p{N}_])`, "iu").test(text);
+}
+
+function containsStructuredPayload(value) {
+  for (let start = 0; start < value.length; start += 1) {
+    if (value[start] !== "{" && value[start] !== "[") continue;
+    const stack = [value[start]];
+    let inString = false;
+    let escaped = false;
+    for (let index = start + 1; index < value.length && index - start <= 4096; index += 1) {
+      const character = value[index];
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (character === "\\") escaped = true;
+        else if (character === '"') inString = false;
+        continue;
+      }
+      if (character === '"') {
+        inString = true;
+        continue;
+      }
+      if (character === "{" || character === "[") stack.push(character);
+      else if (character === "}" || character === "]") {
+        const expected = character === "}" ? "{" : "[";
+        if (stack.at(-1) !== expected) break;
+        stack.pop();
+        if (stack.length === 0) {
+          try {
+            const parsed = JSON.parse(value.slice(start, index + 1));
+            if (parsed !== null && typeof parsed === "object") return true;
+          } catch {
+            // A bracketed product phrase is not a structured payload.
+          }
+          break;
+        }
+      }
+    }
+  }
+  return false;
+}
+
+function containsCodeShapedContent(value) {
+  return CODE_SHAPED_PATTERNS.some((pattern) => pattern.test(value)) || containsStructuredPayload(value);
+}
+
+export async function atomicWriteFile(targetPath, data, { beforeRename } = {}) {
+  const resolvedTarget = path.resolve(targetPath);
+  const directory = path.dirname(resolvedTarget);
+  const temporaryPath = path.join(
+    directory,
+    `.${path.basename(resolvedTarget)}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`,
+  );
+  let renamed = false;
+  try {
+    const handle = await fs.open(temporaryPath, "wx", 0o600);
+    try {
+      await handle.writeFile(data, typeof data === "string" ? { encoding: "utf8" } : undefined);
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    if (beforeRename) await beforeRename(temporaryPath);
+    await fs.rename(temporaryPath, resolvedTarget);
+    renamed = true;
+    if (process.platform !== "win32") await fs.chmod(resolvedTarget, 0o600);
+    try {
+      const directoryHandle = await fs.open(directory, "r");
+      try {
+        await directoryHandle.sync();
+      } finally {
+        await directoryHandle.close();
+      }
+    } catch {
+      // Directory fsync is unavailable on some platforms; the same-directory rename is still atomic.
+    }
+  } finally {
+    if (!renamed) await fs.unlink(temporaryPath).catch(() => {});
+  }
 }
 
 function at(value, pointer) {
@@ -210,7 +324,7 @@ function validateSupplementalSources(sources, clarificationCount, subsequentRequ
     const pointer = `supplementalSources[${index}]`;
     if (!requireObject(source, pointer, errors)) return;
     rejectUnknownKeys(source, pointer, new Set([
-      "id", "kind", "role", "name", "locator", "authorityBasis", "inspectedAt",
+      "id", "kind", "role", "name", "locator", "freshnessMarker", "authorityBasis", "inspectedAt",
     ]), errors);
     if (requireId(source.id, `${pointer}.id`, errors)) {
       if (sourceIds.has(source.id)) errors.push(`${pointer}.id duplicates supplemental source ID ${source.id}`);
@@ -224,6 +338,10 @@ function validateSupplementalSources(sources, clarificationCount, subsequentRequ
     }
     requireString(source.name, `${pointer}.name`, errors);
     requireString(source.locator, `${pointer}.locator`, errors);
+    if (requireString(source.freshnessMarker, `${pointer}.freshnessMarker`, errors)
+      && (source.freshnessMarker.length < 8 || source.freshnessMarker.length > 256)) {
+      errors.push(`${pointer}.freshnessMarker must be 8-256 characters`);
+    }
     if (source.inspectedAt !== undefined && (!requireString(source.inspectedAt, `${pointer}.inspectedAt`, errors) || Number.isNaN(Date.parse(source.inspectedAt)))) {
       errors.push(`${pointer}.inspectedAt must be an ISO date-time`);
     }
@@ -251,19 +369,24 @@ function validateSupplementalSources(sources, clarificationCount, subsequentRequ
   return sourceIds;
 }
 
-function validateRepositories(repositories, errors) {
+function validateRepositories(repositories, errors, { allowMissingFingerprints = false } = {}) {
   const repositoryIds = new Set();
   if (!requireArray(repositories, "repositories", errors)) return repositoryIds;
-  if (repositories.length === 0) errors.push("repositories requires at least one repository");
   repositories.forEach((repository, index) => {
     const pointer = `repositories[${index}]`;
     if (!requireObject(repository, pointer, errors)) return;
-    rejectUnknownKeys(repository, pointer, new Set(["id", "name", "vcs", "inspectedAt"]), errors);
+    rejectUnknownKeys(repository, pointer, new Set(["id", "name", "vcs", "evidenceContentHash", "inspectedAt"]), errors);
     if (requireId(repository.id, `${pointer}.id`, errors)) {
       if (repositoryIds.has(repository.id)) errors.push(`${pointer}.id duplicates repository ID ${repository.id}`);
       repositoryIds.add(repository.id);
     }
     requireString(repository.name, `${pointer}.name`, errors);
+    if (repository.evidenceContentHash === undefined && allowMissingFingerprints) {
+      // Initial authoring can ask the CLI to populate this after binding repositories.
+    } else if (!requireString(repository.evidenceContentHash, `${pointer}.evidenceContentHash`, errors)
+      || !CONTENT_HASH_PATTERN.test(repository.evidenceContentHash)) {
+      errors.push(`${pointer}.evidenceContentHash must be a lowercase SHA-256 digest`);
+    }
     if (repository.inspectedAt !== undefined) {
       if (!requireString(repository.inspectedAt, `${pointer}.inspectedAt`, errors) || Number.isNaN(Date.parse(repository.inspectedAt))) {
         errors.push(`${pointer}.inspectedAt must be an ISO date-time`);
@@ -318,7 +441,7 @@ function collectItemIds(intake, errors) {
   return ids;
 }
 
-export function validateIntake(intake) {
+export function validateIntake(intake, { allowMissingFingerprints = false } = {}) {
   const errors = [];
   const warnings = [];
   if (!requireObject(intake, "$", errors)) return { errors, warnings };
@@ -335,7 +458,7 @@ export function validateIntake(intake) {
   if (!Number.isInteger(intake.contextRevision) || intake.contextRevision < 1) {
     errors.push("contextRevision must be a positive integer");
   }
-  const repositoryIds = validateRepositories(intake.repositories, errors);
+  const repositoryIds = validateRepositories(intake.repositories, errors, { allowMissingFingerprints });
 
   if (requireObject(intake.feature, "feature", errors)) {
     rejectUnknownKeys(intake.feature, "feature", new Set(["originalRequest", "subsequentRequests", "confirmedClarifications", "name", "query"]), errors);
@@ -365,6 +488,11 @@ export function validateIntake(intake) {
       for (const [index, constraint] of (intake.feature.query.testConstraints ?? []).entries()) {
         if (WORKFLOW_CONSTRAINT.test(constraint)) {
           warnings.push(`feature.query.testConstraints[${index}] looks like a coding-agent workflow instruction, not user feature authority`);
+        }
+      }
+      for (const [index, criterion] of (intake.feature.query.successCriteria ?? []).entries()) {
+        if (META_SUCCESS_CRITERION.test(criterion)) {
+          errors.push(`feature.query.successCriteria[${index}] is an intake/TRD meta-goal, not an observable product outcome`);
         }
       }
     }
@@ -488,6 +616,9 @@ export function validateIntake(intake) {
     });
   }
   if (Array.isArray(intake.testData)) {
+    const unknownRelatedIds = new Set(
+      (intake.unknowns ?? []).flatMap((unknown) => unknown?.relatedIds ?? []),
+    );
     intake.testData.forEach((item, index) => {
       const pointer = `testData[${index}]`;
       if (!requireObject(item, pointer, errors)) return;
@@ -513,6 +644,8 @@ export function validateIntake(intake) {
             warnings.push(`${pointer}.preparation.steps[${stepIndex}] may not be one concise executable setup action`);
           }
         }
+      } else if (!unknownRelatedIds.has(item.id)) {
+        errors.push(`${pointer} has no grounded preparation recipe or related unknown explaining how the prerequisite state will be obtained`);
       }
       for (const [stepIndex, step] of (item.cleanupSteps ?? []).entries()) {
         if (typeof step === "string" && (!VERB_PREFIX.test(step.trim()) || step.length > 140)) {
@@ -526,10 +659,14 @@ export function validateIntake(intake) {
       const pointer = `environment[${index}]`;
       if (!requireObject(item, pointer, errors)) return;
       rejectUnknownKeys(item, pointer, new Set([
-        "id", "description", "readinessCheck", "relatedIds", "evidenceIds", "blocking",
+        "id", "description", "readinessCheck", "freshnessMarker", "relatedIds", "evidenceIds", "blocking",
       ]), errors);
       requireString(item.description, `${pointer}.description`, errors);
       requireString(item.readinessCheck, `${pointer}.readinessCheck`, errors);
+      if (item.freshnessMarker !== undefined
+        && (typeof item.freshnessMarker !== "string" || item.freshnessMarker.length < 8 || item.freshnessMarker.length > 256)) {
+        errors.push(`${pointer}.freshnessMarker must be 8-256 characters when present`);
+      }
       requireStringList(item.relatedIds, `${pointer}.relatedIds`, errors);
       for (const id of item.relatedIds ?? []) {
         if (!itemIds.has(id)) errors.push(`${pointer}.relatedIds references missing item ${id}`);
@@ -571,6 +708,7 @@ export function validateIntake(intake) {
         `${pointer}.evidenceIds`,
       );
       requireStringList(flow?.actorIds, `${pointer}.actorIds`, errors);
+      if ((flow?.actorIds?.length ?? 0) === 0) errors.push(`${pointer}.actorIds requires at least one actor`);
       requireStringList(flow?.preconditionIds, `${pointer}.preconditionIds`, errors);
       for (const id of flow?.actorIds ?? []) if (!actorIds.has(id)) errors.push(`${pointer}.actorIds references missing actor ${id}`);
       for (const id of flow?.preconditionIds ?? []) if (!preconditionIds.has(id)) errors.push(`${pointer}.preconditionIds references missing precondition ${id}`);
@@ -636,6 +774,8 @@ export function validateIntake(intake) {
       });
       indexes.sort((a, b) => a - b);
       if (indexes.some((value, index) => value !== index)) errors.push(`${pointer}.operations sequenceIndex values must be contiguous from 0`);
+      const firstOperation = flow.operations.find((operation) => operation?.sequenceIndex === 0);
+      if (!firstOperation?.entry) errors.push(`${pointer} requires a reachable entry on its first operation`);
     });
   }
 
@@ -683,6 +823,10 @@ export function validateIntake(intake) {
       for (const key of ["question", "impact", "resolutionGoal"]) requireString(item?.[key], `unknowns[${index}].${key}`, errors);
       validateEvidenceRefs(item?.evidenceIds, `unknowns[${index}].evidenceIds`, evidenceIds, errors, { required: false });
       if (typeof item?.blocking !== "boolean") errors.push(`unknowns[${index}].blocking must be boolean`);
+      const lineageText = `${item?.question ?? ""} ${item?.impact ?? ""} ${item?.resolutionGoal ?? ""}`;
+      if (LOCAL_LINEAGE_UNKNOWN.test(lineageText)) {
+        errors.push(`unknowns[${index}] describes local lineage recovery rather than product behavior; report it only in the completion response`);
+      }
       if (item?.blocking === true && SELF_RESOLVABLE_RUNTIME_UNKNOWN.test(item?.resolutionGoal ?? "")) {
         warnings.push(`unknowns[${index}] is marked blocking but appears resolvable by the requested runtime test; use non-blocking unless authoring truly cannot proceed`);
       }
@@ -724,8 +868,12 @@ export function validateIntake(intake) {
   if (blockingEnvironment) errors.push(`intake has ${blockingEnvironment} blocking environment requirement(s); resolve them before rendering`);
   if (errors.length === 0) {
     const renderedContext = renderContextMarkdown(intake);
+    const shareableStrings = collectStrings([intake.feature?.name, buildContextPayload(intake)]);
     if (REPOSITORY_LOCATOR_LEAK.test(renderedContext)) {
-      errors.push("rendered context appears to contain a repository path or line locator");
+      errors.push("rendered context appears to contain repository/file metadata or a local locator");
+    }
+    if ((intake.repositories ?? []).some((repository) => containsDeclaredRepositoryName(renderedContext, repository?.name))) {
+      errors.push("rendered context contains a declared repository name; replace it with a product-level description");
     }
     if (URL_LEAK.test(renderedContext)) {
       errors.push("rendered context appears to contain a URL; replace it with a product-level entry description");
@@ -736,8 +884,20 @@ export function validateIntake(intake) {
     if (SECRET_PATTERNS.some((pattern) => pattern.test(renderedContext))) {
       errors.push("rendered context appears to contain a credential or secret");
     }
-    if (renderedContext.length > 20_000) {
-      warnings.push("rendered context exceeds 20,000 characters; trim nonessential detail before upload");
+    if (shareableStrings.some((value) => EMAIL_LEAK.test(value))) {
+      errors.push("rendered context appears to contain an email address; replace it with a fixture role description");
+    }
+    if (shareableStrings.some((value) => INTERNAL_HOST_LEAK.test(value))) {
+      errors.push("rendered context appears to contain an internal hostname or private network address");
+    }
+    if (shareableStrings.some((value) => BUSINESS_IDENTIFIER_LEAK.test(value))) {
+      errors.push("rendered context appears to contain a customer or business record identifier; replace it with state intent");
+    }
+    if (shareableStrings.some((value) => containsCodeShapedContent(value))) {
+      errors.push("rendered context appears to contain source or code-shaped content; rewrite it as product behavior");
+    }
+    if (Buffer.byteLength(renderedContext, "utf8") > 20_000) {
+      warnings.push("rendered context exceeds 20,000 bytes; trim nonessential detail before upload");
     }
   }
 
@@ -898,7 +1058,7 @@ function normalizedComparableLine(value) {
   return value.replace(/\s+/g, " ").trim();
 }
 
-export async function validateRepositoryEvidence(intake, repositoryRoots) {
+export async function validateRepositoryEvidence(intake, repositoryRoots, { updateFingerprints = false } = {}) {
   const errors = [];
   const repositoryById = new Map((intake.repositories ?? []).map((repository) => [repository?.id, repository]));
   const declaredIds = new Set(repositoryById.keys());
@@ -988,67 +1148,95 @@ export async function validateRepositoryEvidence(intake, repositoryRoots) {
   const renderedContext = normalizedComparableLine(
     renderContextMarkdown(intake).replace(/\\"/g, '"').replace(/\\\\/g, "\\"),
   );
-  const auditedPaths = new Set();
+  const auditedFiles = new Map();
+  const filesByRepository = new Map();
   for (const evidence of intake.evidence ?? []) {
     const repositoryId = evidence?.repositoryId;
     const root = roots.get(repositoryId);
     if (!root) continue;
     const locatorPath = evidence?.locator?.path;
     const auditKey = `${repositoryId}\0${locatorPath}`;
-    if (typeof locatorPath !== "string" || auditedPaths.has(auditKey)) continue;
-    auditedPaths.add(auditKey);
-    const candidate = path.resolve(root, locatorPath);
-    if (candidate !== root && !candidate.startsWith(`${root}${path.sep}`)) {
-      errors.push(`evidence ${evidence.id} locator resolves outside repository ${repositoryId}`);
-      continue;
+    if (typeof locatorPath !== "string") continue;
+    let audited = auditedFiles.get(auditKey);
+    if (!audited) {
+      const candidate = path.resolve(root, locatorPath);
+      if (candidate !== root && !candidate.startsWith(`${root}${path.sep}`)) {
+        errors.push(`evidence ${evidence.id} locator resolves outside repository ${repositoryId}`);
+        continue;
+      }
+      let resolved;
+      let stat;
+      try {
+        resolved = await fs.realpath(candidate);
+        stat = await fs.lstat(candidate);
+      } catch {
+        errors.push(`evidence ${evidence.id} locator file does not exist`);
+        continue;
+      }
+      if (resolved !== root && !resolved.startsWith(`${root}${path.sep}`)) {
+        errors.push(`evidence ${evidence.id} locator resolves outside repository ${repositoryId}`);
+        continue;
+      }
+      if (stat.isSymbolicLink() || !stat.isFile()) {
+        errors.push(`evidence ${evidence.id} locator must be a regular non-symlink file`);
+        continue;
+      }
+      if (stat.size > 1_048_576) {
+        errors.push(`evidence ${evidence.id} locator file exceeds the 1 MiB audit limit`);
+        continue;
+      }
+      try {
+        const sourceBytes = await fs.readFile(candidate);
+        const source = new TextDecoder("utf-8", { fatal: true }).decode(sourceBytes);
+        audited = { sourceBytes, sourceLines: source.split(/\r?\n/) };
+        auditedFiles.set(auditKey, audited);
+        if (!filesByRepository.has(repositoryId)) filesByRepository.set(repositoryId, new Map());
+        filesByRepository.get(repositoryId).set(locatorPath, sourceBytes);
+        for (const rawLine of audited.sourceLines) {
+          const line = normalizedComparableLine(rawLine);
+          if (line.length < 32 || (line.match(/[\p{L}\p{N}]/gu)?.length ?? 0) < 16) continue;
+          if (renderedContext.includes(line)) {
+            errors.push(`rendered context contains an exact source-line overlap associated with ${evidence.id}`);
+            break;
+          }
+        }
+      } catch {
+        errors.push(`evidence ${evidence.id} locator file is not readable UTF-8 text`);
+        continue;
+      }
     }
-    let resolved;
-    let stat;
-    try {
-      resolved = await fs.realpath(candidate);
-      stat = await fs.lstat(candidate);
-    } catch {
-      errors.push(`evidence ${evidence.id} locator file does not exist`);
-      continue;
-    }
-    if (resolved !== root && !resolved.startsWith(`${root}${path.sep}`)) {
-      errors.push(`evidence ${evidence.id} locator resolves outside repository ${repositoryId}`);
-      continue;
-    }
-    if (stat.isSymbolicLink() || !stat.isFile()) {
-      errors.push(`evidence ${evidence.id} locator must be a regular non-symlink file`);
-      continue;
-    }
-    if (stat.size > 1_048_576) {
-      errors.push(`evidence ${evidence.id} locator file exceeds the 1 MiB audit limit`);
-      continue;
-    }
-    let source;
-    try {
-      const sourceBytes = await fs.readFile(candidate);
-      source = new TextDecoder("utf-8", { fatal: true }).decode(sourceBytes);
-    } catch {
-      errors.push(`evidence ${evidence.id} locator file is not readable UTF-8 text`);
-      continue;
-    }
-    const sourceLines = source.split(/\r?\n/);
+    const sourceLines = audited.sourceLines;
     if (evidence.locator.endLine > sourceLines.length) {
       errors.push(`evidence ${evidence.id} locator ends beyond the file's ${sourceLines.length} lines`);
     }
-    for (const rawLine of sourceLines) {
-      const line = normalizedComparableLine(rawLine);
-      if (line.length < 32 || (line.match(/[\p{L}\p{N}]/gu)?.length ?? 0) < 16) continue;
-      if (renderedContext.includes(line)) {
-        errors.push(`rendered context contains an exact source-line overlap associated with ${evidence.id}`);
-        break;
-      }
+    if (evidence.locator.startLine > sourceLines.length) {
+      errors.push(`evidence ${evidence.id} locator starts beyond the file's ${sourceLines.length} lines`);
     }
   }
-  return { errors: [...new Set(errors)], warnings: [] };
+  const repositoryFingerprints = new Map();
+  for (const repositoryId of declaredIds) {
+    if (!roots.has(repositoryId)) continue;
+    const hash = createHash("sha256");
+    const files = [...(filesByRepository.get(repositoryId)?.entries() ?? [])]
+      .sort(([left], [right]) => left.localeCompare(right));
+    for (const [locatorPath, sourceBytes] of files) {
+      hash.update(locatorPath);
+      hash.update("\0");
+      hash.update(sourceBytes);
+      hash.update("\0");
+    }
+    const actualFingerprint = hash.digest("hex");
+    repositoryFingerprints.set(repositoryId, actualFingerprint);
+    const declaredFingerprint = repositoryById.get(repositoryId)?.evidenceContentHash;
+    if (!updateFingerprints && declaredFingerprint !== actualFingerprint) {
+      errors.push(`repository ${repositoryId} evidence content fingerprint does not match the bound files`);
+    }
+  }
+  return { errors: [...new Set(errors)], warnings: [], repositoryFingerprints };
 }
 
 function usage() {
-  return "Usage: node validate-and-render.mjs <doable-intake.json> [--repo <REPOSITORY_ID>=<path>]... [--workspace-root <single-repository>] [--out-dir <directory>] [--validate-only]";
+  return "Usage: node validate-and-render.mjs <candidate-intake.json> [--canonical-out <doable-intake.json>] [--repo <REPOSITORY_ID>=<path>]... [--workspace-root <single-repository>] [--out-dir <directory>] [--update-fingerprints] [--validate-only]";
 }
 
 export async function runCli(argv) {
@@ -1060,6 +1248,8 @@ export async function runCli(argv) {
   }
   let outDir = path.dirname(path.resolve(inputPath));
   let validateOnly = false;
+  let updateFingerprints = false;
+  let canonicalOutPath;
   let workspaceRoot;
   const repositoryRoots = new Map();
   while (args.length) {
@@ -1068,6 +1258,10 @@ export async function runCli(argv) {
       const value = args.shift();
       if (!value) throw new Error("--out-dir requires a directory");
       outDir = path.resolve(value);
+    } else if (arg === "--canonical-out") {
+      const value = args.shift();
+      if (!value) throw new Error("--canonical-out requires a file path");
+      canonicalOutPath = path.resolve(value);
     } else if (arg === "--workspace-root") {
       const value = args.shift();
       if (!value) throw new Error("--workspace-root requires a directory");
@@ -1084,13 +1278,17 @@ export async function runCli(argv) {
       repositoryRoots.set(repositoryId, path.resolve(value.slice(separator + 1)));
     } else if (arg === "--validate-only") {
       validateOnly = true;
+    } else if (arg === "--update-fingerprints") {
+      updateFingerprints = true;
     } else {
       throw new Error(`Unknown argument: ${arg}`);
     }
   }
 
-  const intake = JSON.parse(await fs.readFile(path.resolve(inputPath), "utf8"));
-  const result = validateIntake(intake);
+  const resolvedInputPath = path.resolve(inputPath);
+  const resolvedCanonicalOutPath = canonicalOutPath ?? resolvedInputPath;
+  const intake = JSON.parse(await fs.readFile(resolvedInputPath, "utf8"));
+  const result = validateIntake(intake, { allowMissingFingerprints: updateFingerprints });
   if (workspaceRoot && repositoryRoots.size) {
     result.errors.push("use either --workspace-root or --repo, not both");
   }
@@ -1102,10 +1300,20 @@ export async function runCli(argv) {
     }
   }
   if (result.errors.length === 0) {
-    const workspaceResult = await validateRepositoryEvidence(intake, repositoryRoots);
+    const workspaceResult = await validateRepositoryEvidence(intake, repositoryRoots, { updateFingerprints });
     result.errors.push(...workspaceResult.errors);
     result.warnings.push(...workspaceResult.warnings);
+    if (updateFingerprints && workspaceResult.errors.length === 0) {
+      for (const repository of intake.repositories ?? []) {
+        repository.evidenceContentHash = workspaceResult.repositoryFingerprints.get(repository.id);
+      }
+      const strictResult = validateIntake(intake);
+      result.errors.push(...strictResult.errors);
+      result.warnings.push(...strictResult.warnings);
+    }
   }
+  result.errors = [...new Set(result.errors)];
+  result.warnings = [...new Set(result.warnings)];
   result.warnings.forEach((warning) => console.warn(`WARN ${warning}`));
   if (result.errors.length) {
     result.errors.forEach((error) => console.error(`ERROR ${error}`));
@@ -1113,17 +1321,19 @@ export async function runCli(argv) {
     return 1;
   }
   console.log(`Validation passed with ${result.warnings.length} warning(s).`);
+  if (updateFingerprints || resolvedCanonicalOutPath !== resolvedInputPath) {
+    await fs.mkdir(path.dirname(resolvedCanonicalOutPath), { recursive: true });
+    await atomicWriteFile(resolvedCanonicalOutPath, `${JSON.stringify(intake, null, 2)}\n`);
+    console.log(`Wrote ${resolvedCanonicalOutPath}`);
+  }
   if (validateOnly) return 0;
 
   await fs.mkdir(outDir, { recursive: true });
   if (process.platform !== "win32") {
-    await fs.chmod(path.resolve(inputPath), 0o600);
+    await fs.chmod(resolvedInputPath, 0o600);
   }
   const contextPath = path.join(outDir, "doable-context.md");
-  await fs.writeFile(contextPath, renderContextMarkdown(intake), { encoding: "utf8", mode: 0o600 });
-  if (process.platform !== "win32") {
-    await fs.chmod(contextPath, 0o600);
-  }
+  await atomicWriteFile(contextPath, renderContextMarkdown(intake));
   console.log(`Wrote ${contextPath}`);
   return 0;
 }

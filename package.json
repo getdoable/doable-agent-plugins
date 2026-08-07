@@ -1,8 +1,8 @@
 {
   "name": "doable-agent-plugins",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
-  "description": "Public, installable agent plugins for Doable.",
+  "description": "Private-beta installable agent plugins for Doable.",
   "license": "MIT",
   "engines": {
     "node": ">=20"

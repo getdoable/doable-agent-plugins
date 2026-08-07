@@ -1,6 +1,8 @@
 # Doable Agent Plugins
 
-Official, public agent plugins for [Doable](https://getdoable.ai).
+Official beta agent plugins for [Doable](https://getdoable.ai).
+
+The repository is currently private. GitHub access to `getdoable/doable-agent-plugins` is required for installation during the private beta; the package can be tested normally before the repository is made public.
 
 The first plugin, **Doable TRD Context**, helps a coding agent inspect one clearly identified feature in a private mono-repo or multi-repo and create one privacy-safe, evidence-grounded `doable-context.md` file. The user then uploads that single file to Doable to create a TRD.
 

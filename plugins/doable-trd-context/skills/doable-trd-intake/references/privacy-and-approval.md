@@ -20,7 +20,7 @@ Store only the minimum local summaries and provenance required for validation an
 
 The upload may describe non-sensitive actors, permissions, preconditions, capabilities, flows, operations, states, observable outcomes, validation and failure behavior, business rules, fixture intent, interfaces, environment alignment, bounded unknowns, and conflicts.
 
-Do not include source code or code-shaped excerpts, repository or file metadata, commits, evidence IDs, local paths, internal hostnames, private URLs, raw diffs, logs, screenshots, design files, secrets or environment values, or real customer/business data. Describe behavior in product language. If a user's request or answer contains a secret, replace the value with `[REDACTED]` while preserving the surrounding intent.
+Do not include source code or code-shaped excerpts, repository names or other repository/file metadata, commits, evidence IDs, local paths, internal hostnames or private network addresses, email addresses, customer/business record identifiers, private URLs, raw diffs, logs, screenshots, design files, secrets or environment values, or real customer/business data. Describe behavior in product language. Mandatory privacy redaction overrides verbatim preservation: replace any such value in a user's request or answer with `[REDACTED]` while preserving the surrounding intent. Do not retain the original sensitive value in local canonical history when it is not required as a supplemental-source locator.
 
 Use this exact completion notice:
 
@@ -32,9 +32,9 @@ Use this exact completion notice:
 
 Preserve the two channels inside the one document:
 
-- copy the original request verbatim, except for mandatory secret redaction;
-- append each later same-feature request verbatim and in order without replacing the original;
-- preserve every material clarification as the exact question plus the user's verbatim answer;
+- copy the original request verbatim, except for mandatory privacy redaction;
+- append each later same-feature request verbatim and in order without replacing the original, with the same redaction exception;
+- preserve every material clarification as the exact question plus the user's verbatim answer, with the same redaction exception;
 - treat the question as context and only the answer as additional user authority;
 - never place repository findings, adjacent features, Agent restrictions, or inference in **User Authority**;
 - never present current implementation or deployment behavior as desired behavior unless the user or a user-authorized artifact establishes it;

@@ -29,7 +29,6 @@
     "feature": { "$ref": "#/$defs/feature" },
     "repositories": {
       "type": "array",
-      "minItems": 1,
       "items": { "$ref": "#/$defs/repository" }
     },
     "producer": {
@@ -131,10 +130,11 @@
     "repository": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "name", "vcs"],
+      "required": ["id", "name", "vcs", "evidenceContentHash"],
       "properties": {
         "id": { "$ref": "#/$defs/id" },
         "name": { "$ref": "#/$defs/nonEmptyString" },
+        "evidenceContentHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
         "vcs": {
           "oneOf": [
             {
@@ -161,13 +161,14 @@
     "supplementalSource": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "kind", "role", "name", "locator"],
+      "required": ["id", "kind", "role", "name", "locator", "freshnessMarker"],
       "properties": {
         "id": { "$ref": "#/$defs/id" },
         "kind": { "enum": ["figma", "image", "design_document", "ticket", "runtime_capture", "other"] },
         "role": { "enum": ["desired_behavior", "current_runtime", "reference_context"] },
         "name": { "$ref": "#/$defs/nonEmptyString" },
         "locator": { "$ref": "#/$defs/nonEmptyString" },
+        "freshnessMarker": { "type": "string", "minLength": 8, "maxLength": 256 },
         "authorityBasis": { "$ref": "#/$defs/authorityBasis" },
         "inspectedAt": { "type": "string", "format": "date-time" }
       },
@@ -241,6 +242,7 @@
         "id": { "$ref": "#/$defs/id" },
         "description": { "$ref": "#/$defs/nonEmptyString" },
         "readinessCheck": { "$ref": "#/$defs/nonEmptyString" },
+        "freshnessMarker": { "type": "string", "minLength": 8, "maxLength": 256 },
         "relatedIds": { "$ref": "#/$defs/idList" },
         "evidenceIds": { "$ref": "#/$defs/idList" },
         "blocking": { "type": "boolean" }
@@ -257,7 +259,7 @@
         "purpose": { "$ref": "#/$defs/nonEmptyString" },
         "parentFlowId": { "$ref": "#/$defs/id" },
         "parentRelation": { "enum": ["alternative", "continuation"] },
-        "actorIds": { "$ref": "#/$defs/idList" },
+        "actorIds": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/id" }, "uniqueItems": true },
         "preconditionIds": { "$ref": "#/$defs/idList" },
         "operations": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/operation" } },
         "evidenceIds": { "$ref": "#/$defs/idList" }

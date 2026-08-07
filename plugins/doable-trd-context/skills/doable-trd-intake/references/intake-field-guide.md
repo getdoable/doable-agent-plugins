@@ -22,7 +22,7 @@ The Intake is deliberately smaller than a TRD. It gives the existing TRD extract
 - `requestedScope`: one concise sentence describing what the user wants tested.
 - `explicitInScope`: only boundaries the user explicitly requested or confirmed.
 - `explicitOutOfScope`: only explicit exclusions.
-- `successCriteria`: observable feature outcomes confirmed by the user.
+- `successCriteria`: observable feature outcomes confirmed by the user. Do not place meta-goals such as “prepare enough context” or “create a TRD” here; leave it empty when the user did not state a product outcome.
 - `testConstraints`: source priority, environment, data, safety, or anti-inference constraints from the user.
 
 The structured query is a local audit projection. Every clause must be entailed by `originalRequest`, an ordered `subsequentRequests` item, or the answer in a `confirmedClarification`; otherwise remove it. Runtime restrictions given to the Coding Agent are workflow controls, not feature testing constraints. Render the original request, later requests, and labeled question/answer pairs in the **User Authority** section so answers such as “all” and “no” cannot lose their referent.
@@ -44,9 +44,9 @@ After the gate, anchor each flow with an actor, goal, reachable entry, and obser
 
 ## Feature identity and refresh
 
-Before creating a feature directory, inspect existing `.doable/features/*/doable-intake.json` records. A unique same-feature match keeps its `featureId` and `originalRequest`, appends the new verbatim request to `subsequentRequests`, updates the same `doable-context.md` and `doable-intake.json`, and increments `contextRevision`. Several plausible matches require one concise distinction; no match creates a new feature directory.
+Before creating a feature directory, inspect existing `.doable/features/*/doable-intake.json` records. A unique same-feature match keeps its `featureId` and `originalRequest`, appends the new request to `subsequentRequests`, updates the same `doable-context.md` and `doable-intake.json`, and increments `contextRevision`. Verbatim preservation is subject only to mandatory privacy redaction. Several plausible matches require one concise distinction; no match creates a new feature directory.
 
-Refresh only claims and flows affected by changed intent, relevant code or tests, supplemental artifacts, fixtures, environment conditions, or deployment. When local canonical state is absent, rebuild from current sources and record that earlier lineage could not be recovered.
+Refresh only claims and flows affected by changed intent, relevant code or tests, supplemental artifacts, fixtures, environment conditions, or deployment. Use the previous canonical JSON as the base but author changes in a separate candidate file, preserving the last valid canonical until the renderer's atomic replacement succeeds. Preserve unaffected objects and ordered list entries exactly. A later request that emphasizes behavior already in scope adds authority; it does not authorize narrowing descriptions, deleting variants, replacing setup with the operation under test, or dropping cleanup. Review the old/new semantic diff before rendering. When local canonical state is absent, rebuild from current sources with a new identity at revision 1 and report the lost lineage only in the completion response. Do not model local feature IDs, revision history, or recovery status as a product unknown or include them in the upload.
 
 If the user explicitly describes a planned or desired behavior that is absent from or contradicted by current implementation, keep that behavior in the verbatim query. Preserve desired and current claims as separately sourced evidence and add a conflict. Block authoring only when the user has not established which behavior is authoritative for the TRD; a known implementation gap is not itself an unknown.
 
@@ -68,11 +68,14 @@ Model version-control boundaries, not folders or packages:
 
 - a monorepo has one `repositories[]` entry and one revision even when several packages participate;
 - a multi-repo workspace has one entry per independent repository actually inspected;
+- a design/document/runtime-only planned feature may have an empty `repositories[]`; never fabricate a repository just to satisfy provenance;
 - never collapse sibling repositories into their non-Git parent directory;
 - use `vcs.type=git` with the exact commit and dirty boolean for Git repositories;
 - use `vcs.type=unversioned` only when the inspected source directory has no version-control identity.
 
-Give each repository a stable artifact-local ID such as `REPO_WEB` or `REPO_TRD`. The ID is provenance, not feature scope. Assign every evidence item to exactly one `repositoryId`; a flow, rule, or interface can cite several evidence IDs to ground behavior across repository boundaries. Keep unrelated sibling repositories out of the intake.
+Give each repository a stable artifact-local ID such as `REPO_WEB` or `REPO_TRD`. The ID is provenance, not feature scope. Assign every repository evidence item to exactly one `repositoryId`; a flow, rule, or interface can cite several evidence IDs to ground behavior across repository boundaries. Keep unrelated sibling repositories out of the intake.
+
+Each contributing repository keeps a local `evidenceContentHash` over the unique files used as evidence. The renderer populates it with `--update-fingerprints`. Before changing an existing Intake, validate without that flag so a different dirty diff or relevant-file change cannot hide behind the same commit and `dirty` boolean. Every supplemental source keeps a local `freshnessMarker`, such as an artifact content hash, design version, preview build, or deployment observation marker.
 
 ## Evidence: local audit only
 
@@ -105,12 +108,14 @@ Create an actor only when role or account differences materially affect a reques
 
 Use `testData[]` to express the state intent needed to execute a flow, not a concrete generated fixture matrix. Examples include a staff account with one named permission, one channel with a configured currency, or one existing record in a particular status.
 
-Add `preparation` only when the inspected inputs ground a real path to that state:
+Add `preparation` whenever the inspected inputs ground a real path to that state:
 
 - `chained`: a product flow can create the state and may later be incorporated into a test;
 - `externalized`: CLI, seed data, infrastructure, a third-party system, or human setup creates the state outside the feature flow.
 
-Preparation steps must be substantive enough for a downstream fixture planner to act on. Include cleanup steps only when unique data, destructive changes, or shared environments require isolation. Never include passwords, tokens, raw environment values, or invented fixture counts.
+If the target must already contain the state, use an `externalized` preparation that tells the downstream planner how to select and verify it. If no preparation path is grounded, add a bounded unknown related to the test-data item; do not leave both preparation and the missing-path explanation absent.
+
+Preparation steps must be substantive enough for a downstream fixture planner to act on: they create, select, or verify prerequisite state and do not merely repeat the feature action being tested. For a feature domain with several capabilities, do not use one omnibus “sample data” fixture: split independent role/permission, eligibility, lifecycle, transaction, and cleanup states, while reusing prerequisites that are genuinely shared. Include cleanup steps when unique data, destructive changes, or shared environments require isolation, and preserve those steps across unrelated refreshes. Never include passwords, tokens, raw environment values, or invented fixture counts.
 
 ## Environment and readiness
 
