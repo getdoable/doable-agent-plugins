@@ -11,7 +11,7 @@ const execFileAsync = promisify(execFile);
 
 const SCHEMA_VERSION = "doable.feature-intake/v3";
 const CONTEXT_SCHEMA_VERSION = "doable.trd-context/v1";
-const SKILL_VERSION = "0.1.2";
+const SKILL_VERSION = "0.1.5";
 const ID_PATTERN = /^[A-Z][A-Z0-9_-]*$/;
 const FEATURE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{7,127}$/;
 const TRUTH_PLANES = new Set(["desired", "implemented", "deployed", "reference", "inference"]);
@@ -28,7 +28,6 @@ const SECRET_PATTERNS = [
   /\b(?:api[_-]?key|access[_-]?token|client[_-]?secret|password)\s*[:=]\s*[^\s,;]{8,}/i,
   /\bBearer\s+[A-Za-z0-9._~+\/-]{12,}={0,2}\b/i,
 ];
-const VERB_PREFIX = /^(?:add|apply|authenticate|choose|click|close|configure|confirm|create|delete|deselect|edit|ensure|enter|expand|filter|generate|hover|install|invite|load|navigate|open|populate|provision|publish|refresh|remove|reset|restore|return|run|save|search|seed|select|send|sign|start|stop|submit|tap|toggle|type|upload|verify|visit|wait)\b/i;
 const WORKFLOW_CONSTRAINT = /\b(?:repository|source code|network|modify the repo|coding agent|pinned commit)\b/i;
 const META_SUCCESS_CRITERION = /(?:\b(?:TRD|intake)\b|\b(?:prepare|create|generate).{0,30}\bcontext\b|上下文|准备.{0,20}(?:TRD|context)|创建.{0,12}TRD)/i;
 const SUSPECTED_RUNTIME_DEFECT = /\b(?:stale|remain(?:s)? visible|continue(?:s)? to (?:show|display)|not (?:refresh|update|invalidate)|missing invalidation)\b/i;
@@ -239,7 +238,6 @@ function validateRepositoryLocator(locator, pointer, errors) {
   if (!Number.isInteger(locator.endLine) || locator.endLine < 1) errors.push(`${pointer}.endLine must be a positive integer`);
   if (Number.isInteger(locator.startLine) && Number.isInteger(locator.endLine)) {
     if (locator.endLine < locator.startLine) errors.push(`${pointer}.endLine must be >= startLine`);
-    if (locator.endLine - locator.startLine + 1 > 80) errors.push(`${pointer} range must be 80 lines or fewer`);
   }
 }
 
@@ -570,20 +568,6 @@ export function validateIntake(intake, { allowMissingFingerprints = false } = {}
   for (const sourceId of supplementalSourceIds) {
     if (!evidenceSupplementalSourceIds.has(sourceId)) errors.push(`supplemental source ${sourceId} has no evidence; remove sources that were not materially inspected`);
   }
-  if (Array.isArray(intake.evidence)) {
-    const uniqueRepositoryFiles = new Set(
-      intake.evidence
-        .filter((item) => typeof item?.repositoryId === "string" && typeof item?.locator?.path === "string")
-        .map((item) => `${item.repositoryId}:${item.locator.path}`),
-    );
-    const capabilityCount = Math.max(Array.isArray(intake.capabilities) ? intake.capabilities.length : 0, 1);
-    const normalFileTarget = Math.min(24, 12 + Math.max(0, capabilityCount - 1) * 3);
-    if (uniqueRepositoryFiles.size > normalFileTarget) {
-      warnings.push(
-        `repository evidence spans ${uniqueRepositoryFiles.size} unique files; the normal target for ${capabilityCount} capability/capabilities is ${normalFileTarget}. Confirm each extra file closes a named readiness dimension and remove redundant locators`,
-      );
-    }
-  }
   const itemIds = collectItemIds(intake, errors);
   const capabilityIds = new Set((intake.capabilities ?? []).map((item) => item?.id).filter((id) => typeof id === "string"));
   const actorIds = new Set((intake.actors ?? []).map((item) => item?.id).filter((id) => typeof id === "string"));
@@ -659,18 +643,8 @@ export function validateIntake(intake, { allowMissingFingerprints = false } = {}
         }
         requireStringList(item.preparation.steps, `${pointer}.preparation.steps`, errors);
         if ((item.preparation.steps?.length ?? 0) === 0) errors.push(`${pointer}.preparation.steps requires at least one step`);
-        for (const [stepIndex, step] of (item.preparation.steps ?? []).entries()) {
-          if (typeof step === "string" && (!VERB_PREFIX.test(step.trim()) || step.length > 140)) {
-            warnings.push(`${pointer}.preparation.steps[${stepIndex}] may not be one concise executable setup action`);
-          }
-        }
       } else if (!unknownRelatedIds.has(item.id)) {
         errors.push(`${pointer} has no grounded preparation recipe or related unknown explaining how the prerequisite state will be obtained`);
-      }
-      for (const [stepIndex, step] of (item.cleanupSteps ?? []).entries()) {
-        if (typeof step === "string" && (!VERB_PREFIX.test(step.trim()) || step.length > 140)) {
-          warnings.push(`${pointer}.cleanupSteps[${stepIndex}] may not be one concise executable cleanup action`);
-        }
       }
     });
   }
@@ -761,14 +735,6 @@ export function validateIntake(intake, { allowMissingFingerprints = false } = {}
         );
         if ((operation.inputs?.length ?? 0) + (operation.actions?.length ?? 0) === 0 && !operation.entry) {
           errors.push(`${operationPointer} requires an entry, input, or action`);
-        }
-        for (const [kind, values] of [["inputs", operation.inputs], ["actions", operation.actions]]) {
-          if (!Array.isArray(values)) continue;
-          values.forEach((value, valueIndex) => {
-            if (typeof value === "string" && (!VERB_PREFIX.test(value.trim()) || value.length > 140)) {
-              warnings.push(`${operationPointer}.${kind}[${valueIndex}] may not be one concise executable action`);
-            }
-          });
         }
         if (!requireArray(operation.states, `${operationPointer}.states`, errors)) return;
         if (operation.states.length === 0) errors.push(`${operationPointer} requires at least one observable state`);
@@ -915,9 +881,6 @@ export function validateIntake(intake, { allowMissingFingerprints = false } = {}
     }
     if (shareableStrings.some((value) => containsCodeShapedContent(value))) {
       errors.push("rendered context appears to contain source or code-shaped content; rewrite it as product behavior");
-    }
-    if (Buffer.byteLength(renderedContext, "utf8") > 20_000) {
-      warnings.push("rendered context exceeds 20,000 bytes; trim nonessential detail before upload");
     }
   }
 
@@ -1071,6 +1034,22 @@ export function renderContextMarkdown(intake) {
     "```json",
     JSON.stringify(payload.groundedContext, null, 2),
     "```", "",
+  ].join("\n");
+}
+
+function summaryItems(values, emptyLabel = "None") {
+  if (!values.length) return [`- ${emptyLabel}`];
+  return values.map((value) => `- ${normalizedComparableLine(value)}`);
+}
+
+export function renderCompletionSummary(intake, contextPath) {
+  return [
+    "## Doable context ready", "",
+    `Upload file: ${contextPath}`,
+    "Next step: Create a suite in the Doable platform and upload `doable-context.md` to create the TRD.", "",
+    `Scope: ${normalizedComparableLine(intake.feature.query.requestedScope)}`, "",
+    "Flows:",
+    ...summaryItems((intake.flows ?? []).map((flow) => flow.name)),
   ].join("\n");
 }
 
@@ -1256,7 +1235,7 @@ export async function validateRepositoryEvidence(intake, repositoryRoots, { upda
 }
 
 function usage() {
-  return "Usage: node validate-and-render.mjs <candidate-intake.json> [--canonical-out <doable-intake.json>] [--repo <REPOSITORY_ID>=<path>]... [--workspace-root <single-repository>] [--out-dir <directory>] [--update-fingerprints] [--validate-only]";
+  return "Usage: node validate-and-render.mjs <candidate-intake.json> [--canonical-out <doable-intake.json>] [--repo <REPOSITORY_ID>=<path>]... [--workspace-root <single-repository>] [--out-dir <directory>] [--update-fingerprints] [--validate-only] [--finalize]";
 }
 
 export async function runCli(argv) {
@@ -1268,6 +1247,7 @@ export async function runCli(argv) {
   }
   let outDir = path.dirname(path.resolve(inputPath));
   let validateOnly = false;
+  let finalize = false;
   let updateFingerprints = false;
   let canonicalOutPath;
   let workspaceRoot;
@@ -1300,6 +1280,8 @@ export async function runCli(argv) {
       validateOnly = true;
     } else if (arg === "--update-fingerprints") {
       updateFingerprints = true;
+    } else if (arg === "--finalize") {
+      finalize = true;
     } else {
       throw new Error(`Unknown argument: ${arg}`);
     }
@@ -1307,6 +1289,13 @@ export async function runCli(argv) {
 
   const resolvedInputPath = path.resolve(inputPath);
   const resolvedCanonicalOutPath = canonicalOutPath ?? resolvedInputPath;
+  if (finalize && validateOnly) throw new Error("--finalize cannot be combined with --validate-only");
+  if (finalize && path.basename(resolvedInputPath) !== "doable-intake.candidate.json") {
+    throw new Error("--finalize requires an input named doable-intake.candidate.json");
+  }
+  if (finalize && resolvedInputPath === resolvedCanonicalOutPath) {
+    throw new Error("--finalize requires a separate --canonical-out path");
+  }
   const intake = JSON.parse(await fs.readFile(resolvedInputPath, "utf8"));
   const result = validateIntake(intake, { allowMissingFingerprints: updateFingerprints });
   if (workspaceRoot && repositoryRoots.size) {
@@ -1355,6 +1344,16 @@ export async function runCli(argv) {
   const contextPath = path.join(outDir, "doable-context.md");
   await atomicWriteFile(contextPath, renderContextMarkdown(intake));
   console.log(`Wrote ${contextPath}`);
+  if (
+    finalize
+    && resolvedInputPath !== resolvedCanonicalOutPath
+    && path.basename(resolvedInputPath) === "doable-intake.candidate.json"
+  ) {
+    await fs.unlink(resolvedInputPath);
+    console.log(`Removed ${resolvedInputPath}`);
+  }
+  console.log("");
+  console.log(renderCompletionSummary(intake, contextPath));
   return 0;
 }
 
