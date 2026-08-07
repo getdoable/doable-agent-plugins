@@ -1,0 +1,17 @@
+{
+  "name": "doable",
+  "owner": {
+    "name": "Doable AI",
+    "email": "support@getdoable.ai"
+  },
+  "metadata": {
+    "description": "Official agent plugins for Doable."
+  },
+  "plugins": [
+    {
+      "name": "doable-trd-context",
+      "description": "Prepare one privacy-safe, evidence-grounded context file for a clearly identified feature before creating a Doable TRD.",
+      "source": "./plugins/doable-trd-context"
+    }
+  ]
+}

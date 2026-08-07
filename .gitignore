@@ -1,0 +1,4 @@
+.DS_Store
+.doable/
+node_modules/
+*.log

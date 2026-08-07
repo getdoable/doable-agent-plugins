@@ -1,0 +1,25 @@
+{
+  "name": "doable-trd-context",
+  "displayName": "Doable TRD Context",
+  "version": "0.1.0",
+  "description": "Prepare one privacy-safe, evidence-grounded context file for a clearly identified feature before creating a Doable TRD.",
+  "author": {
+    "name": "Doable AI"
+  },
+  "repository": "https://github.com/getdoable/doable-agent-plugins",
+  "license": "MIT",
+  "keywords": [
+    "doable",
+    "testing",
+    "trd",
+    "requirements",
+    "agent-skills"
+  ],
+  "category": "developer-tools",
+  "tags": [
+    "testing",
+    "requirements",
+    "context"
+  ],
+  "skills": "./skills/"
+}

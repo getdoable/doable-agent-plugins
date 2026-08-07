@@ -1,0 +1,4 @@
+interface:
+  display_name: "Doable TRD Context"
+  short_description: "Prepare safe context for a named feature TRD"
+  default_prompt: "Use $doable-trd-intake to prepare Doable TRD context for testing Authentication."
