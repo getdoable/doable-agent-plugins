@@ -1,6 +1,6 @@
 {
   "name": "doable-trd-context",
-  "version": "0.1.2",
+  "version": "0.1.5",
   "description": "Prepare privacy-safe, grounded context from a named feature codebase for creating a Doable TRD.",
   "author": {
     "name": "Doable AI",

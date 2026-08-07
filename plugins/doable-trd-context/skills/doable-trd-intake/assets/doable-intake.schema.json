@@ -37,7 +37,7 @@
       "additionalProperties": false,
       "required": ["skillVersion", "host", "model"],
       "properties": {
-        "skillVersion": { "const": "0.1.2" },
+        "skillVersion": { "const": "0.1.5" },
         "host": { "$ref": "#/$defs/nonEmptyString" },
         "model": { "$ref": "#/$defs/nonEmptyString" }
       }
