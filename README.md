@@ -5,7 +5,7 @@ Official beta plugins for [Doable](https://getdoable.ai), supporting Codex, Clau
 | Plugin | Version | Purpose | Network |
 | --- | --- | --- | --- |
 | `doable-trd-context` | `0.1.5` | Prepare one privacy-safe context file for manual TRD creation | None |
-| `doable-code-context` | `0.1.0` | Connect a workspace and resolve a published pre-TRD question round | Doable REST only |
+| `doable-code-context` | `0.1.0` | Connect a workspace and resolve a published pre-TRD feature-context round | Doable REST only |
 
 The repository is private during beta. Installation requires GitHub access to `getdoable/doable-agent-plugins`.
 
@@ -16,13 +16,15 @@ Use **Doable TRD Context** when the customer should inspect one named feature lo
 Use **Doable Code Context** for the connected pre-TRD workflow:
 
 1. The user submits a TRD request in Doable.
-2. Doable publishes a reviewed question round and shows a short copy prompt such as:
+2. Doable shows the original feature request as the required base investigation,
+   adds any focused TRD Assistant questions, and lets the user review or add
+   questions before publishing one frozen round with a short copy prompt such as:
 
    ```text
    Resolve Doable context request DQ-7F3K for this workspace.
    ```
 
-3. The coding agent performs demand-driven workspace setup if needed, pulls that exact frozen round, inspects private code, asks one batched clarification round only when product authority is missing, and pushes grounded answers.
+3. The coding agent performs demand-driven workspace setup if needed, pulls that exact frozen round, grounds the base request across the relevant private repositories, answers the focused supplements, asks one batched clarification round only when product authority is missing, and pushes structured grounded findings suitable for later knowledge reuse.
 4. Doable reviews the dispositions and continues the existing TRD loop.
 
 The connected plugin uses REST in this MVP, not MCP. Its bundled helper is invoked by the Skills and is not installed as a standalone CLI.

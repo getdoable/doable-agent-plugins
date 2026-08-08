@@ -382,6 +382,7 @@ function normalizeHandshake(data, localWorkspaceId) {
     "handshake workspace profile revision must be nonnegative",
   );
   const workspaceProfileFingerprint = workspace?.profile_fingerprint || workspace?.profileFingerprint || null;
+  const workspaceDisplayName = workspace?.display_name || workspace?.displayName || null;
   const workspaceRepositories = Array.isArray(workspace?.repositories)
     ? workspace.repositories
     : [];
@@ -392,6 +393,7 @@ function normalizeHandshake(data, localWorkspaceId) {
     workspaceClientRef,
     workspaceProfileRevision: Number(workspaceProfileRevision),
     workspaceProfileFingerprint,
+    workspaceDisplayName,
     workspaceRepositories,
   };
 }
@@ -535,6 +537,29 @@ function buildRemoteProfile(state) {
   };
 }
 
+function remoteMaterialMatches(profile, handshake) {
+  if (handshake.workspaceProfileRevision < 1 || handshake.workspaceDisplayName === null) {
+    return false;
+  }
+  const canonicalRepositories = (repositories) =>
+    repositories
+      .map((repository) => ({
+        repo_ref: repository.repo_ref,
+        product_role: repository.product_role,
+        surfaces: [...(repository.surfaces || [])].sort(),
+        user_facing: Boolean(repository.user_facing),
+        description: repository.description || "",
+      }))
+      .sort((left, right) => left.repo_ref.localeCompare(right.repo_ref));
+  return stableJson({
+    displayName: profile.displayName,
+    repositories: canonicalRepositories(profile.repositories),
+  }) === stableJson({
+    displayName: handshake.workspaceDisplayName,
+    repositories: canonicalRepositories(handshake.workspaceRepositories),
+  });
+}
+
 function assertRemotePayloadSafe(value, state, label = "remote payload", key = "") {
   const forbiddenKeys = new Set([
     "path",
@@ -615,7 +640,7 @@ async function prepareWorkspace(options) {
 
   const localProfileRevision = Number(existingState?.profile?.profileRevision || 0);
   const useRemoteProfileBase = handshake.workspaceProfileRevision > localProfileRevision;
-  const remoteProfileAhead = Boolean(existingState) && useRemoteProfileBase;
+  let remoteProfileAhead = Boolean(existingState) && useRemoteProfileBase;
   const priorProfile = useRemoteProfileBase
     ? {
         profileRevision: handshake.workspaceProfileRevision,
@@ -653,6 +678,21 @@ async function prepareWorkspace(options) {
     sync: remoteProfileAhead ? null : existingState?.sync || null,
   };
   state.profile = buildRemoteProfile(state);
+  const recoveredMatchingRemoteProfile = remoteMaterialMatches(state.profile, handshake);
+  if (recoveredMatchingRemoteProfile) {
+    // A deleted/stale private file changes the local HMAC key, so its opaque
+    // fingerprints cannot equal the server's. The sanitized material itself
+    // is still comparable. An exact, unambiguous match is a revision refresh,
+    // not a new disclosure or material profile change.
+    state.sync = {
+      materialFingerprint: state.profile.materialFingerprint,
+      profileFingerprint: handshake.workspaceProfileFingerprint || state.profile.profileFingerprint,
+      payloadDigest: null,
+      syncedAt: null,
+    };
+    state.workspace.remoteProfileAhead = false;
+    remoteProfileAhead = false;
+  }
   const requiresApproval = state.sync?.materialFingerprint !== state.profile.materialFingerprint;
   assertRemotePayloadSafe(
     {
@@ -753,8 +793,14 @@ function normalizeRound(data, state, requestedCode) {
     for (const repoRef of repoRefs) {
       assert(state.repositories.some((repository) => repository.repoRef === repoRef), `question ${index + 1} refers to an unknown repository`);
     }
+    const purpose = question.purpose || "supplemental";
+    assert(
+      purpose === "base_context" || purpose === "supplemental",
+      `questions[${index}] has an invalid purpose`,
+    );
     return {
       id: string(question.id || question.question_id, `questions[${index}] id`, { max: 160 }),
+      purpose,
       question: string(question.question, `questions[${index}] question`, { max: 4_000 }),
       why: string(question.why, `questions[${index}] why`, { min: 0, max: 2_000 }),
       answerRequirements: string(
@@ -770,6 +816,10 @@ function normalizeRound(data, state, requestedCode) {
     };
   });
   unique(questions.map((question) => question.id), "question ids");
+  assert(
+    questions.filter((question) => question.purpose === "base_context").length === 1,
+    "published round must contain exactly one base feature context request",
+  );
   return { id, code, workspaceId, revision, status, featureScope, questions };
 }
 

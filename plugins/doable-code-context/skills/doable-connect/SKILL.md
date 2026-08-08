@@ -25,8 +25,12 @@ node <plugin-directory>/scripts/doable-code-context.mjs <command> ...
    - its product role and user-facing surfaces;
    - whether it contributes user-visible behavior;
    - a short, safely shareable product-level description.
+   Describe stable, broad product responsibilities that remain useful across later feature requests.
+   Do not turn the feature that triggered setup into the repository's entire role or surface list
+   unless the repository is genuinely dedicated to that feature. Existing feature intakes are
+   orientation hints, not an exhaustive workspace map.
    When the user has explicitly supplied PRDs, screenshots, Figma exports, or runtime captures outside Git, record only the narrow directory containing those supplied files as a private `artifactRoot`. Do not infer broad roots such as a home, Downloads, Documents, or workspace-parent directory, and do not scan adjacent files.
-4. Do not inventory every feature, symbol, endpoint, package, database, or deployment component. Setup exists to route later questions to likely owners.
+4. Do not inventory every feature, symbol, endpoint, package, database, or deployment component. Setup exists to route later questions to likely owners. A feature missing from the map is not evidence that it is missing from the product; later requests still search the current workspace from the base feature query.
 5. Write `.doable/workspace-candidate.json` using the contract in [references/workspace-contract.md](references/workspace-contract.md), then run `prepare-workspace`. It is private, ignored, and must never be uploaded. When setup was entered from a round copy prompt, pass its code with `--round-code`; this lets Doable recover the already-selected workspace even if local state was deleted. The helper authenticates, assigns stable opaque repository references, records local Git provenance, writes `.doable/workspace-private.json` with private permissions, and validates the remote profile.
 6. Show the user only the organization, product roles, surfaces, and safe descriptions that would be shared. Ask once before the first profile upload or any material role/surface/description change. A revision-only refresh needs no new approval.
 7. After approval, run `sync-workspace --approved`. If the helper says approval is not required, omit `--approved`. Repeated calls are idempotent.

@@ -13,10 +13,10 @@ Create `.doable/workspace-candidate.json` and pass it to `prepare-workspace`. It
     {
       "path": "/absolute/local/repository/root",
       "name": "local-only repository name",
-      "productRole": "admin-web",
-      "surfaces": ["discounts", "vouchers"],
+      "productRole": "commerce-admin",
+      "surfaces": ["catalog-management", "order-management", "customer-operations"],
       "userFacing": true,
-      "safeDescription": "Staff-facing management for promotions and voucher rules."
+      "safeDescription": "Staff-facing administration for commerce operations and configuration."
     }
   ]
 }
@@ -32,6 +32,9 @@ Rules:
 - Omit `repoRef` for new setup. On an unambiguous path move, copy the existing opaque `repoRef` from private state so identity survives; never invent a replacement for an existing repository.
 - `productRole` and every `surface` are short sanitized product identifiers, not package names, service hosts, or repository names.
 - `safeDescription` explains a product responsibility without code, file, class, endpoint, infrastructure, customer, or deployment details.
+- Prefer stable product domains and repository responsibilities over feature names from the request
+  that happened to trigger setup. A prior feature intake may help orient the scan but must not become
+  an exhaustive feature inventory. Missing map entries never establish product absence.
 - Include orchestration or infrastructure repositories only when they own a product surface needed to route later questions.
 - Preserve an existing repository's opaque `repoRef` when its path moves. The helper matches the repository's local identity and lets the agent repair ambiguous moves explicitly.
 

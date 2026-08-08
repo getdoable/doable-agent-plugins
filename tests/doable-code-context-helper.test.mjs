@@ -89,6 +89,7 @@ test("connected helper preserves the local/private boundary and retries idempote
           ? {
               id: serverWorkspaceId,
               client_workspace_id: serverClientWorkspaceId,
+              display_name: capturedProfile.display_name,
               profile_revision: capturedProfile.profile_revision,
               profile_fingerprint: capturedProfile.profile_fingerprint,
               repositories: capturedProfile.repositories,
@@ -125,6 +126,7 @@ test("connected helper preserves the local/private boundary and retries idempote
         questions: [
           {
             id: "question-save-label",
+            purpose: "base_context",
             question: "What exact label submits the promotion creation form?",
             // Platform-user questions may intentionally omit planner-authored
             // rationale and answer expectations.
@@ -468,14 +470,16 @@ test("connected helper preserves the local/private boundary and retries idempote
 
   const originalRepoRef = privateState.repositories[0].repoRef;
   rmSync(join(testRoot, ".doable"), { recursive: true, force: true });
-  await runHelper(
+  const recoveryOutput = await runHelper(
     ["prepare-workspace", "--candidate", candidatePath, "--state", statePath, "--round-code", "DQ-7F3K"],
     environment,
   );
+  assert.match(recoveryOutput, /Material profile approval required: no/);
   const recoveredState = JSON.parse(readFileSync(statePath, "utf8"));
   assert.equal(recoveredState.workspace.serverId, serverWorkspaceId);
   assert.equal(recoveredState.workspace.clientRef, serverClientWorkspaceId);
   assert.equal(recoveredState.workspace.pendingRoundCode, "DQ-7F3K");
   assert.equal(recoveredState.repositories[0].repoRef, originalRepoRef);
   assert.deepEqual(recoveredState.artifactRoots, [realpathSync(artifactRoot)]);
+  await runHelper(["sync-workspace", "--state", statePath], environment);
 });
