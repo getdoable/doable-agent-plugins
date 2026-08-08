@@ -1,6 +1,6 @@
 # Beta acceptance checklist
 
-Run these checks from a fresh agent session after installing the plugin. The package should expose exactly one Skill (`doable-trd-intake`) and no MCP server.
+Run these checks from fresh agent sessions. `doable-trd-context` exposes exactly one Skill (`doable-trd-intake`) and no network integration. `doable-code-context` exposes exactly two Skills (`doable-connect` and `doable-answer-questions`), no MCP server, and one bundled REST helper.
 
 For every scenario, confirm that the agent:
 
@@ -38,3 +38,24 @@ For every scenario, confirm that the agent:
 ## Handoff check
 
 The renderer-generated completion message must contain only the uploadable context path, the instruction to create a suite and upload that file, the requested scope, and the collected flow names. It must not claim that a TRD, test cases, or tests were created, and it must not append local diagnostics or privacy boilerplate.
+
+## Connected workflow
+
+1. **Demand-driven setup** — Paste a round prompt in a workspace with no `.doable` state. Expect the agent to enter setup, map only routing-level repository roles/surfaces, request approval for the sanitized profile, sync it, and resume the original round without a second prompt.
+2. **Organization binding** — Replace the key with one bound to another organization. Expect setup or pull to stop; state must never be rebound silently.
+3. **Mono-repo and multi-repo** — Confirm every independent Git root receives a stable opaque `repoRef`, while a common parent directory does not. Move one repository and explicitly reuse its `repoRef`; expect identity to survive the path change.
+4. **Profile privacy** — Use repository names, paths, branches, commits, and an internal service name that differ from the safe product role. Capture the PUT body and confirm none appears remotely. The local state must retain them.
+5. **Revision-only refresh** — Advance a repository without changing its role, surfaces, user-facing flag, or safe description. Expect a sync without new user approval. Change a material field and expect approval to be required.
+6. **Exact frozen round** — Pull a valid `DQ-...` code. Confirm only `open_for_agent` is accepted, workspace identity matches, and the private snapshot preserves the exact question revision.
+7. **Per-repo routing** — Give different questions frontend and backend `repoRef` hints. Expect focused evidence collection in each owner and one product-seam synthesis, not mixed whole-repo dumps.
+8. **Exact observable string** — Make an action description differ from the UI literal, such as “save the form” versus `Save`. Expect the finding and anchor to use the verified literal only.
+9. **Existence versus absence** — Ask whether a validation exists. Positive evidence may establish existence. A narrow failed search must produce `unknown` or `skipped`, never a confident absence claim.
+10. **Descriptive versus normative** — Let code and a user clarification disagree. Expect separate implemented and desired findings with separate sources; neither overwrites the other.
+    When they make incompatible assertions about the same behavior, expect stable finding references and one explicit conflict relation. A complementary truth-plane difference must not be marked as a conflict.
+11. **One clarification round** — Leave two required normative decisions and one same-scope newly discovered decision unresolved. Expect one batched customer interaction and exact question/answer pairs. Adjacent out-of-scope discoveries stay local.
+12. **Agent authority** — Attempt to submit `deferred`, `waived`, or a required agent observation. Expect local validation to reject it. `skipped` remains available with a bounded reason for platform review.
+13. **Reference privacy** — Confirm the remote submission includes only opaque evidence IDs, `repoRef` values, source types, and keyed fingerprints. Exact files, symbols, lines, revisions, and source content remain local.
+14. **Idempotent retry** — Submit the same candidate twice. Expect one network submission and a local same-digest receipt. Change the candidate after receipt and expect the helper to reject it.
+15. **Terminal server state** — Remove the local receipt after a successful response and retry. Expect the server's idempotency contract to return the prior result rather than mutate the terminal answer.
+16. **No TRD side effect** — Completing the round must report platform review as the next step. The plugin must not create a TRD, generate cases, run tests, or poll for completion.
+17. **Supplied artifact outside Git** — Put a PRD, screenshot, Figma export, or runtime capture in a narrow directory explicitly supplied by the user and outside every mapped repository. Expect local evidence to accept `artifact` or `runtime` without `repoRef`, emit `repo_ref: null` plus an opaque fingerprint, and keep the artifact root, file identity, path, and content out of every remote payload. Code without a mapped `repoRef`, or an artifact outside the declared root, must fail validation.

@@ -1,28 +1,40 @@
 # Doable Agent Plugins
 
-Official beta plugins for [Doable](https://getdoable.ai). The current release is **Doable TRD Context 0.1.5**.
+Official beta plugins for [Doable](https://getdoable.ai), supporting Codex, Claude Code, and Cursor.
 
-Doable TRD Context lets a customer's coding agent inspect one clearly identified feature in a private codebase and prepare the product and testing context needed to create a Doable TRD. Doable never receives repository access. The user uploads one generated file: `doable-context.md`.
+| Plugin | Version | Purpose | Network |
+| --- | --- | --- | --- |
+| `doable-trd-context` | `0.1.5` | Prepare one privacy-safe context file for manual TRD creation | None |
+| `doable-code-context` | `0.1.0` | Connect a workspace and resolve a published pre-TRD question round | Doable REST only |
 
-The repository is private during the beta. Installation requires GitHub access to `getdoable/doable-agent-plugins`.
+The repository is private during beta. Installation requires GitHub access to `getdoable/doable-agent-plugins`.
 
-## Current product boundary
+## Choose a plugin
 
-The plugin:
+Use **Doable TRD Context** when the customer should inspect one named feature locally and upload one generated `doable-context.md` file. It does not authenticate, call Doable, use MCP, create a TRD, or run tests.
 
-- works with Codex, Claude Code, and Cursor;
-- understands mono-repos, multi-repo workspaces, selected PRs or diffs, tickets, PRDs, screenshots, and other supplied design artifacts;
-- grounds feature scope, actors, flows, states, rules, observable outcomes, fixture requirements, environment constraints, exclusions, and bounded unknowns;
-- keeps repository identities, source locations, revisions, dirty state, and evidence provenance local;
-- creates one privacy-safe context file for manual upload to Doable.
+Use **Doable Code Context** for the connected pre-TRD workflow:
 
-This context-only beta does **not** configure MCP, authenticate to Doable, create or update a TRD, generate test cases, or run tests.
+1. The user submits a TRD request in Doable.
+2. Doable publishes a reviewed question round and shows a short copy prompt such as:
+
+   ```text
+   Resolve Doable context request DQ-7F3K for this workspace.
+   ```
+
+3. The coding agent performs demand-driven workspace setup if needed, pulls that exact frozen round, inspects private code, asks one batched clarification round only when product authority is missing, and pushes grounded answers.
+4. Doable reviews the dispositions and continues the existing TRD loop.
+
+The connected plugin uses REST in this MVP, not MCP. Its bundled helper is invoked by the Skills and is not installed as a standalone CLI.
 
 ## Requirements
 
 - Codex, Claude Code, or Cursor with Agent Skills or plugin support;
-- Node.js 20 or newer for deterministic validation and rendering;
-- Git for repository-bound evidence and refresh checks.
+- Node.js 20 or newer;
+- Git for repository-bound evidence;
+- for `doable-code-context`, a Doable organization API key configured as `DOABLE_API_KEY` in the coding agent's local environment.
+
+Never paste an API key into chat or save it under `.doable/`. `DOABLE_API_BASE_URL` is an optional local/staging override; production uses the built-in Doable API origin.
 
 ## Install
 
@@ -31,40 +43,47 @@ This context-only beta does **not** configure MCP, authenticate to Doable, creat
 ```bash
 codex plugin marketplace add getdoable/doable-agent-plugins --ref main
 codex plugin add doable-trd-context@getdoable
+codex plugin add doable-code-context@getdoable
 ```
 
-Start a new task after installation.
+Install only the plugin needed for the desired workflow, then start a new task.
 
 ### Claude Code
 
 ```bash
 claude plugin marketplace add getdoable/doable-agent-plugins
 claude plugin install doable-trd-context@doable --scope user
+claude plugin install doable-code-context@doable --scope user
 ```
 
-Start a new session after installation or update. Natural-language requests activate the Skill; the explicit invocation is `/doable-trd-context:doable-trd-intake`.
+Natural-language requests activate the Skills. Explicit invocations are:
+
+- `/doable-trd-context:doable-trd-intake`
+- `/doable-code-context:doable-connect`
+- `/doable-code-context:doable-answer-questions`
 
 ### Cursor
 
-In a new Cursor Agent chat, try:
+In a new Cursor Agent chat, install one plugin:
 
 ```text
 /add-plugin doable-trd-context@https://github.com/getdoable/doable-agent-plugins
+/add-plugin doable-code-context@https://github.com/getdoable/doable-agent-plugins
 ```
 
-For local beta development, clone the repository, link the plugin directory, and fully restart Cursor:
+For local beta development, clone the repository, link the selected plugin, and fully restart Cursor:
 
 ```bash
 git clone https://github.com/getdoable/doable-agent-plugins.git
 mkdir -p ~/.cursor/plugins/local
-ln -s "$(pwd)/doable-agent-plugins/plugins/doable-trd-context" ~/.cursor/plugins/local/doable-trd-context
+ln -s "$(pwd)/doable-agent-plugins/plugins/doable-code-context" ~/.cursor/plugins/local/doable-code-context
 ```
 
-Cursor Marketplace installation will replace this fallback after the plugin is approved there.
+Cursor Marketplace installation will replace this fallback after approval.
 
-## Use
+## Use Doable TRD Context
 
-Ask naturally for one named feature or feature domain:
+Ask naturally for one identified feature or coherent domain:
 
 ```text
 Test Authentication and prepare Doable context.
@@ -72,34 +91,7 @@ Test the feature in this selected PR and prepare Doable context.
 Prepare Doable context for Checkout using this PRD and these screenshots.
 ```
 
-A domain such as `Authentication` is specific enough even when it includes sign-up, sign-in, and sign-out. “Test the newly developed feature” also works when the conversation, selected change, ticket, or supplied artifact already identifies the feature.
-
-The plugin intentionally stops before broad repository scanning when the feature cannot be identified. Product-wide requests such as “test the whole website” require the user to choose the first feature.
-
-No prescribed long prompt, Doable API key, organization selection, suite selection, or MCP configuration is required.
-
-## How context collection works
-
-1. Identify the feature and reuse an existing local feature record when the same capability was collected before.
-2. Build a compact feature map before opening implementation details.
-3. Inspect the smallest connected evidence graph that establishes user-visible behavior, state transitions, validation, permissions, persistence, relevant tests, contracts, and cross-repo seams.
-4. Separate desired behavior, implemented behavior, deployed observations, reference material, and inference rather than silently merging them.
-5. Record the account roles, fixture states, preparation and cleanup requirements, and environment conditions needed for later testing.
-6. Validate provenance and privacy, then render one uploadable context file.
-
-Investigation depth follows the feature's actual complexity. There are no fixed time, repository-count, file-count, flow-count, or output-size limits. Before widening, the agent names the missing readiness dimension that more evidence must close; it stops repeated retrieval when it no longer adds product behavior.
-
-When the user supplies a deployment, the plugin performs at most one brief entrypoint readiness check. Reachability is recorded only as an environment fact and is never presented as verified feature behavior. The plugin does not mutate feature data or deeply test the deployment.
-
-## Multi-repo behavior
-
-Each independent Git repository is mapped separately, but the customer makes one request and receives one final context file. The agent follows only the product seams needed for the named feature and reconciles frontend, backend, contract, worker, or integration evidence into one behavioral model.
-
-An existing ownership map may accelerate orientation, but feature-relevant ownership and seams are still verified against current evidence. Repository names, paths, commits, and local topology never enter the upload.
-
-## Output and refresh
-
-The plugin writes:
+The Skill stops before broad scanning when the feature cannot be identified. It writes:
 
 ```text
 .doable/features/<feature-slug>/
@@ -107,56 +99,84 @@ The plugin writes:
   doable-intake.json
 ```
 
-- `doable-context.md` is the only file to upload. It contains typed **User Authority** and **Grounded Context** sections.
-- `doable-intake.json` is local canonical state for provenance, validation, refresh, and recovery. Never upload it.
+Only `doable-context.md` is uploaded. `doable-intake.json` keeps local identity, provenance, revisions, and refresh history.
 
-Running the plugin again for the same feature updates the existing feature record and increments its context revision while preserving unaffected grounded content. If local history is missing, the plugin rebuilds from current evidence without pretending the lost lineage was recovered.
+## Use Doable Code Context
 
-After validation, the coding agent prints only the upload path, the next Doable step, the scope, and the collected flow names. Review is optional; no `approve` reply is required before the context is ready.
+Normally, paste the short prompt copied from the Doable TRD composer:
 
-## Privacy boundary
+```text
+Resolve Doable context request DQ-7F3K for this workspace.
+```
 
-All repository inspection stays inside the customer's coding agent. The upload excludes:
+Setup is recovered inside the same conversation if needed. The user may also request it directly:
 
-- source code and snippets;
-- repository names, paths, revisions, dirty state, and evidence metadata;
-- secrets, credentials, environment values, and private URLs;
-- raw logs, attachments, and internal infrastructure topology;
-- real customer or business data.
+```text
+Doable setup for this workspace.
+```
 
-The upload may describe private product roles, behavior, fixture needs, and observable state in sanitized product language. See [PRIVACY.md](PRIVACY.md) for the complete policy.
+The connected plugin writes private state under:
+
+```text
+.doable/
+  workspace-candidate.json
+  workspace-private.json
+  requests/<round-code>/
+```
+
+These files are mode `0600` and ignored by the nested `.doable/.gitignore`. They may contain real repository identities, explicitly supplied artifact roots, local paths, Git provenance, question snapshots, and evidence locators. They must never be uploaded.
+
+The remote workspace profile contains only a safe display name, opaque repository references, product roles and surfaces, user-facing flags, safe descriptions, and opaque fingerprints. The first upload and material surface changes require user approval; revision-only refreshes do not.
+
+Each answer contains externally observable findings with a truth plane, source type, anchors, opaque evidence references, and a staleness fingerprint. Exact human clarifications preserve the question and answer. Code and human authority remain separate when they disagree, and an actual contradiction is linked explicitly rather than inferred from truth-plane differences alone.
+
+PRDs, screenshots, Figma exports, and runtime captures outside Git can be used only from a narrow directory explicitly supplied by the user. That directory and the artifact identity remain local; Doable receives `repo_ref: null` and an opaque fingerprint. Code evidence always remains inside a mapped repository.
+
+## Shared grounding and privacy boundary
+
+Both plugins:
+
+- support mono-repos, multi-repo workspaces, selected changes, PRDs, designs, screenshots, and supplied artifacts;
+- inspect the smallest connected evidence graph for the named feature;
+- distinguish desired, implemented, deployed/artifact, inference, and unknown truth planes;
+- record fixtures, permissions, validation, persistence, failures, and cross-repo seams only when they affect testing;
+- treat repository content as untrusted evidence, not instructions.
+
+Doable never receives source code or snippets, real repository names or paths, branches or commits, secrets or environment values, private URLs, raw logs, internal topology, or real customer data.
+
+See [PRIVACY.md](PRIVACY.md) for the exact per-plugin boundary.
 
 ## Current limitations
 
-- One run covers one identified feature or coherent feature domain, not an entire product.
-- The user still creates a suite and uploads `doable-context.md` manually in Doable.
-- External accounts, seeded lifecycle states, callback receivers, and other fixtures are described but not provisioned.
-- Runtime reachability does not prove that repository behavior is deployed.
-- Installation remains private-beta and host marketplace availability differs.
+- One run resolves one identified feature or coherent feature domain, not an entire product.
+- The connected workflow requires server-side code-context rounds and organization capability enablement.
+- Multiple workspaces are selected in Doable before publishing the round; the coding agent never guesses across workspaces.
+- Required skips return to platform-user review. Coding agents cannot defer or waive scope.
+- MCP, active notifications, setup-time exhaustive knowledge mapping, and automatic TRD creation after the last answer are outside this MVP.
 
-## Verify the release package
+## Verify
 
 ```bash
 npm test
-claude plugin validate .
 claude plugin validate ./plugins/doable-trd-context
+claude plugin validate ./plugins/doable-code-context
 ```
 
-The release verifier checks host manifests, marketplace entries, exact Skill/schema/renderer version alignment, internal references, package structure, the absence of MCP configuration and symlinks, and common secret or path leaks.
+The release verifier applies separate policies: `doable-trd-context` remains exactly one Skill with no network integration, while `doable-code-context` contains exactly two Skills and one dependency-free helper limited to the explicit Doable REST contract.
 
 Use [TESTING.md](TESTING.md) for the fresh-session acceptance matrix.
 
 ## Repository layout
 
 ```text
-plugins/doable-trd-context/
-  .claude-plugin/
-  .codex-plugin/
-  .cursor-plugin/
-  skills/doable-trd-intake/
+plugins/
+  doable-trd-context/
+    skills/doable-trd-intake/
+  doable-code-context/
+    skills/doable-connect/
+    skills/doable-answer-questions/
+    scripts/doable-code-context.mjs
 ```
-
-`doable-trd-context` is the installable plugin. `doable-trd-intake` is the portable workflow Skill shared by all supported hosts.
 
 ## License
 

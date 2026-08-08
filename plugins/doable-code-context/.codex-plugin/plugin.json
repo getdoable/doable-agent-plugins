@@ -1,0 +1,40 @@
+{
+  "name": "doable-code-context",
+  "version": "0.1.0",
+  "description": "Connect a private workspace to Doable and resolve one published pre-TRD context request with grounded, privacy-safe answers.",
+  "author": {
+    "name": "Doable AI",
+    "email": "support@getdoable.ai",
+    "url": "https://getdoable.ai"
+  },
+  "homepage": "https://getdoable.ai",
+  "repository": "https://github.com/getdoable/doable-agent-plugins",
+  "license": "MIT",
+  "keywords": [
+    "doable",
+    "trd",
+    "testing",
+    "code-context",
+    "coding-agent"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Doable Code Context",
+    "shortDescription": "Resolve Doable questions from private code",
+    "longDescription": "Connect the current private workspace to the organization bound to a Doable API key, then answer one frozen pre-TRD context request with grounded findings. Exact source locations stay local; Doable receives only sanitized product behavior and opaque references.",
+    "developerName": "Doable AI",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write",
+      "Network"
+    ],
+    "websiteURL": "https://getdoable.ai",
+    "privacyPolicyURL": "https://qa.getdoable.ai/privacy-policy",
+    "defaultPrompt": [
+      "Resolve Doable context request DQ-7F3K for this workspace.",
+      "Connect this workspace to Doable for code-context requests."
+    ]
+  }
+}

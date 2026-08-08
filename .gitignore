@@ -2,3 +2,5 @@
 .doable/
 node_modules/
 *.log
+!tests/
+!tests/doable-code-context-helper.test.mjs
