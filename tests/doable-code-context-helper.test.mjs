@@ -437,6 +437,29 @@ test("connected helper preserves the local/private boundary and retries idempote
   await runHelper(["validate-submission", "--state", statePath, "--candidate", submissionPath], environment);
   writeFileSync(submissionPath, `${JSON.stringify(submission, null, 2)}\n`);
 
+  const internalSymbolAnchor = structuredClone(submission);
+  internalSymbolAnchor.answers[0].findings[0].observableAnchors = ["calculate_checkout_total_with_gift_cards"];
+  internalSymbolAnchor.evidence[0].symbol = "calculate_checkout_total_with_gift_cards";
+  writeFileSync(submissionPath, `${JSON.stringify(internalSymbolAnchor, null, 2)}\n`);
+  await assert.rejects(
+    runHelper(["validate-submission", "--state", statePath, "--candidate", submissionPath], environment),
+    /local evidence symbol, not an externally observable anchor/i,
+  );
+
+  const callableAnchor = structuredClone(submission);
+  callableAnchor.answers[0].findings[0].observableAnchors = ["calculateTotal()"];
+  writeFileSync(submissionPath, `${JSON.stringify(callableAnchor, null, 2)}\n`);
+  await assert.rejects(
+    runHelper(["validate-submission", "--state", statePath, "--candidate", submissionPath], environment),
+    /shaped like an internal callable/i,
+  );
+
+  const externalSnakeCaseAnchor = structuredClone(submission);
+  externalSnakeCaseAnchor.answers[0].findings[0].observableAnchors = ["external_status_code"];
+  writeFileSync(submissionPath, `${JSON.stringify(externalSnakeCaseAnchor, null, 2)}\n`);
+  await runHelper(["validate-submission", "--state", statePath, "--candidate", submissionPath], environment);
+  writeFileSync(submissionPath, `${JSON.stringify(submission, null, 2)}\n`);
+
   await runHelper(["validate-submission", "--state", statePath, "--candidate", submissionPath], environment);
   await runHelper(["submit", "--state", statePath, "--candidate", submissionPath], environment);
   await runHelper(["submit", "--state", statePath, "--candidate", submissionPath], environment);

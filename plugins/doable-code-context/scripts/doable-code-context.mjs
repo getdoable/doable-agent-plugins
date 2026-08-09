@@ -56,6 +56,8 @@ const OPAQUE_REPO_RE = /^repo_[a-z0-9]{8,64}$/;
 const EVIDENCE_ID_RE = /^ev_[a-z0-9]{8,80}$/;
 const FINDING_REF_RE = /^f_[a-z0-9]{8,80}$/;
 const CONFLICT_SOURCE_TYPES = new Set(["code", "human_clarification", "artifact", "runtime"]);
+const INTERNAL_SNAKE_IDENTIFIER_RE = /^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$/;
+const CALLABLE_ANCHOR_RE = /\(\s*\)|=>|::/;
 
 function fail(message) {
   throw new Error(message);
@@ -351,6 +353,19 @@ function assertSafeText(value, label, state, { max = 2_000 } = {}) {
   }
   assertNoLocalProvenance(result, label, state);
   return result;
+}
+
+function assertObservableAnchor(value, label, state, evidenceSymbols) {
+  const anchor = assertSafeText(value, label, state, { max: 300 });
+  assert(
+    !CALLABLE_ANCHOR_RE.test(anchor),
+    `${label} "${anchor}" is shaped like an internal callable. Replace it with an externally observable UI label, route, API name, or protocol value, or move the fact to the local ledger.`,
+  );
+  assert(
+    !(INTERNAL_SNAKE_IDENTIFIER_RE.test(anchor) && evidenceSymbols.has(anchor)),
+    `${label} "${anchor}" is the local evidence symbol, not an externally observable anchor. Replace it with the API field name, UI label, route, or protocol value established by evidence, or move the fact to the local ledger.`,
+  );
+  return anchor;
 }
 
 function normalizeHandshake(data, localWorkspaceId) {
@@ -947,6 +962,7 @@ function remoteEvidenceReference(evidence, state) {
   };
   return {
     localPath: path,
+    localSymbol: evidence.symbol || "",
     reference: {
       evidence_ref_id: id,
       repo_ref: repoRef,
@@ -982,14 +998,12 @@ function normalizeFinding(finding, label, state, evidenceById, clarifications, n
   };
   assert(allowedSources[truthPlane].has(sourceType), `${label} has an incompatible truthPlane/sourceType pair`);
   const statement = assertSafeText(finding.statement, `${label}.statement`, state, { max: 1_200 });
-  const observableAnchors = unique(
+  const rawObservableAnchors = unique(
     stringArray(finding.observableAnchors || [], `${label}.observableAnchors`, {
       min: truthPlane === "unknown" || truthPlane === "inference" ? 0 : 1,
       max: 30,
       itemMax: 300,
-    }).map((anchor, index) =>
-      assertSafeText(anchor, `${label}.observableAnchors[${index}]`, state, { max: 300 }),
-    ),
+    }),
     `${label}.observableAnchors`,
   );
   const evidenceRefIds = unique(
@@ -999,6 +1013,19 @@ function normalizeFinding(finding, label, state, evidenceById, clarifications, n
   for (const id of evidenceRefIds) {
     assert(evidenceById.has(id), `${label} refers to missing evidence ${id}`);
   }
+  const evidenceSymbols = new Set(
+    evidenceRefIds
+      .map((id) => state.localEvidenceSymbols?.[id])
+      .filter((symbol) => typeof symbol === "string" && symbol.length > 0),
+  );
+  const observableAnchors = rawObservableAnchors.map((anchor, index) =>
+    assertObservableAnchor(
+      anchor,
+      `${label}.observableAnchors[${index}]`,
+      state,
+      evidenceSymbols,
+    ),
+  );
   let authorityClarifications = [];
   if (sourceType === "human_clarification") {
     authorityClarifications = clarifications.filter(
@@ -1148,6 +1175,9 @@ function buildSubmission(statePath, candidatePath) {
   const privacyState = {
     ...state,
     localEvidencePaths: localEvidence.map((item) => item.localPath),
+    localEvidenceSymbols: Object.fromEntries(
+      localEvidence.map((item) => [item.reference.evidence_ref_id, item.localSymbol]),
+    ),
   };
   unique(evidenceReferences.map((item) => item.evidence_ref_id), "evidence ids");
   const evidenceById = new Map(evidenceReferences.map((item) => [item.evidence_ref_id, item]));
