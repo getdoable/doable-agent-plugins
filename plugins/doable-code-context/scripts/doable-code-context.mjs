@@ -18,7 +18,7 @@ import {
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { execFileSync } from "node:child_process";
 
-const CLIENT = Object.freeze({ name: "doable-code-context", version: "0.1.0" });
+const CLIENT = Object.freeze({ name: "doable-code-context", version: "0.1.1" });
 const DEFAULT_API_BASE_URL = "https://qa.getdoable.ai/be";
 const STATE_SCHEMA_VERSION = "1";
 const SUBMISSION_SCHEMA_VERSION = "1";
@@ -1005,7 +1005,7 @@ function normalizeFinding(finding, label, state, evidenceById, clarifications, n
       (clarification) => clarification.answer === statement,
     );
     assert(authorityClarifications.length > 0, `${label} human clarification statement must exactly match one submitted answer`);
-  } else {
+  } else if (truthPlane !== "unknown") {
     assert(evidenceRefIds.length > 0, `${label} needs at least one evidence reference`);
   }
   const fingerprintParts = evidenceRefIds.map((id) => evidenceById.get(id).source_fingerprint);

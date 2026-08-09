@@ -393,6 +393,23 @@ test("connected helper preserves the local/private boundary and retries idempote
   ];
   writeFileSync(submissionPath, `${JSON.stringify(boundedUnknown, null, 2)}\n`);
   await runHelper(["validate-submission", "--state", statePath, "--candidate", submissionPath], environment);
+
+  const evidenceFreeEnvironmentUnknown = structuredClone(boundedUnknown);
+  evidenceFreeEnvironmentUnknown.answers[0].findings = [
+    {
+      statement: "Whether the inspected source revision matches the target deployment remains unknown.",
+      truthPlane: "unknown",
+      sourceType: "inference",
+      observableAnchors: [],
+      evidenceRefIds: [],
+    },
+  ];
+  evidenceFreeEnvironmentUnknown.evidence = [];
+  writeFileSync(
+    submissionPath,
+    `${JSON.stringify(evidenceFreeEnvironmentUnknown, null, 2)}\n`,
+  );
+  await runHelper(["validate-submission", "--state", statePath, "--candidate", submissionPath], environment);
   writeFileSync(submissionPath, `${JSON.stringify(submission, null, 2)}\n`);
 
   const repoFreeCode = structuredClone(submission);

@@ -1,15 +1,6 @@
 # Privacy and data handling
 
-Repository inspection happens inside the coding agent selected by the customer and remains subject to that agent provider's data-handling terms. Neither Doable plugin grants Doable repository access.
-
-## Doable TRD Context
-
-`doable-trd-context` is a local, context-only workflow. Its bundled code does not authenticate to Doable, call a Doable API or MCP server, upload files, or make network requests.
-
-It writes:
-
-- `.doable/features/<feature-slug>/doable-context.md`, a privacy-scrubbed product-behavior document the user may upload;
-- `.doable/features/<feature-slug>/doable-intake.json`, a local provenance record that must not be uploaded.
+Repository inspection happens inside the coding agent selected by the customer and remains subject to that agent provider's data-handling terms. The Doable plugin does not grant Doable repository access.
 
 ## Doable Code Context
 
@@ -30,6 +21,6 @@ The first profile upload and material role/surface/description changes require u
 
 ## Excluded data
 
-Neither upload path may contain source code or snippets, real repository or file identities, branches or commits, secrets or environment values, raw logs or attachments, private URLs, internal infrastructure topology, or real customer/business data.
+No remote payload may contain source code or snippets, real repository or file identities, branches or commits, secrets or environment values, raw logs or attachments, private URLs, internal infrastructure topology, or real customer/business data.
 
 See the [Doable Privacy Policy](https://qa.getdoable.ai/privacy-policy) for platform data handling. Questions may be sent to support@getdoable.ai.

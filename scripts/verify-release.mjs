@@ -10,14 +10,8 @@ const semver = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:
 
 const plugins = [
   {
-    name: "doable-trd-context",
-    version: "0.1.5",
-    skillNames: ["doable-trd-intake"],
-    network: "none",
-  },
-  {
     name: "doable-code-context",
-    version: "0.1.0",
+    version: "0.1.1",
     skillNames: ["doable-connect", "doable-answer-questions"],
     network: "doable-rest",
   },
@@ -172,7 +166,7 @@ const secretPatterns = [
   [/(?:^|[\s"'`])\/Users\//m, "absolute macOS user path"],
   [/(?:^|[\s"'`])\/tmp\//m, "absolute temporary path"],
   [/C:\\Users\\/i, "absolute Windows user path"],
-  [new RegExp(["doable-trd-intake-" + "mcp", "sale" + "or", "me" + "mos-\\d+"].join("|"), "i"), "internal development or benchmark reference"],
+  [new RegExp(["sale" + "or", "me" + "mos-\\d+"].join("|"), "i"), "internal development or benchmark reference"],
 ];
 for (const path of allPaths) {
   if (!statSync(path).isFile() || !textExtensions.has(extname(path))) continue;
@@ -190,43 +184,6 @@ assert(
   forbiddenReleaseFiles.length === 0,
   `forbidden integration files found: ${forbiddenReleaseFiles.map((path) => relative(root, path)).join(", ")}`,
 );
-
-// Preserve the original context-only plugin's mechanical network-free promise.
-const contextRoot = join(root, "plugins", "doable-trd-context");
-const contextSkillRoot = join(contextRoot, "skills", "doable-trd-intake");
-const contextManifest = readJson(join(contextRoot, ".codex-plugin", "plugin.json"));
-const intakeSchema = readJson(join(contextSkillRoot, "assets", "doable-intake.schema.json"));
-const contextScripts = [
-  join(contextSkillRoot, "scripts", "init-candidate.mjs"),
-  join(contextSkillRoot, "scripts", "patch-candidate.mjs"),
-  join(contextSkillRoot, "scripts", "validate-and-render.mjs"),
-];
-const rendererText = readFileSync(contextScripts[2], "utf8");
-assert(
-  intakeSchema.properties?.producer?.properties?.skillVersion?.const === contextManifest.version,
-  "context-only schema skill version must match its plugin",
-);
-assert(
-  rendererText.match(/const SKILL_VERSION = "([^"]+)";/)?.[1] === contextManifest.version,
-  "context-only renderer version must match its plugin",
-);
-for (const scriptPath of contextScripts) {
-  const text = readFileSync(scriptPath, "utf8");
-  for (const [pattern, label] of [
-    [/\bfetch\s*\(/, "fetch"],
-    [/\bhttps?\.request\s*\(/, "HTTP request"],
-    [/\bWebSocket\b/, "WebSocket"],
-    [/\b(?:axios|undici)\b/, "network package"],
-    [/\bcurl\b/, "curl"],
-  ]) {
-    assert(!pattern.test(text), `context-only script must remain network-free; found ${label} in ${relative(root, scriptPath)}`);
-  }
-  for (const match of text.matchAll(/from\s+["']([^"']+)["']/g)) {
-    assert(match[1].startsWith("node:"), `context-only script imports a non-built-in dependency: ${match[1]}`);
-  }
-  const syntax = spawnSync(process.execPath, ["--check", scriptPath], { encoding: "utf8" });
-  assert(syntax.status === 0, `${relative(root, scriptPath)} syntax check failed: ${syntax.stderr.trim()}`);
-}
 
 // The connected helper may call only the explicit Doable REST contract.
 const connectedHelperPath = join(root, "plugins", "doable-code-context", "scripts", "doable-code-context.mjs");
@@ -249,14 +206,6 @@ for (const match of connectedHelper.matchAll(/from\s+["']([^"']+)["']/g)) {
 }
 const connectedSyntax = spawnSync(process.execPath, ["--check", connectedHelperPath], { encoding: "utf8" });
 assert(connectedSyntax.status === 0, `connected helper syntax check failed: ${connectedSyntax.stderr.trim()}`);
-
-const logoPath = join(contextRoot, "assets", "logo.png");
-const logo = readFileSync(logoPath);
-assert(logo.subarray(1, 4).toString("ascii") === "PNG", "context-only logo must be a PNG");
-const width = logo.readUInt32BE(16);
-const height = logo.readUInt32BE(20);
-assert(width === height && width >= 48 && width <= 4096, `logo must be square and 48-4096 px; got ${width}x${height}`);
-assert(logo.length <= 5 * 1024 * 1024, "logo must be at most 5 MiB");
 
 if (failures.length > 0) {
   console.error(`Release verification failed with ${failures.length} issue(s):`);

@@ -8,11 +8,6 @@
   },
   "plugins": [
     {
-      "name": "doable-trd-context",
-      "source": "./plugins/doable-trd-context",
-      "description": "Prepare one privacy-safe, evidence-grounded context file for a clearly identified feature before creating a Doable TRD."
-    },
-    {
       "name": "doable-code-context",
       "source": "./plugins/doable-code-context",
       "description": "Connect a private workspace and resolve published Doable context questions before TRD creation."

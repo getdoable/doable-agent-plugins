@@ -4,14 +4,11 @@ Official beta plugins for [Doable](https://getdoable.ai), supporting Codex, Clau
 
 | Plugin | Version | Purpose | Network |
 | --- | --- | --- | --- |
-| `doable-trd-context` | `0.1.5` | Prepare one privacy-safe context file for manual TRD creation | None |
-| `doable-code-context` | `0.1.0` | Connect a workspace and resolve a published pre-TRD feature-context round | Doable REST only |
+| `doable-code-context` | `0.1.1` | Connect a workspace and resolve a published pre-TRD feature-context round | Doable REST only |
 
 The repository is private during beta. Installation requires GitHub access to `getdoable/doable-agent-plugins`.
 
-## Choose a plugin
-
-Use **Doable TRD Context** when the customer should inspect one named feature locally and upload one generated `doable-context.md` file. It does not authenticate, call Doable, use MCP, create a TRD, or run tests.
+## Workflow
 
 Use **Doable Code Context** for the connected pre-TRD workflow:
 
@@ -44,7 +41,6 @@ Never paste an API key into chat or save it under `.doable/`. `DOABLE_API_BASE_U
 
 ```bash
 codex plugin marketplace add getdoable/doable-agent-plugins --ref main
-codex plugin add doable-trd-context@getdoable
 codex plugin add doable-code-context@getdoable
 ```
 
@@ -54,22 +50,19 @@ Install only the plugin needed for the desired workflow, then start a new task.
 
 ```bash
 claude plugin marketplace add getdoable/doable-agent-plugins
-claude plugin install doable-trd-context@doable --scope user
 claude plugin install doable-code-context@doable --scope user
 ```
 
 Natural-language requests activate the Skills. Explicit invocations are:
 
-- `/doable-trd-context:doable-trd-intake`
 - `/doable-code-context:doable-connect`
 - `/doable-code-context:doable-answer-questions`
 
 ### Cursor
 
-In a new Cursor Agent chat, install one plugin:
+In a new Cursor Agent chat, install the plugin:
 
 ```text
-/add-plugin doable-trd-context@https://github.com/getdoable/doable-agent-plugins
 /add-plugin doable-code-context@https://github.com/getdoable/doable-agent-plugins
 ```
 
@@ -82,26 +75,6 @@ ln -s "$(pwd)/doable-agent-plugins/plugins/doable-code-context" ~/.cursor/plugin
 ```
 
 Cursor Marketplace installation will replace this fallback after approval.
-
-## Use Doable TRD Context
-
-Ask naturally for one identified feature or coherent domain:
-
-```text
-Test Authentication and prepare Doable context.
-Test the feature in this selected PR and prepare Doable context.
-Prepare Doable context for Checkout using this PRD and these screenshots.
-```
-
-The Skill stops before broad scanning when the feature cannot be identified. It writes:
-
-```text
-.doable/features/<feature-slug>/
-  doable-context.md
-  doable-intake.json
-```
-
-Only `doable-context.md` is uploaded. `doable-intake.json` keeps local identity, provenance, revisions, and refresh history.
 
 ## Use Doable Code Context
 
@@ -136,7 +109,7 @@ PRDs, screenshots, Figma exports, and runtime captures outside Git can be used o
 
 ## Shared grounding and privacy boundary
 
-Both plugins:
+The connected plugin:
 
 - support mono-repos, multi-repo workspaces, selected changes, PRDs, designs, screenshots, and supplied artifacts;
 - inspect the smallest connected evidence graph for the named feature;
@@ -160,11 +133,10 @@ See [PRIVACY.md](PRIVACY.md) for the exact per-plugin boundary.
 
 ```bash
 npm test
-claude plugin validate ./plugins/doable-trd-context
 claude plugin validate ./plugins/doable-code-context
 ```
 
-The release verifier applies separate policies: `doable-trd-context` remains exactly one Skill with no network integration, while `doable-code-context` contains exactly two Skills and one dependency-free helper limited to the explicit Doable REST contract.
+The release verifier requires exactly two Skills and one dependency-free helper limited to the explicit Doable REST contract.
 
 Use [TESTING.md](TESTING.md) for the fresh-session acceptance matrix.
 
@@ -172,8 +144,6 @@ Use [TESTING.md](TESTING.md) for the fresh-session acceptance matrix.
 
 ```text
 plugins/
-  doable-trd-context/
-    skills/doable-trd-intake/
   doable-code-context/
     skills/doable-connect/
     skills/doable-answer-questions/

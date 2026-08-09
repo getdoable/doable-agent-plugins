@@ -5,21 +5,6 @@
   },
   "plugins": [
     {
-      "name": "doable-trd-context",
-      "source": {
-        "source": "local",
-        "path": "./plugins/doable-trd-context"
-      },
-      "policy": {
-        "installation": "AVAILABLE",
-        "authentication": "ON_USE",
-        "products": [
-          "CODEX"
-        ]
-      },
-      "category": "Developer Tools"
-    },
-    {
       "name": "doable-code-context",
       "source": {
         "source": "local",
