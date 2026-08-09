@@ -1,6 +1,6 @@
 {
   "name": "doable-code-context",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Connect a private workspace to Doable and resolve one published pre-TRD context request with grounded, privacy-safe answers.",
   "author": {
     "name": "Doable AI",

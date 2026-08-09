@@ -4,7 +4,7 @@ Official beta plugins for [Doable](https://getdoable.ai), supporting Codex, Clau
 
 | Plugin | Version | Purpose | Network |
 | --- | --- | --- | --- |
-| `doable-code-context` | `0.1.1` | Connect a workspace and resolve a published pre-TRD feature-context round | Doable REST only |
+| `doable-code-context` | `0.1.2` | Connect a workspace and resolve a published pre-TRD feature-context round | Doable REST only |
 
 The repository is private during beta. Installation requires GitHub access to `getdoable/doable-agent-plugins`.
 

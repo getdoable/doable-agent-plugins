@@ -337,6 +337,46 @@ test("connected helper preserves the local/private boundary and retries idempote
   writeFileSync(submissionPath, `${JSON.stringify(submission, null, 2)}\n`);
   chmodSync(submissionPath, 0o600);
 
+  const orderedJourney = structuredClone(submission);
+  Object.assign(orderedJourney.answers[0].findings[0], {
+    journeyRef: "j_submit_promotion",
+    step: 1,
+    role: "action",
+  });
+  Object.assign(orderedJourney.agentObservations[0].findings[0], {
+    journeyRef: "j_submit_promotion",
+    step: 2,
+    role: "failure",
+  });
+  writeFileSync(submissionPath, `${JSON.stringify(orderedJourney, null, 2)}\n`);
+  await runHelper(["validate-submission", "--state", statePath, "--candidate", submissionPath], environment);
+
+  const gappedJourney = structuredClone(orderedJourney);
+  gappedJourney.agentObservations[0].findings[0].step = 3;
+  writeFileSync(submissionPath, `${JSON.stringify(gappedJourney, null, 2)}\n`);
+  await assert.rejects(
+    runHelper(["validate-submission", "--state", statePath, "--candidate", submissionPath], environment),
+    /steps must be consecutive/i,
+  );
+
+  const unknownJourney = structuredClone(orderedJourney);
+  unknownJourney.answers[0].findings[0] = {
+    statement: "Whether the submit action is available remains unknown.",
+    truthPlane: "unknown",
+    sourceType: "inference",
+    observableAnchors: [],
+    evidenceRefIds: [],
+    journeyRef: "j_submit_promotion",
+    step: 1,
+    role: "action",
+  };
+  writeFileSync(submissionPath, `${JSON.stringify(unknownJourney, null, 2)}\n`);
+  await assert.rejects(
+    runHelper(["validate-submission", "--state", statePath, "--candidate", submissionPath], environment),
+    /cannot carry executable order/i,
+  );
+  writeFileSync(submissionPath, `${JSON.stringify(submission, null, 2)}\n`);
+
   const invalidStatus = structuredClone(submission);
   invalidStatus.answers[0].status = "deferred";
   writeFileSync(submissionPath, `${JSON.stringify(invalidStatus, null, 2)}\n`);

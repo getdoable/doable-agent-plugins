@@ -18,7 +18,7 @@ import {
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { execFileSync } from "node:child_process";
 
-const CLIENT = Object.freeze({ name: "doable-code-context", version: "0.1.1" });
+const CLIENT = Object.freeze({ name: "doable-code-context", version: "0.1.2" });
 const DEFAULT_API_BASE_URL = "https://qa.getdoable.ai/be";
 const STATE_SCHEMA_VERSION = "1";
 const SUBMISSION_SCHEMA_VERSION = "1";
@@ -55,6 +55,8 @@ const ROUND_CODE_RE = /^DQ-[A-Z0-9]{4,16}$/;
 const OPAQUE_REPO_RE = /^repo_[a-z0-9]{8,64}$/;
 const EVIDENCE_ID_RE = /^ev_[a-z0-9]{8,80}$/;
 const FINDING_REF_RE = /^f_[a-z0-9]{8,80}$/;
+const JOURNEY_REF_RE = /^j_[a-z0-9_]{1,40}$/;
+const JOURNEY_ROLES = new Set(["entry", "precondition", "action", "outcome", "failure"]);
 const CONFLICT_SOURCE_TYPES = new Set(["code", "human_clarification", "artifact", "runtime"]);
 const INTERNAL_SNAKE_IDENTIFIER_RE = /^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$/;
 const CALLABLE_ANCHOR_RE = /\(\s*\)|=>|::/;
@@ -1045,6 +1047,23 @@ function normalizeFinding(finding, label, state, evidenceById, clarifications, n
     ? `f_${sha256(stableJson({ namespace, statement, truthPlane, sourceType, fingerprintParts })).slice(0, 16)}`
     : string(finding.findingRef, `${label}.findingRef`, { max: 82 });
   assert(FINDING_REF_RE.test(findingRef), `${label}.findingRef is invalid`);
+  const orderFields = [finding.journeyRef, finding.step, finding.role];
+  const hasAnyOrderField = orderFields.some((value) => value !== undefined);
+  const hasAllOrderFields = orderFields.every((value) => value !== undefined);
+  assert(!hasAnyOrderField || hasAllOrderFields, `${label} journeyRef, step, and role must be provided together`);
+  let journeyRef;
+  let step;
+  let role;
+  if (hasAllOrderFields) {
+    journeyRef = string(finding.journeyRef, `${label}.journeyRef`, { max: 42 });
+    assert(JOURNEY_REF_RE.test(journeyRef), `${label}.journeyRef is invalid`);
+    assertNoLocalProvenance(journeyRef, `${label}.journeyRef`, state);
+    step = finding.step;
+    assert(Number.isInteger(step) && step >= 1, `${label}.step must be an integer >= 1`);
+    role = string(finding.role, `${label}.role`, { max: 20 });
+    assert(JOURNEY_ROLES.has(role), `${label}.role is invalid`);
+    assert(!["unknown", "inference"].includes(truthPlane), `${label} unknown or inference findings cannot carry executable order`);
+  }
   return {
     finding_ref: findingRef,
     statement,
@@ -1053,7 +1072,28 @@ function normalizeFinding(finding, label, state, evidenceById, clarifications, n
     observable_anchors: observableAnchors,
     evidence_ref_ids: evidenceRefIds,
     source_fingerprint: sourceFingerprint,
+    ...(hasAllOrderFields ? { journey_ref: journeyRef, step, role } : {}),
   };
+}
+
+function validateFindingJourneys(findings) {
+  const byJourney = new Map();
+  for (const finding of findings) {
+    if (!finding.journey_ref) continue;
+    const members = byJourney.get(finding.journey_ref) || [];
+    members.push(finding);
+    byJourney.set(finding.journey_ref, members);
+  }
+  for (const [journeyRef, members] of byJourney) {
+    const steps = [...new Set(members.map((finding) => finding.step))].sort((left, right) => left - right);
+    assert(steps.length >= 2, `${journeyRef} must contain at least two distinct steps; remove ordering from isolated facts`);
+    assert(steps[0] === 1, `${journeyRef} steps must start at 1`);
+    assert(steps.every((step, index) => step === index + 1), `${journeyRef} steps must be consecutive`);
+    assert(
+      members.some((finding) => finding.role === "entry" || finding.role === "action"),
+      `${journeyRef} must contain an entry or action`,
+    );
+  }
 }
 
 function normalizeConflicts(value, label, state, findings) {
@@ -1202,6 +1242,7 @@ function buildSubmission(statePath, candidatePath) {
     ...answers.flatMap((answer) => answer.findings),
     ...agentObservations.flatMap((observation) => observation.findings),
   ];
+  validateFindingJourneys(allFindings);
   const conflicts = normalizeConflicts(candidate.conflicts || [], "conflicts", privacyState, allFindings);
   const payload = {
     round_revision: roundRevision,

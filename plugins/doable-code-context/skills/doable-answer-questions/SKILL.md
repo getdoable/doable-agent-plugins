@@ -46,6 +46,7 @@ node <plugin-directory>/scripts/doable-code-context.mjs <command> ...
    - If only part of a required answer is established, keep the confirmed findings and add an explicit `unknown` finding for each material unanswered part. Do not hide an unproven remainder inside a confirmed statement.
    - When two grounded code, human-authority, artifact, or runtime findings anywhere in the submission clearly contradict each other, give them stable `findingRef` values and add one explicit top-level `conflicts` relation. Do not mark ordinary truth-plane differences, complementary facts, or uncertain inferences as conflicts.
    - Bind every material claim to local evidence IDs or exact human clarification. Do not submit chain of thought.
+   - Mark executable order only when inspected evidence establishes it. When two or more transitions form one tester journey in a definite order, add the optional `journeyRef`, `step`, and `role` fields defined in the answer contract. The annotation only groups existing findings; it never adds a claim. Put inseparable facts at the same step and omit all three fields when order is not established. Never order an `unknown` or `inference` finding.
 8. Ask the customer only when missing authority or a normative decision materially affects a required answer. Collect every such question first, ask one concise batched round, and preserve each exact question and verbatim answer. Do not ask for facts the code or supplied artifacts establish.
    A `human_clarification` finding's statement must be the exact submitted answer; place any interpretation in a separate inference finding.
 9. Handle new discoveries without widening the round:
@@ -66,4 +67,4 @@ node <plugin-directory>/scripts/doable-code-context.mjs <command> ...
 
 ## Completion
 
-Report the round code, how many questions were answered or skipped, any nonblocking observations, and that Doable can now review the round and continue TRD generation. Do not print the full safe payload, local evidence ledger, or hidden reasoning.
+Report the round code, how many questions were answered or skipped, any nonblocking observations, how many evidence-backed journeys and distinct steps were declared, and that Doable can now review the round and continue TRD generation. Do not print the full safe payload, local evidence ledger, or hidden reasoning.
