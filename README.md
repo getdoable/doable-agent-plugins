@@ -4,7 +4,7 @@ Official beta plugins for [Doable](https://getdoable.ai), supporting Codex, Clau
 
 | Plugin | Version | Purpose | Network |
 | --- | --- | --- | --- |
-| `doable-code-context` | `0.1.2` | Connect a workspace and resolve a published pre-TRD feature-context round | Doable REST only |
+| `doable-code-context` | `0.2.0` | Resolve context requests or start a managed feature-testing workflow | Doable REST + configured Doable MCP |
 
 The repository is private during beta. Installation requires GitHub access to `getdoable/doable-agent-plugins`.
 
@@ -24,7 +24,7 @@ Use **Doable Code Context** for the connected pre-TRD workflow:
 3. The coding agent performs demand-driven workspace setup if needed, pulls that exact frozen round, grounds the base request across the relevant private repositories, answers the focused supplements, asks one batched clarification round only when product authority is missing, and pushes structured grounded findings suitable for later knowledge reuse.
 4. Doable reviews the dispositions and continues the existing TRD loop.
 
-The connected plugin uses REST in this MVP, not MCP. Its bundled helper is invoked by the Skills and is not installed as a standalone CLI.
+The connected plugin uses its bundled REST helper for workspace and Round transport. The agent-first testing Skill uses the separately configured Doable MCP for suite discovery, TRD/case management, and execution; the helper is not installed as a standalone CLI.
 
 ## Requirements
 
@@ -57,6 +57,7 @@ Natural-language requests activate the Skills. Explicit invocations are:
 
 - `/doable-code-context:doable-connect`
 - `/doable-code-context:doable-answer-questions`
+- `/doable-code-context:doable-test-feature`
 
 ### Cursor
 
@@ -89,6 +90,17 @@ Setup is recovered inside the same conversation if needed. The user may also req
 ```text
 Doable setup for this workspace.
 ```
+
+Or start from the coding agent after implementing a feature:
+
+```text
+Use Doable to test the feature I just implemented.
+```
+
+The agent reuses or creates the appropriate suite, opens one coding-agent-origin
+Round only when context or requirements changed, resolves that Round from the
+private workspace, and then continues through the existing TRD and managed-case
+workflow.
 
 The connected plugin writes private state under:
 
@@ -127,7 +139,7 @@ See [PRIVACY.md](PRIVACY.md) for the exact per-plugin boundary.
 - The connected workflow requires server-side code-context rounds and organization capability enablement.
 - Multiple workspaces are selected in Doable before publishing the round; the coding agent never guesses across workspaces.
 - Required skips return to platform-user review. Coding agents cannot defer or waive scope.
-- MCP, active notifications, setup-time exhaustive knowledge mapping, and automatic TRD creation after the last answer are outside this MVP.
+- Active notifications, setup-time exhaustive knowledge mapping, and automatic historical-knowledge reuse are outside this MVP.
 
 ## Verify
 
@@ -136,7 +148,7 @@ npm test
 claude plugin validate ./plugins/doable-code-context
 ```
 
-The release verifier requires exactly two Skills and one dependency-free helper limited to the explicit Doable REST contract.
+The release verifier requires exactly three Skills and one dependency-free helper limited to the explicit Doable REST contract.
 
 Use [TESTING.md](TESTING.md) for the fresh-session acceptance matrix.
 
@@ -147,6 +159,7 @@ plugins/
   doable-code-context/
     skills/doable-connect/
     skills/doable-answer-questions/
+    skills/doable-test-feature/
     scripts/doable-code-context.mjs
 ```
 

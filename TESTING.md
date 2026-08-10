@@ -1,6 +1,6 @@
 # Beta acceptance checklist
 
-Run these checks from fresh agent sessions. `doable-code-context` exposes exactly two Skills (`doable-connect` and `doable-answer-questions`), no MCP server, and one bundled REST helper.
+Run these checks from fresh agent sessions. `doable-code-context` exposes exactly three Skills (`doable-connect`, `doable-answer-questions`, and `doable-test-feature`), no bundled MCP server, and one bundled REST helper. The agent-first workflow expects the existing Doable MCP to be configured separately.
 
 For every scenario, confirm that the agent inspects only evidence needed for the named feature, keeps exact provenance local, asks only material product-authority questions, and sends only privacy-safe findings and opaque references to Doable.
 

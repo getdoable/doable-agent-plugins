@@ -18,7 +18,7 @@ import {
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { execFileSync } from "node:child_process";
 
-const CLIENT = Object.freeze({ name: "doable-code-context", version: "0.1.2" });
+const CLIENT = Object.freeze({ name: "doable-code-context", version: "0.2.0" });
 const DEFAULT_API_BASE_URL = "https://qa.getdoable.ai/be";
 const STATE_SCHEMA_VERSION = "1";
 const SUBMISSION_SCHEMA_VERSION = "1";
@@ -34,6 +34,10 @@ const ENDPOINTS = Object.freeze({
     `/code-context/rounds/by-code/${encodeURIComponent(roundCode)}`,
   roundSubmissions: (roundId) =>
     `/code-context/rounds/${encodeURIComponent(roundId)}/submissions`,
+  startAgentRound: (suiteId) =>
+    `/testsuites/${encodeURIComponent(suiteId)}/code-context/rounds/from-agent`,
+  finalizeAgentRound: (suiteId, roundId) =>
+    `/testsuites/${encodeURIComponent(suiteId)}/code-context/rounds/${encodeURIComponent(roundId)}/finalize`,
 });
 
 const TRUTH_PLANES = new Set([
@@ -251,9 +255,13 @@ function sanitizedServerDetail(value) {
     .trim();
 }
 
-async function requestJson(method, path, { body, idempotencyKey } = {}) {
+async function requestJson(
+  method,
+  path,
+  { body, idempotencyKey, timeoutMs = REQUEST_TIMEOUT_MS } = {},
+) {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const headers = {
       accept: "application/json",
@@ -1268,6 +1276,114 @@ function validateSubmission(options) {
   console.log(`Safe payload digest: ${payloadDigest}`);
 }
 
+function normalizeAgentRoundRequest(options) {
+  const raw = options.request
+    ? readJson(resolve(options.request), "agent round request")
+    : {
+        featureRequest: requiredOption(options, "feature"),
+        userQuestions: [],
+      };
+  assert(raw && typeof raw === "object" && !Array.isArray(raw), "agent round request must be an object");
+  const featureRequest = string(
+    raw.featureRequest ?? raw.feature_request,
+    "featureRequest",
+    { max: 8_000 },
+  );
+  const rawQuestions = raw.userQuestions ?? raw.user_questions ?? [];
+  assert(Array.isArray(rawQuestions), "userQuestions must be an array");
+  const userQuestions = rawQuestions.map((item, index) => {
+    const question = typeof item === "string" ? { text: item } : item;
+    assert(question && typeof question === "object" && !Array.isArray(question), `userQuestions[${index}] must be a string or object`);
+    return {
+      text: string(question.text, `userQuestions[${index}].text`, { max: 4_000 }),
+      rationale: string(question.rationale ?? "", `userQuestions[${index}].rationale`, { min: 0, max: 2_000 }),
+      answer_expectation: string(
+        question.answerExpectation ?? question.answer_expectation ?? "",
+        `userQuestions[${index}].answerExpectation`,
+        { min: 0, max: 3_000 },
+      ),
+      required_for_create: question.requiredForCreate ?? question.required_for_create ?? true,
+      scope_hints: question.scopeHints ?? question.scope_hints ?? {},
+    };
+  });
+  const depth = Number(raw.depth ?? 2);
+  assert(Number.isInteger(depth) && depth >= 0, "depth must be a nonnegative integer");
+  return { feature_request: featureRequest, user_questions: userQuestions, depth };
+}
+
+async function startRound(options) {
+  const suiteId = validateSafeSlug(requiredOption(options, "suite"), "suite id");
+  const statePath = resolve(options.state || ".doable/workspace-private.json");
+  const state = existsSync(statePath) ? readState(statePath) : null;
+  const body = normalizeAgentRoundRequest(options);
+  if (state?.workspace?.serverId && state.sync?.profileFingerprint === state.profile?.profileFingerprint) {
+    body.workspace_id = state.workspace.serverId;
+  }
+  const response = await requestJson("POST", ENDPOINTS.startAgentRound(suiteId), {
+    body,
+    timeoutMs: 90_000,
+  });
+  const code = string(response.round_code || response.code, "round code", { max: 64 }).toUpperCase();
+  assert(ROUND_CODE_RE.test(code), "Doable returned an invalid round code");
+  const roundId = string(response.round_id || response.id, "round id", { max: 160 });
+  const revision = Number(response.revision);
+  assert(Number.isInteger(revision) && revision > 0, "Doable returned an invalid round revision");
+  const status = string(response.status, "round status", { max: 40 });
+  const requestDirectory = join(dirname(statePath), "requests", code);
+  ensurePrivateIgnore(statePath);
+  atomicWriteJson(join(requestDirectory, "agent-origin.json"), {
+    schemaVersion: "1",
+    suiteId,
+    roundId,
+    roundCode: code,
+    revision,
+    status,
+    featureScope: string(response.feature_scope || body.feature_request, "feature scope", { max: 2_000 }),
+    createdAt: new Date().toISOString(),
+  });
+  console.log(`Round started: ${code} revision ${revision}`);
+  console.log(`Status: ${status}`);
+  console.log(`Questions: ${Array.isArray(response.questions) ? response.questions.length : 0}`);
+  if (!state?.workspace?.serverId) {
+    console.log(`Next step: connect this workspace for ${code}, then pull the round.`);
+  } else {
+    console.log(`Next step: pull and resolve ${code}.`);
+  }
+}
+
+async function finalizeRound(options) {
+  const code = string(requiredOption(options, "code"), "round code", { max: 64 }).toUpperCase();
+  assert(ROUND_CODE_RE.test(code), "round code has an invalid format");
+  const statePath = resolve(options.state || ".doable/workspace-private.json");
+  const requestDirectory = join(dirname(statePath), "requests", code);
+  const origin = readJson(join(requestDirectory, "agent-origin.json"), "agent-origin round metadata");
+  const suiteId = validateSafeSlug(origin.suiteId, "suite id");
+  const roundId = string(origin.roundId, "round id", { max: 160 });
+  const mode = options.mode || "auto";
+  assert(["auto", "create", "follow_up"].includes(mode), "--mode must be auto, create, or follow_up");
+  const response = await requestJson(
+    "POST",
+    ENDPOINTS.finalizeAgentRound(suiteId, roundId),
+    { body: { mode }, timeoutMs: 30_000 },
+  );
+  const receipt = {
+    schemaVersion: "1",
+    suiteId,
+    roundId,
+    roundCode: code,
+    mode: string(response.mode, "finalize mode", { max: 40 }),
+    trdId: string(response.trd_id, "TRD id", { max: 160 }),
+    trdSessionId: string(response.trd_session_id, "TRD session id", { max: 160 }),
+    finalizedAt: new Date().toISOString(),
+  };
+  atomicWriteJson(join(requestDirectory, "finalize-receipt.json"), receipt);
+  console.log(`Round finalized: ${code}`);
+  console.log(`TRD mode: ${receipt.mode}`);
+  console.log(`TRD: ${receipt.trdId}`);
+  console.log(`TRD session: ${receipt.trdSessionId}`);
+  console.log("Next step: monitor the TRD in Doable, then review or approve generated test cases.");
+}
+
 async function submit(options) {
   const statePath = resolve(options.state || ".doable/workspace-private.json");
   const candidatePath = resolve(requiredOption(options, "candidate"));
@@ -1300,7 +1416,7 @@ async function submit(options) {
 }
 
 function usage() {
-  console.error("Internal helper commands: prepare-workspace, sync-workspace, pull-round, validate-submission, submit");
+  console.error("Internal helper commands: prepare-workspace, sync-workspace, start-round, pull-round, validate-submission, submit, finalize-round");
   process.exit(2);
 }
 
@@ -1308,9 +1424,11 @@ async function main() {
   const { command, options } = parseArgs(process.argv.slice(2));
   if (command === "prepare-workspace") return prepareWorkspace(options);
   if (command === "sync-workspace") return syncWorkspace(options);
+  if (command === "start-round") return startRound(options);
   if (command === "pull-round") return pullRound(options);
   if (command === "validate-submission") return validateSubmission(options);
   if (command === "submit") return submit(options);
+  if (command === "finalize-round") return finalizeRound(options);
   usage();
 }
 

@@ -563,3 +563,96 @@ test("connected helper preserves the local/private boundary and retries idempote
   assert.deepEqual(recoveredState.artifactRoots, [realpathSync(artifactRoot)]);
   await runHelper(["sync-workspace", "--state", statePath], environment);
 });
+
+test("agent-origin helper starts and finalizes the exact round", async (t) => {
+  const testRoot = mkdtempSync(join(tmpdir(), "doable-agent-round-test-"));
+  t.after(() => rmSync(testRoot, { recursive: true, force: true }));
+  let startBody;
+  let finalizeBody;
+  const server = createServer(async (request, response) => {
+    const chunks = [];
+    for await (const chunk of request) chunks.push(chunk);
+    const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString("utf8")) : {};
+    assert.match(request.headers.authorization || "", /^Bearer /);
+    if (
+      request.method === "POST" &&
+      request.url === "/testsuites/ts-agentflow/code-context/rounds/from-agent"
+    ) {
+      startBody = body;
+      return jsonResponse(response, 201, {
+        round_id: "round-agent-safe",
+        round_code: "DQ-AGENT1",
+        workspace_id: null,
+        status: "open_for_agent",
+        revision: 1,
+        feature_scope: "Account recovery",
+        questions: [
+          {
+            id: "question-base",
+            purpose: "base_context",
+            question: "Test account recovery",
+            why: "",
+            answer_requirements: "",
+            required: true,
+            scope_hints: { surfaces: [], repo_refs: [] },
+          },
+        ],
+      });
+    }
+    if (
+      request.method === "POST" &&
+      request.url === "/testsuites/ts-agentflow/code-context/rounds/round-agent-safe/finalize"
+    ) {
+      finalizeBody = body;
+      return jsonResponse(response, 202, {
+        round_id: "round-agent-safe",
+        mode: "create",
+        trd_id: "trd-agent-safe",
+        trd_session_id: "session-agent-safe",
+      });
+    }
+    return jsonResponse(response, 404, { detail: "not found" });
+  });
+  await new Promise((resolvePromise) => server.listen(0, "127.0.0.1", resolvePromise));
+  t.after(() => server.close());
+  const address = server.address();
+  const environment = {
+    TEST_WORKSPACE: testRoot,
+    DOABLE_API_KEY: "local-test-credential",
+    DOABLE_API_BASE_URL: `http://127.0.0.1:${address.port}`,
+  };
+  const requestPath = join(testRoot, "request.json");
+  writeFileSync(
+    requestPath,
+    JSON.stringify({
+      featureRequest: "Test account recovery",
+      userQuestions: ["How is an expired recovery link rejected?"],
+    }),
+  );
+
+  const startOutput = await runHelper(
+    ["start-round", "--suite", "ts-agentflow", "--request", requestPath],
+    environment,
+  );
+  assert.match(startOutput, /Round started: DQ-AGENT1 revision 1/);
+  assert.equal(startBody.feature_request, "Test account recovery");
+  assert.equal(startBody.user_questions[0].text, "How is an expired recovery link rejected?");
+  assert.equal(startBody.workspace_id, undefined);
+  const originPath = join(testRoot, ".doable", "requests", "DQ-AGENT1", "agent-origin.json");
+  assert.equal(statSync(originPath).mode & 0o777, 0o600);
+
+  const finalizeOutput = await runHelper(
+    ["finalize-round", "--code", "DQ-AGENT1", "--mode", "auto"],
+    environment,
+  );
+  assert.match(finalizeOutput, /TRD mode: create/);
+  assert.deepEqual(finalizeBody, { mode: "auto" });
+  const receipt = JSON.parse(
+    readFileSync(
+      join(testRoot, ".doable", "requests", "DQ-AGENT1", "finalize-receipt.json"),
+      "utf8",
+    ),
+  );
+  assert.equal(receipt.trdId, "trd-agent-safe");
+  assert.equal(receipt.trdSessionId, "session-agent-safe");
+});
