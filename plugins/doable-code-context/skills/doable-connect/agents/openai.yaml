@@ -1,0 +1,4 @@
+interface:
+  display_name: "Connect Doable Workspace"
+  short_description: "Connect this workspace to Doable safely"
+  default_prompt: "Connect this workspace to Doable for code-context requests."

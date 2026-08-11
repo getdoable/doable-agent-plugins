@@ -5,9 +5,17 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const pluginRoot = join(root, "plugins", "doable-trd-context");
-const skillRoot = join(pluginRoot, "skills", "doable-trd-intake");
 const failures = [];
+const semver = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
+
+const plugins = [
+  {
+    name: "doable-code-context",
+    version: "0.1.2",
+    skillNames: ["doable-connect", "doable-answer-questions"],
+    network: "doable-rest",
+  },
+];
 
 function fail(message) {
   failures.push(message);
@@ -27,6 +35,7 @@ function readJson(path) {
 }
 
 function walk(directory) {
+  if (!existsSync(directory)) return [];
   const paths = [];
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
     if (entry.name === ".git" || entry.name === "node_modules") continue;
@@ -42,99 +51,105 @@ function insideRoot(path, boundary) {
   return rel !== ".." && !rel.startsWith(`..${sep}`) && !rel.startsWith(sep);
 }
 
-const required = [
+function skillName(skillPath) {
+  const text = readFileSync(skillPath, "utf8");
+  const frontmatter = text.match(/^---\n([\s\S]*?)\n---/);
+  assert(frontmatter, `${relative(root, skillPath)} must contain YAML frontmatter`);
+  const name = (frontmatter?.[1] ?? "").match(/^name:\s*([^\s]+)\s*$/m)?.[1];
+  const description = (frontmatter?.[1] ?? "").match(/^description:\s*(.+)$/m)?.[1] ?? "";
+  assert(description.length > 0 && description.length <= 1024, `${relative(root, skillPath)} description must be 1-1024 characters`);
+  assert(!text.includes("[TODO:"), `${relative(root, skillPath)} contains an unfinished placeholder`);
+  return name;
+}
+
+const requiredRootFiles = [
   ".agents/plugins/marketplace.json",
   ".claude-plugin/marketplace.json",
   ".cursor-plugin/marketplace.json",
-  "plugins/doable-trd-context/.codex-plugin/plugin.json",
-  "plugins/doable-trd-context/.claude-plugin/plugin.json",
-  "plugins/doable-trd-context/.cursor-plugin/plugin.json",
-  "plugins/doable-trd-context/assets/logo.png",
-  "plugins/doable-trd-context/skills/doable-trd-intake/SKILL.md",
-  "plugins/doable-trd-context/skills/doable-trd-intake/agents/openai.yaml",
-  "plugins/doable-trd-context/skills/doable-trd-intake/assets/doable-intake.schema.json",
-  "plugins/doable-trd-context/skills/doable-trd-intake/references/intake-field-guide.md",
-  "plugins/doable-trd-context/skills/doable-trd-intake/references/multi-repo-and-seams.md",
-  "plugins/doable-trd-context/skills/doable-trd-intake/references/privacy-and-approval.md",
-  "plugins/doable-trd-context/skills/doable-trd-intake/scripts/init-candidate.mjs",
-  "plugins/doable-trd-context/skills/doable-trd-intake/scripts/patch-candidate.mjs",
-  "plugins/doable-trd-context/skills/doable-trd-intake/scripts/validate-and-render.mjs",
   "LICENSE",
   "PRIVACY.md",
   "README.md",
-  "SECURITY.md"
+  "SECURITY.md",
+  "TESTING.md",
 ];
-
-for (const path of required) {
+for (const path of requiredRootFiles) {
   assert(existsSync(join(root, path)), `missing required file: ${path}`);
 }
 
 const packageJson = readJson(join(root, "package.json"));
-const codexPlugin = readJson(join(pluginRoot, ".codex-plugin", "plugin.json"));
-const claudePlugin = readJson(join(pluginRoot, ".claude-plugin", "plugin.json"));
-const cursorPlugin = readJson(join(pluginRoot, ".cursor-plugin", "plugin.json"));
+assert(semver.test(packageJson.version ?? ""), "package version must be strict semver");
+assert(packageJson.private === true, "release package must remain private");
+assert(!("dependencies" in packageJson), "release package must not add runtime dependencies");
+assert(!("bin" in packageJson), "the connected helper must not be exposed as a standalone CLI");
+
 const codexMarketplace = readJson(join(root, ".agents", "plugins", "marketplace.json"));
 const claudeMarketplace = readJson(join(root, ".claude-plugin", "marketplace.json"));
 const cursorMarketplace = readJson(join(root, ".cursor-plugin", "marketplace.json"));
-const intakeSchema = readJson(join(skillRoot, "assets", "doable-intake.schema.json"));
-
-const pluginName = "doable-trd-context";
-const semver = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
-
-for (const [host, manifest] of [
-  ["Codex", codexPlugin],
-  ["Claude Code", claudePlugin],
-  ["Cursor", cursorPlugin]
-]) {
-  assert(manifest.name === pluginName, `${host} plugin name must be ${pluginName}`);
-  for (const forbidden of ["mcpServers", "apps", "hooks"]) {
-    assert(!(forbidden in manifest), `${host} plugin must not declare ${forbidden}`);
-  }
-}
-
-assert(semver.test(codexPlugin.version ?? ""), "Codex version must be strict semver");
-assert(semver.test(claudePlugin.version ?? ""), "Claude version must be strict semver");
-assert(semver.test(cursorPlugin.version ?? ""), "Cursor version must be strict semver");
-assert(codexPlugin.version === claudePlugin.version && codexPlugin.version === cursorPlugin.version, "all host plugin versions must match");
-assert(packageJson.version === codexPlugin.version, "package and plugin versions must match");
-assert(codexPlugin.skills === "./skills/", "Codex skills path must be ./skills/");
-assert(cursorPlugin.skills === "./skills/", "Cursor skills path must be ./skills/");
-assert(codexPlugin.license === "MIT" && cursorPlugin.license === "MIT", "public manifests must use the root MIT license");
-assert(codexPlugin.author?.name === "Doable AI", "Codex publisher name must be Doable AI");
-assert(codexPlugin.interface?.privacyPolicyURL === "https://qa.getdoable.ai/privacy-policy", "Codex privacy URL must use the QA policy");
-assert(Array.isArray(codexPlugin.interface?.defaultPrompt) && codexPlugin.interface.defaultPrompt.length <= 3, "Codex must have at most three starter prompts");
-
-const codexEntry = codexMarketplace.plugins?.find((entry) => entry.name === pluginName);
-const claudeEntry = claudeMarketplace.plugins?.find((entry) => entry.name === pluginName);
-const cursorEntry = cursorMarketplace.plugins?.find((entry) => entry.name === pluginName);
 assert(codexMarketplace.name === "getdoable", "Codex marketplace name must remain getdoable");
-assert(codexEntry?.source?.path === "./plugins/doable-trd-context", "Codex marketplace source is incorrect");
-assert(codexEntry?.policy?.installation === "AVAILABLE", "Codex plugin must be available, not forced");
-assert(codexEntry?.policy?.authentication === "ON_USE", "Codex authentication policy must be ON_USE");
-assert(JSON.stringify(codexEntry?.policy?.products) === JSON.stringify(["CODEX"]), "Codex plugin must be gated to CODEX");
 assert(claudeMarketplace.name === "doable", "Claude marketplace name must remain doable");
-assert(claudeEntry?.source === "./plugins/doable-trd-context", "Claude marketplace source is incorrect");
-assert(cursorEntry?.source === "./plugins/doable-trd-context", "Cursor marketplace source is incorrect");
+
+for (const plugin of plugins) {
+  const pluginRoot = join(root, "plugins", plugin.name);
+  const codexPath = join(pluginRoot, ".codex-plugin", "plugin.json");
+  const claudePath = join(pluginRoot, ".claude-plugin", "plugin.json");
+  const cursorPath = join(pluginRoot, ".cursor-plugin", "plugin.json");
+  for (const path of [codexPath, claudePath, cursorPath]) {
+    assert(existsSync(path), `missing host manifest: ${relative(root, path)}`);
+  }
+  const codex = readJson(codexPath);
+  const claude = readJson(claudePath);
+  const cursor = readJson(cursorPath);
+  for (const [host, manifest] of [
+    ["Codex", codex],
+    ["Claude Code", claude],
+    ["Cursor", cursor],
+  ]) {
+    assert(manifest.name === plugin.name, `${host} plugin name must be ${plugin.name}`);
+    assert(manifest.version === plugin.version, `${host} ${plugin.name} version must be ${plugin.version}`);
+    assert(semver.test(manifest.version ?? ""), `${host} ${plugin.name} version must be strict semver`);
+    for (const forbidden of ["mcpServers", "apps", "hooks"]) {
+      assert(!(forbidden in manifest), `${host} ${plugin.name} must not declare ${forbidden}`);
+    }
+  }
+  assert(codex.skills === "./skills/", `${plugin.name} Codex skills path must be ./skills/`);
+  assert(cursor.skills === "./skills/", `${plugin.name} Cursor skills path must be ./skills/`);
+  assert(codex.license === "MIT" && cursor.license === "MIT", `${plugin.name} manifests must use MIT`);
+  assert(codex.author?.name === "Doable AI", `${plugin.name} publisher must be Doable AI`);
+  assert(codex.interface?.privacyPolicyURL === "https://qa.getdoable.ai/privacy-policy", `${plugin.name} must use the QA privacy policy`);
+  const prompts = codex.interface?.defaultPrompt;
+  assert(Array.isArray(prompts) && prompts.length > 0 && prompts.length <= 3, `${plugin.name} must have 1-3 starter prompts`);
+
+  const codexEntry = codexMarketplace.plugins?.find((entry) => entry.name === plugin.name);
+  const claudeEntry = claudeMarketplace.plugins?.find((entry) => entry.name === plugin.name);
+  const cursorEntry = cursorMarketplace.plugins?.find((entry) => entry.name === plugin.name);
+  assert(codexEntry?.source?.path === `./plugins/${plugin.name}`, `${plugin.name} Codex marketplace source is incorrect`);
+  assert(codexEntry?.policy?.installation === "AVAILABLE", `${plugin.name} must be available, not forced`);
+  assert(codexEntry?.policy?.authentication === "ON_USE", `${plugin.name} authentication policy must be ON_USE`);
+  assert(JSON.stringify(codexEntry?.policy?.products) === JSON.stringify(["CODEX"]), `${plugin.name} must be gated to CODEX`);
+  assert(claudeEntry?.source === `./plugins/${plugin.name}`, `${plugin.name} Claude marketplace source is incorrect`);
+  assert(cursorEntry?.source === `./plugins/${plugin.name}`, `${plugin.name} Cursor marketplace source is incorrect`);
+
+  const skillPaths = walk(join(pluginRoot, "skills")).filter(
+    (path) => statSync(path).isFile() && path.endsWith(`${sep}SKILL.md`),
+  );
+  const names = skillPaths.map(skillName).sort();
+  assert(
+    JSON.stringify(names) === JSON.stringify([...plugin.skillNames].sort()),
+    `${plugin.name} must contain Skills ${plugin.skillNames.join(", ")}; found ${names.join(", ")}`,
+  );
+}
 
 const allPaths = walk(root);
 for (const path of allPaths) {
   assert(!lstatSync(path).isSymbolicLink(), `release must not contain symlinks: ${relative(root, path)}`);
 }
 
-const skillManifests = allPaths.filter((path) => statSync(path).isFile() && path.endsWith(`${sep}SKILL.md`));
-assert(skillManifests.length === 1, `release must contain exactly one Skill; found ${skillManifests.length}`);
-
-const skillText = readFileSync(join(skillRoot, "SKILL.md"), "utf8");
-const frontmatter = skillText.match(/^---\n([\s\S]*?)\n---/);
-assert(frontmatter, "SKILL.md must contain YAML frontmatter");
-assert(/^name:\s*doable-trd-intake\s*$/m.test(frontmatter?.[1] ?? ""), "Skill name must remain doable-trd-intake");
-const description = (frontmatter?.[1] ?? "").match(/^description:\s*(.+)$/m)?.[1] ?? "";
-assert(description.length > 0 && description.length <= 1024, "Skill description must be 1-1024 characters");
-
-const markdownPaths = allPaths.filter((path) => statSync(path).isFile() && extname(path).toLowerCase() === ".md");
+const markdownPaths = allPaths.filter(
+  (path) => statSync(path).isFile() && extname(path).toLowerCase() === ".md",
+);
 for (const path of markdownPaths) {
-  const text = readFileSync(path, "utf8");
-  for (const match of text.matchAll(/\[[^\]]*\]\(([^)]+)\)/g)) {
+  const markdown = readFileSync(path, "utf8");
+  for (const match of markdown.matchAll(/\[[^\]]*\]\(([^)]+)\)/g)) {
     const rawTarget = match[1].trim().replace(/^<|>$/g, "");
     if (!rawTarget || /^(?:https?:|mailto:|#)/.test(rawTarget)) continue;
     const target = resolve(dirname(path), decodeURIComponent(rawTarget.split("#", 1)[0]));
@@ -143,17 +158,16 @@ for (const path of markdownPaths) {
   }
 }
 
-const textExtensions = new Set([".json", ".md", ".mjs", ".yaml", ".yml", ".gitignore", ""]);
+const textExtensions = new Set([".json", ".md", ".mjs", ".py", ".yaml", ".yml", ".gitignore", ""]);
 const secretPatterns = [
   [/(?:^|[^A-Za-z0-9])sk-[A-Za-z0-9_-]{20,}/, "secret-looking sk- token"],
   [/gh[opusr]_[A-Za-z0-9]{20,}/, "GitHub token"],
-  [/Authorization:\s*Bearer\s+\S+/i, "Bearer credential"],
+  [/Authorization:\s*Bearer\s+\S+/i, "literal Bearer credential"],
   [/(?:^|[\s"'`])\/Users\//m, "absolute macOS user path"],
   [/(?:^|[\s"'`])\/tmp\//m, "absolute temporary path"],
   [/C:\\Users\\/i, "absolute Windows user path"],
-  [new RegExp(["doable-trd-intake-" + "mcp", "sale" + "or", "me" + "mos-\\d+"].join("|"), "i"), "internal development or benchmark reference"]
+  [new RegExp(["sale" + "or", "me" + "mos-\\d+"].join("|"), "i"), "internal development or benchmark reference"],
 ];
-
 for (const path of allPaths) {
   if (!statSync(path).isFile() || !textExtensions.has(extname(path))) continue;
   const text = readFileSync(path, "utf8");
@@ -166,54 +180,32 @@ const forbiddenReleaseFiles = allPaths.filter((path) => {
   const name = path.split(sep).at(-1);
   return name === ".mcp.json" || name === ".app.json" || name === ".env";
 });
-assert(forbiddenReleaseFiles.length === 0, `forbidden integration files found: ${forbiddenReleaseFiles.map((path) => relative(root, path)).join(", ")}`);
+assert(
+  forbiddenReleaseFiles.length === 0,
+  `forbidden integration files found: ${forbiddenReleaseFiles.map((path) => relative(root, path)).join(", ")}`,
+);
 
-const rendererPath = join(skillRoot, "scripts", "validate-and-render.mjs");
-const initializerPath = join(skillRoot, "scripts", "init-candidate.mjs");
-const patcherPath = join(skillRoot, "scripts", "patch-candidate.mjs");
-const rendererText = readFileSync(rendererPath, "utf8");
-const initializerText = readFileSync(initializerPath, "utf8");
-const patcherText = readFileSync(patcherPath, "utf8");
-const schemaSkillVersion = intakeSchema.properties?.producer?.properties?.skillVersion?.const;
-const rendererSkillVersion = rendererText.match(/const SKILL_VERSION = "([^"]+)";/)?.[1];
-assert(schemaSkillVersion === codexPlugin.version, "schema producer.skillVersion must match the plugin version");
-assert(rendererSkillVersion === codexPlugin.version, "renderer SKILL_VERSION must match the plugin version");
-for (const [name, scriptPath, scriptText] of [
-  ["renderer", rendererPath, rendererText],
-  ["initializer", initializerPath, initializerText],
-  ["patcher", patcherPath, patcherText],
+// The connected helper may call only the explicit Doable REST contract.
+const connectedHelperPath = join(root, "plugins", "doable-code-context", "scripts", "doable-code-context.mjs");
+assert(existsSync(connectedHelperPath), "connected plugin is missing its deterministic helper");
+const connectedHelper = readFileSync(connectedHelperPath, "utf8");
+for (const endpoint of [
+  "/code-context/workspaces/handshake",
+  "/code-context/workspaces/",
+  "/code-context/rounds/by-code/",
+  "/code-context/rounds/",
 ]) {
-  for (const [pattern, label] of [
-    [/\bfetch\s*\(/, "fetch"],
-    [/\bhttps?\.request\s*\(/, "HTTP request"],
-    [/\bWebSocket\b/, "WebSocket"],
-    [/\b(?:axios|undici)\b/, "network package"],
-    [/\bcurl\b/, "curl"],
-  ]) {
-    assert(!pattern.test(scriptText), `${name} must remain network-free; found ${label}`);
-  }
-  for (const match of scriptText.matchAll(/from\s+["']([^"']+)["']/g)) {
-    assert(match[1].startsWith("node:"), `${name} imports a non-built-in dependency: ${match[1]}`);
-  }
-  const syntax = spawnSync(process.execPath, ["--check", scriptPath], { encoding: "utf8" });
-  assert(syntax.status === 0, `${name} syntax check failed: ${syntax.stderr.trim()}`);
+  assert(connectedHelper.includes(endpoint), `connected helper is missing endpoint ${endpoint}`);
 }
-
-const logo = readFileSync(join(pluginRoot, "assets", "logo.png"));
-assert(logo.subarray(1, 4).toString("ascii") === "PNG", "logo must be a PNG");
-const width = logo.readUInt32BE(16);
-const height = logo.readUInt32BE(20);
-assert(width === height && width >= 48 && width <= 4096, `logo must be square and 48-4096 px; got ${width}x${height}`);
-assert(logo.length <= 5 * 1024 * 1024, "logo must be at most 5 MiB");
-
-const skillFiles = walk(skillRoot).filter((path) => statSync(path).isFile()).sort();
-const digest = createHash("sha256");
-for (const path of skillFiles) {
-  digest.update(relative(skillRoot, path));
-  digest.update("\0");
-  digest.update(readFileSync(path));
-  digest.update("\0");
+assert(connectedHelper.includes("DOABLE_API_KEY"), "connected helper must read DOABLE_API_KEY at call time");
+assert(connectedHelper.includes("DOABLE_API_BASE_URL"), "connected helper must support an API-base override");
+assert(!/write(?:File)?Sync\([^\n]*DOABLE_API_KEY/.test(connectedHelper), "connected helper must never persist DOABLE_API_KEY");
+assert(!/\b(?:axios|undici|WebSocket)\b/.test(connectedHelper), "connected helper must use only Node built-ins and fetch");
+for (const match of connectedHelper.matchAll(/from\s+["']([^"']+)["']/g)) {
+  assert(match[1].startsWith("node:"), `connected helper imports a non-built-in dependency: ${match[1]}`);
 }
+const connectedSyntax = spawnSync(process.execPath, ["--check", connectedHelperPath], { encoding: "utf8" });
+assert(connectedSyntax.status === 0, `connected helper syntax check failed: ${connectedSyntax.stderr.trim()}`);
 
 if (failures.length > 0) {
   console.error(`Release verification failed with ${failures.length} issue(s):`);
@@ -221,8 +213,17 @@ if (failures.length > 0) {
   process.exit(1);
 }
 
-console.log(`Release verification passed: ${pluginName}@${codexPlugin.version}`);
-console.log(`Skill files: ${skillFiles.length}`);
-console.log(`Skill digest: ${digest.digest("hex")}`);
+for (const plugin of plugins) {
+  const pluginRoot = join(root, "plugins", plugin.name);
+  const files = walk(pluginRoot).filter((path) => statSync(path).isFile()).sort();
+  const digest = createHash("sha256");
+  for (const path of files) {
+    digest.update(relative(pluginRoot, path));
+    digest.update("\0");
+    digest.update(readFileSync(path));
+    digest.update("\0");
+  }
+  console.log(`Verified ${plugin.name}@${plugin.version}: ${plugin.skillNames.length} Skill(s), ${plugin.network}`);
+  console.log(`Digest: ${digest.digest("hex")}`);
+}
 console.log("Hosts: Codex, Claude Code, Cursor");
-console.log("Network/MCP integrations: none");
