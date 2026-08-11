@@ -34,6 +34,6 @@ jobs:
             --output "${RUNNER_TEMP}/cursor-marketplace.schema.json"
           python scripts/validate-cursor-schema.py \
             "${RUNNER_TEMP}/cursor-plugin.schema.json" \
-            plugins/doable-trd-context/.cursor-plugin/plugin.json \
+            plugins/doable-code-context/.cursor-plugin/plugin.json \
             "${RUNNER_TEMP}/cursor-marketplace.schema.json" \
             .cursor-plugin/marketplace.json

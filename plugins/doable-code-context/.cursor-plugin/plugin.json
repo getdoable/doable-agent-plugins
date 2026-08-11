@@ -1,8 +1,8 @@
 {
-  "name": "doable-trd-context",
-  "displayName": "Doable TRD Context",
-  "version": "0.1.5",
-  "description": "Prepare one privacy-safe, evidence-grounded context file for a clearly identified feature before creating a Doable TRD.",
+  "name": "doable-code-context",
+  "displayName": "Doable Code Context",
+  "version": "0.1.2",
+  "description": "Connect a private workspace to Doable and resolve one published pre-TRD context request with grounded, privacy-safe answers.",
   "author": {
     "name": "Doable AI"
   },
@@ -12,14 +12,14 @@
     "doable",
     "testing",
     "trd",
-    "requirements",
+    "code-context",
     "agent-skills"
   ],
   "category": "developer-tools",
   "tags": [
     "testing",
     "requirements",
-    "context"
+    "code-context"
   ],
   "skills": "./skills/"
 }

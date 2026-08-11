@@ -5,10 +5,10 @@
   },
   "plugins": [
     {
-      "name": "doable-trd-context",
+      "name": "doable-code-context",
       "source": {
         "source": "local",
-        "path": "./plugins/doable-trd-context"
+        "path": "./plugins/doable-code-context"
       },
       "policy": {
         "installation": "AVAILABLE",
