@@ -1,6 +1,6 @@
 # Private answer candidate contract
 
-`pull-round` creates the candidate for the frozen request. Preserve its round identity and question IDs. Fill only `answers`, `agentObservations`, `conflicts`, and `evidence`.
+`record-round` creates the candidate from the exact MCP response for the frozen request. Preserve its round identity and question IDs. Fill only `answers`, `agentObservations`, `conflicts`, and `evidence`.
 
 ```json
 {
@@ -148,15 +148,26 @@ The helper always serializes observations as optional. Outside-scope discoveries
 Commands:
 
 ```bash
-node <plugin-directory>/scripts/doable-code-context.mjs pull-round \
+# Save MCP get_code_context_round output first.
+node <plugin-directory>/scripts/doable-code-context.mjs record-round \
   --code DQ-7F3K \
+  --response .doable/mcp-round-response.json \
   --state .doable/workspace-private.json
 
 node <plugin-directory>/scripts/doable-code-context.mjs validate-submission \
   --state .doable/workspace-private.json \
   --candidate .doable/requests/DQ-7F3K/submission-r1.json
 
-node <plugin-directory>/scripts/doable-code-context.mjs submit \
+node <plugin-directory>/scripts/doable-code-context.mjs build-submission \
   --state .doable/workspace-private.json \
-  --candidate .doable/requests/DQ-7F3K/submission-r1.json
+  --candidate .doable/requests/DQ-7F3K/submission-r1.json \
+  --output .doable/requests/DQ-7F3K/safe-submission-r1.json
+
+# Call MCP submit_code_context_round with the exact generated submission, save
+# its result, then record it without exposing the local evidence ledger.
+node <plugin-directory>/scripts/doable-code-context.mjs record-submission \
+  --state .doable/workspace-private.json \
+  --candidate .doable/requests/DQ-7F3K/submission-r1.json \
+  --payload .doable/requests/DQ-7F3K/safe-submission-r1.json \
+  --response .doable/requests/DQ-7F3K/mcp-submission-response.json
 ```

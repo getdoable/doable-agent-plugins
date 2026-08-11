@@ -13,7 +13,7 @@ const plugins = [
     name: "doable-code-context",
     version: "0.2.0",
     skillNames: ["doable-connect", "doable-answer-questions", "doable-test-feature"],
-    network: "doable-rest",
+    network: "configured-doable-mcp",
   },
 ];
 
@@ -185,22 +185,34 @@ assert(
   `forbidden integration files found: ${forbiddenReleaseFiles.map((path) => relative(root, path)).join(", ")}`,
 );
 
-// The connected helper may call only the explicit Doable REST contract.
+// The helper is a deterministic local boundary. All remote work belongs to
+// the separately configured Doable MCP connection.
 const connectedHelperPath = join(root, "plugins", "doable-code-context", "scripts", "doable-code-context.mjs");
 assert(existsSync(connectedHelperPath), "connected plugin is missing its deterministic helper");
 const connectedHelper = readFileSync(connectedHelperPath, "utf8");
-for (const endpoint of [
-  "/code-context/workspaces/handshake",
-  "/code-context/workspaces/",
-  "/code-context/rounds/by-code/",
-  "/code-context/rounds/",
+for (const remotePrimitive of [
+  "DOABLE_API_KEY",
+  "DOABLE_API_BASE_URL",
+  "fetch(",
+  "axios",
+  "undici",
+  "WebSocket",
+  "/code-context/",
 ]) {
-  assert(connectedHelper.includes(endpoint), `connected helper is missing endpoint ${endpoint}`);
+  assert(!connectedHelper.includes(remotePrimitive), `connected helper must not contain remote primitive ${remotePrimitive}`);
 }
-assert(connectedHelper.includes("DOABLE_API_KEY"), "connected helper must read DOABLE_API_KEY at call time");
-assert(connectedHelper.includes("DOABLE_API_BASE_URL"), "connected helper must support an API-base override");
-assert(!/write(?:File)?Sync\([^\n]*DOABLE_API_KEY/.test(connectedHelper), "connected helper must never persist DOABLE_API_KEY");
-assert(!/\b(?:axios|undici|WebSocket)\b/.test(connectedHelper), "connected helper must use only Node built-ins and fetch");
+for (const localCommand of [
+  "prepare-workspace",
+  "build-workspace-profile",
+  "record-workspace-sync",
+  "record-round",
+  "validate-submission",
+  "build-submission",
+  "record-submission",
+  "record-finalize",
+]) {
+  assert(connectedHelper.includes(localCommand), `connected helper is missing local command ${localCommand}`);
+}
 for (const match of connectedHelper.matchAll(/from\s+["']([^"']+)["']/g)) {
   assert(match[1].startsWith("node:"), `connected helper imports a non-built-in dependency: ${match[1]}`);
 }

@@ -15,18 +15,18 @@ node <plugin-directory>/scripts/doable-code-context.mjs <command> ...
 
 ## Workflow
 
-1. Resolve the feature scope from the request, selected change, ticket, PRD, or current conversation. Ask one short clarification only when the named feature is genuinely ambiguous. Do not turn “test the feature I just built” into a whole-product scan.
-2. Use the configured Doable MCP to search accessible test suites by feature scope, flows, entry surface, and existing case coverage.
+1. Resolve the feature scope locally from the request, selected change, ticket, PRD, or current conversation before calling any Doable tool. Inspect only enough local change context to name the feature and its user-visible boundary. Ask one short clarification only when that feature is genuinely ambiguous. Do not turn “test the feature I just built” into a whole-product scan, and do not create a remote Round while the user may be in the wrong workspace.
+2. Ensure the configured Doable MCP connection is authenticated with `get_code_context_connection`. Do not build or sync a workspace profile yet; an implementation catch-up or regression may be answerable from an existing TRD and cases without a new Round.
+3. Use Doable MCP to search accessible test suites by feature scope, flows, entry surface, and existing case coverage.
    - Reuse one clear match.
    - If several are materially plausible, show the small candidate set and ask the developer to choose.
    - If none matches, create one suite for this feature with the configured entry URL. Do not create duplicate suites merely because wording changed.
-3. Inspect the selected suite's TRD and case coverage.
+4. Inspect the selected suite's TRD and case coverage.
    - If the request is only a regression or an implementation catch-up already required by the current TRD, skip a new Round and rerun the affected existing cases.
    - If expected behavior, scope, fixtures, permissions, observable outcomes, or environment assumptions changed—or the suite has no TRD—continue with a new Round.
-4. Prepare a private request JSON containing the exact feature request plus only the developer's explicit supplemental questions. Run `start-round --suite <suite-public-id> --request <path>`. The Doable question planner may add focused supplements; it must not replace the base feature investigation or widen the feature.
-5. If the workspace is not connected, follow `doable-connect` for the returned Round code. Ask for the one required approval before the first sanitized routing-profile upload, then resume automatically.
-6. Follow `doable-answer-questions` for that exact frozen Round: pull it, inspect only the routed private sources, collect local evidence, ask at most one batched clarification, validate, and submit privacy-safe findings. Do not invent a second answer format.
-7. If the Round is `needs_attention`, stop and link the developer to Doable for the required defer/waive decision. Otherwise run `finalize-round --code <round-code> --mode auto`.
+5. When step 4 requires a new Round, follow `doable-connect` first if this workspace is missing or stale. This establishes the sanitized routing profile before Doable plans questions, so likely repository owners and product surfaces are available. Then call Doable MCP `start_code_context_round` with the selected suite, exact feature request, only the developer's explicit supplemental questions, and the connected workspace ID. The Doable question planner may add focused supplements; it must not replace the base feature investigation or widen the feature. Save the MCP response privately and run `record-round --response <response-path> --suite <suite-public-id>` so the exact frozen revision is bound to local state.
+6. Follow `doable-answer-questions` for that exact frozen Round: inspect only the routed private sources, collect local evidence, ask at most one batched clarification, validate, build the safe payload, and submit it through Doable MCP. Do not invent a second answer format or call the backend API directly.
+7. If the Round is `needs_attention`, stop and link the developer to Doable for the required defer/waive decision. Otherwise call Doable MCP `finalize_code_context_round` with `mode=auto`, save the response privately, and run `record-finalize`.
    - A suite without a TRD enters the existing create flow.
    - A suite with a TRD enters the existing follow-up flow.
    - The exact frozen Round revision is consumed once; retries must be idempotent.
@@ -35,7 +35,7 @@ node <plugin-directory>/scripts/doable-code-context.mjs <command> ...
 
 ## Safety and boundaries
 
-- `DOABLE_API_KEY` is the organization authority and must be configured in the agent environment, never pasted into chat or saved under `.doable/`.
+- The configured Doable MCP connection is the only remote authority used by these Skills. Never ask for, read, or save its credential in workspace files.
 - Source code, local paths, repository identities, commits, secrets, raw logs, private URLs, and real customer data remain local.
 - Setup sends only the user-approved sanitized routing profile. Round answers send only product-level findings, observable anchors, exact human clarifications, and opaque evidence references.
 - Do not mutate a feature environment merely to collect context. Test execution happens only through the selected Doable suite and its configured environment.

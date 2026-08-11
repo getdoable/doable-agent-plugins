@@ -1,7 +1,7 @@
 {
   "name": "doable-code-context",
   "version": "0.2.0",
-  "description": "Connect private code to Doable, resolve grounded context requests, and start managed feature-testing workflows.",
+  "description": "Connect private code to Doable through MCP, resolve grounded context requests, and start managed feature-testing workflows.",
   "author": {
     "name": "Doable AI",
     "email": "support@getdoable.ai",
@@ -21,7 +21,7 @@
   "interface": {
     "displayName": "Doable Code Context",
     "shortDescription": "Resolve Doable questions from private code",
-    "longDescription": "Connect the current private workspace to the organization bound to a Doable API key, answer frozen context requests with grounded findings, or start a complete feature-testing workflow through Doable. Exact source locations stay local; Doable receives only sanitized product behavior and opaque references.",
+    "longDescription": "Connect the current private workspace through the configured Doable MCP connection, answer frozen context requests with grounded findings, or start a complete feature-testing workflow through Doable. Exact source locations stay local; Doable receives only sanitized product behavior and opaque references.",
     "developerName": "Doable AI",
     "category": "Developer Tools",
     "capabilities": [

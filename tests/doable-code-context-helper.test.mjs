@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
-import { createServer } from "node:http";
 import {
   chmodSync,
   mkdtempSync,
@@ -42,11 +41,6 @@ function runHelper(args, env) {
   });
 }
 
-function jsonResponse(response, status, body) {
-  response.writeHead(status, { "content-type": "application/json" });
-  response.end(JSON.stringify(body));
-}
-
 test("connected helper preserves the local/private boundary and retries idempotently", async (t) => {
   const testRoot = mkdtempSync(join(tmpdir(), "doable-code-context-test-"));
   t.after(() => rmSync(testRoot, { recursive: true, force: true }));
@@ -69,93 +63,16 @@ test("connected helper preserves the local/private boundary and retries idempote
   const screenshotPath = join(artifactRoot, "promotion-design.png");
   writeFileSync(screenshotPath, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0xff, 0x10, 0x80]));
 
-  let incomingClientWorkspaceId;
-  let serverClientWorkspaceId;
   const serverWorkspaceId = "workspace-server-safe";
-  let capturedProfile;
-  let capturedSubmission;
-  let submissionCalls = 0;
-  const server = createServer(async (request, response) => {
-    const chunks = [];
-    for await (const chunk of request) chunks.push(chunk);
-    const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString("utf8")) : {};
-    assert.match(request.headers.authorization || "", /^Bearer /);
-    if (request.method === "POST" && request.url === "/code-context/workspaces/handshake") {
-      assert.equal(body.round_code, "DQ-7F3K");
-      incomingClientWorkspaceId = body.local_workspace_id;
-      return jsonResponse(response, 200, {
-        organization: { id: "org-safe", display_name: "Example Org" },
-        workspace: capturedProfile
-          ? {
-              id: serverWorkspaceId,
-              client_workspace_id: serverClientWorkspaceId,
-              display_name: capturedProfile.display_name,
-              profile_revision: capturedProfile.profile_revision,
-              profile_fingerprint: capturedProfile.profile_fingerprint,
-              repositories: capturedProfile.repositories,
-            }
-          : null,
-      });
-    }
-    const expectedClientWorkspaceId = serverClientWorkspaceId || incomingClientWorkspaceId;
-    if (request.method === "PUT" && request.url === `/code-context/workspaces/${expectedClientWorkspaceId}/profile`) {
-      assert.equal(body.client_workspace_id, expectedClientWorkspaceId);
-      if (!capturedProfile) {
-        assert.equal(body.round_code, "DQ-7F3K");
-        assert.equal(body.material_change_approved, true);
-      } else {
-        // An existing workspace does not prove that this round is bound. The
-        // idempotent profile sync must retain the copy-prompt round code.
-        assert.equal(body.round_code, "DQ-7F3K");
-        assert.equal(body.material_change_approved, false);
-      }
-      capturedProfile = body;
-      serverClientWorkspaceId ||= body.client_workspace_id;
-      return jsonResponse(response, 200, {
-        workspace: { id: serverWorkspaceId, client_workspace_id: serverClientWorkspaceId },
-      });
-    }
-    if (request.method === "GET" && request.url === "/code-context/rounds/by-code/DQ-7F3K") {
-      return jsonResponse(response, 200, {
-        round_id: "round-safe",
-        round_code: "DQ-7F3K",
-        workspace_id: serverWorkspaceId,
-        revision: 1,
-        status: "open_for_agent",
-        feature_scope: "Staff promotion creation",
-        questions: [
-          {
-            id: "question-save-label",
-            purpose: "base_context",
-            question: "What exact label submits the promotion creation form?",
-            // Platform-user questions may intentionally omit planner-authored
-            // rationale and answer expectations.
-            why: "",
-            answer_requirements: "",
-            required: true,
-            scope_hints: {
-              surfaces: ["promotion-management"],
-              repo_refs: [capturedProfile.repositories[0].repo_ref],
-            },
-          },
-        ],
-      });
-    }
-    if (request.method === "POST" && request.url === "/code-context/rounds/round-safe/submissions") {
-      submissionCalls += 1;
-      capturedSubmission = body;
-      return jsonResponse(response, 201, { accepted: true });
-    }
-    return jsonResponse(response, 404, { detail: "not found" });
-  });
-  await new Promise((resolvePromise) => server.listen(0, "127.0.0.1", resolvePromise));
-  t.after(() => server.close());
-  const address = server.address();
-  const environment = {
-    TEST_WORKSPACE: testRoot,
-    DOABLE_API_KEY: "local-test-credential",
-    DOABLE_API_BASE_URL: `http://127.0.0.1:${address.port}`,
-  };
+  const environment = { TEST_WORKSPACE: testRoot };
+  const handshakePath = join(testRoot, "mcp-handshake.json");
+  writeFileSync(
+    handshakePath,
+    JSON.stringify({
+      organization: { id: "org-safe", display_name: "Example Org" },
+      workspace: null,
+    }),
+  );
 
   const candidatePath = join(testRoot, "workspace-candidate.json");
   writeFileSync(
@@ -178,7 +95,7 @@ test("connected helper preserves the local/private boundary and retries idempote
   );
   const statePath = join(testRoot, ".doable", "workspace-private.json");
   await runHelper(
-    ["prepare-workspace", "--candidate", candidatePath, "--state", statePath, "--round-code", "DQ-7F3K"],
+    ["prepare-workspace", "--candidate", candidatePath, "--handshake", handshakePath, "--state", statePath, "--round-code", "DQ-7F3K"],
     environment,
   );
   let privateState = JSON.parse(readFileSync(statePath, "utf8"));
@@ -193,15 +110,33 @@ test("connected helper preserves the local/private boundary and retries idempote
   );
 
   await assert.rejects(
-    runHelper(["pull-round", "--code", "DQ-7F3K", "--state", statePath], environment),
+    runHelper(["record-round", "--code", "DQ-7F3K", "--response", handshakePath, "--state", statePath], environment),
     /awaiting workspace sync/i,
   );
 
+  const profilePayloadPath = join(testRoot, ".doable", "workspace-profile.json");
   await assert.rejects(
-    runHelper(["sync-workspace", "--state", statePath], environment),
+    runHelper(["build-workspace-profile", "--state", statePath, "--output", profilePayloadPath], environment),
     /approved/i,
   );
-  await runHelper(["sync-workspace", "--state", statePath, "--approved"], environment);
+  await runHelper(["build-workspace-profile", "--state", statePath, "--output", profilePayloadPath, "--approved"], environment);
+  const profileEnvelope = JSON.parse(readFileSync(profilePayloadPath, "utf8"));
+  const capturedProfile = profileEnvelope.profile;
+  const serverClientWorkspaceId = profileEnvelope.workspace_ref;
+  assert.equal(capturedProfile.client_workspace_id, serverClientWorkspaceId);
+  assert.equal(capturedProfile.round_code, "DQ-7F3K");
+  assert.equal(capturedProfile.material_change_approved, true);
+  const profileResponsePath = join(testRoot, "mcp-profile-response.json");
+  writeFileSync(
+    profileResponsePath,
+    JSON.stringify({
+      workspace: { id: serverWorkspaceId, client_workspace_id: serverClientWorkspaceId },
+    }),
+  );
+  await runHelper(
+    ["record-workspace-sync", "--state", statePath, "--payload", profilePayloadPath, "--response", profileResponsePath],
+    environment,
+  );
   const remoteProfileText = JSON.stringify(capturedProfile);
   assert.doesNotMatch(remoteProfileText, /private-admin-repository/);
   assert.doesNotMatch(remoteProfileText, /supplied-product-artifacts|promotion-requirements\.md/);
@@ -216,14 +151,47 @@ test("connected helper preserves the local/private boundary and retries idempote
   execFileSync("git", ["-C", repository, "add", "form.js"]);
   execFileSync("git", ["-C", repository, "commit", "-qm", "revision-only refresh"]);
   const refreshOutput = await runHelper(
-    ["prepare-workspace", "--candidate", candidatePath, "--state", statePath, "--round-code", "DQ-7F3K"],
+    ["prepare-workspace", "--candidate", candidatePath, "--handshake", handshakePath, "--state", statePath, "--round-code", "DQ-7F3K"],
     environment,
   );
   assert.match(refreshOutput, /Material profile approval required: no/);
-  await runHelper(["sync-workspace", "--state", statePath], environment);
+  await runHelper(["build-workspace-profile", "--state", statePath, "--output", profilePayloadPath], environment);
+  const refreshEnvelope = JSON.parse(readFileSync(profilePayloadPath, "utf8"));
+  assert.equal(refreshEnvelope.profile.round_code, "DQ-7F3K");
+  assert.equal(refreshEnvelope.profile.material_change_approved, false);
+  await runHelper(
+    ["record-workspace-sync", "--state", statePath, "--payload", profilePayloadPath, "--response", profileResponsePath],
+    environment,
+  );
   privateState = JSON.parse(readFileSync(statePath, "utf8"));
 
-  await runHelper(["pull-round", "--code", "DQ-7F3K", "--state", statePath], environment);
+  const roundResponsePath = join(testRoot, "mcp-round-response.json");
+  writeFileSync(
+    roundResponsePath,
+    JSON.stringify({
+      round_id: "round-safe",
+      round_code: "DQ-7F3K",
+      workspace_id: serverWorkspaceId,
+      revision: 1,
+      status: "open_for_agent",
+      feature_scope: "Staff promotion creation",
+      questions: [
+        {
+          id: "question-save-label",
+          purpose: "base_context",
+          question: "What exact label submits the promotion creation form?",
+          why: "",
+          answer_requirements: "",
+          required: true,
+          scope_hints: {
+            surfaces: ["promotion-management"],
+            repo_refs: [privateState.repositories[0].repoRef],
+          },
+        },
+      ],
+    }),
+  );
+  await runHelper(["record-round", "--code", "DQ-7F3K", "--response", roundResponsePath, "--state", statePath], environment);
   const submissionPath = join(testRoot, ".doable", "requests", "DQ-7F3K", "submission-r1.json");
   const submission = JSON.parse(readFileSync(submissionPath, "utf8"));
   submission.answers[0] = {
@@ -501,9 +469,23 @@ test("connected helper preserves the local/private boundary and retries idempote
   writeFileSync(submissionPath, `${JSON.stringify(submission, null, 2)}\n`);
 
   await runHelper(["validate-submission", "--state", statePath, "--candidate", submissionPath], environment);
-  await runHelper(["submit", "--state", statePath, "--candidate", submissionPath], environment);
-  await runHelper(["submit", "--state", statePath, "--candidate", submissionPath], environment);
-  assert.equal(submissionCalls, 1);
+  const submissionPayloadPath = join(testRoot, ".doable", "requests", "DQ-7F3K", "safe-submission-r1.json");
+  await runHelper(
+    ["build-submission", "--state", statePath, "--candidate", submissionPath, "--output", submissionPayloadPath],
+    environment,
+  );
+  const submissionEnvelope = JSON.parse(readFileSync(submissionPayloadPath, "utf8"));
+  const capturedSubmission = submissionEnvelope.submission;
+  const submissionResponsePath = join(testRoot, "mcp-submission-response.json");
+  writeFileSync(submissionResponsePath, JSON.stringify({ round: { id: "round-safe", state: "ready_to_create" } }));
+  await runHelper(
+    ["record-submission", "--state", statePath, "--candidate", submissionPath, "--payload", submissionPayloadPath, "--response", submissionResponsePath],
+    environment,
+  );
+  await runHelper(
+    ["record-submission", "--state", statePath, "--candidate", submissionPath, "--payload", submissionPayloadPath, "--response", submissionResponsePath],
+    environment,
+  );
   const remoteSubmissionText = JSON.stringify(capturedSubmission);
   assert.doesNotMatch(remoteSubmissionText, /private-admin-repository/);
   assert.doesNotMatch(remoteSubmissionText, /supplied-product-artifacts|promotion-requirements\.md|promotion-design\.png/);
@@ -544,14 +526,29 @@ test("connected helper preserves the local/private boundary and retries idempote
   submission.answers[0].findings[0].statement = "The submit label changed after the terminal submission.";
   writeFileSync(submissionPath, `${JSON.stringify(submission, null, 2)}\n`);
   await assert.rejects(
-    runHelper(["submit", "--state", statePath, "--candidate", submissionPath], environment),
-    /already submitted with a different payload/i,
+    runHelper(["record-submission", "--state", statePath, "--candidate", submissionPath, "--payload", submissionPayloadPath, "--response", submissionResponsePath], environment),
+    /safe submission payload changed after validation/i,
   );
 
   const originalRepoRef = privateState.repositories[0].repoRef;
   rmSync(join(testRoot, ".doable"), { recursive: true, force: true });
+  const recoveryHandshakePath = join(testRoot, "mcp-recovery-handshake.json");
+  writeFileSync(
+    recoveryHandshakePath,
+    JSON.stringify({
+      organization: { id: "org-safe", display_name: "Example Org" },
+      workspace: {
+        id: serverWorkspaceId,
+        client_workspace_id: serverClientWorkspaceId,
+        display_name: capturedProfile.display_name,
+        profile_revision: capturedProfile.profile_revision,
+        profile_fingerprint: capturedProfile.profile_fingerprint,
+        repositories: capturedProfile.repositories,
+      },
+    }),
+  );
   const recoveryOutput = await runHelper(
-    ["prepare-workspace", "--candidate", candidatePath, "--state", statePath, "--round-code", "DQ-7F3K"],
+    ["prepare-workspace", "--candidate", candidatePath, "--handshake", recoveryHandshakePath, "--state", statePath, "--round-code", "DQ-7F3K"],
     environment,
   );
   assert.match(recoveryOutput, /Material profile approval required: no/);
@@ -561,92 +558,114 @@ test("connected helper preserves the local/private boundary and retries idempote
   assert.equal(recoveredState.workspace.pendingRoundCode, "DQ-7F3K");
   assert.equal(recoveredState.repositories[0].repoRef, originalRepoRef);
   assert.deepEqual(recoveredState.artifactRoots, [realpathSync(artifactRoot)]);
-  await runHelper(["sync-workspace", "--state", statePath], environment);
-});
-
-test("agent-origin helper starts and finalizes the exact round", async (t) => {
-  const testRoot = mkdtempSync(join(tmpdir(), "doable-agent-round-test-"));
-  t.after(() => rmSync(testRoot, { recursive: true, force: true }));
-  let startBody;
-  let finalizeBody;
-  const server = createServer(async (request, response) => {
-    const chunks = [];
-    for await (const chunk of request) chunks.push(chunk);
-    const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString("utf8")) : {};
-    assert.match(request.headers.authorization || "", /^Bearer /);
-    if (
-      request.method === "POST" &&
-      request.url === "/testsuites/ts-agentflow/code-context/rounds/from-agent"
-    ) {
-      startBody = body;
-      return jsonResponse(response, 201, {
-        round_id: "round-agent-safe",
-        round_code: "DQ-AGENT1",
-        workspace_id: null,
-        status: "open_for_agent",
-        revision: 1,
-        feature_scope: "Account recovery",
-        questions: [
-          {
-            id: "question-base",
-            purpose: "base_context",
-            question: "Test account recovery",
-            why: "",
-            answer_requirements: "",
-            required: true,
-            scope_hints: { surfaces: [], repo_refs: [] },
-          },
-        ],
-      });
-    }
-    if (
-      request.method === "POST" &&
-      request.url === "/testsuites/ts-agentflow/code-context/rounds/round-agent-safe/finalize"
-    ) {
-      finalizeBody = body;
-      return jsonResponse(response, 202, {
-        round_id: "round-agent-safe",
-        mode: "create",
-        trd_id: "trd-agent-safe",
-        trd_session_id: "session-agent-safe",
-      });
-    }
-    return jsonResponse(response, 404, { detail: "not found" });
-  });
-  await new Promise((resolvePromise) => server.listen(0, "127.0.0.1", resolvePromise));
-  t.after(() => server.close());
-  const address = server.address();
-  const environment = {
-    TEST_WORKSPACE: testRoot,
-    DOABLE_API_KEY: "local-test-credential",
-    DOABLE_API_BASE_URL: `http://127.0.0.1:${address.port}`,
-  };
-  const requestPath = join(testRoot, "request.json");
-  writeFileSync(
-    requestPath,
-    JSON.stringify({
-      featureRequest: "Test account recovery",
-      userQuestions: ["How is an expired recovery link rejected?"],
-    }),
-  );
-
-  const startOutput = await runHelper(
-    ["start-round", "--suite", "ts-agentflow", "--request", requestPath],
+  await runHelper(["build-workspace-profile", "--state", statePath, "--output", profilePayloadPath], environment);
+  await runHelper(
+    ["record-workspace-sync", "--state", statePath, "--payload", profilePayloadPath, "--response", profileResponsePath],
     environment,
   );
-  assert.match(startOutput, /Round started: DQ-AGENT1 revision 1/);
-  assert.equal(startBody.feature_request, "Test account recovery");
-  assert.equal(startBody.user_questions[0].text, "How is an expired recovery link rejected?");
-  assert.equal(startBody.workspace_id, undefined);
+});
+
+test("agent-origin helper records the exact MCP round and finalize result", async (t) => {
+  const testRoot = mkdtempSync(join(tmpdir(), "doable-agent-round-test-"));
+  t.after(() => rmSync(testRoot, { recursive: true, force: true }));
+  const repository = join(testRoot, "account-recovery-ui");
+  mkdirSync(repository);
+  execFileSync("git", ["init", "-q", repository]);
+  execFileSync("git", ["-C", repository, "config", "user.email", "test@example.invalid"]);
+  execFileSync("git", ["-C", repository, "config", "user.name", "Test"]);
+  writeFileSync(join(repository, "recovery.js"), "export const recovery = true;\n");
+  execFileSync("git", ["-C", repository, "add", "recovery.js"]);
+  execFileSync("git", ["-C", repository, "commit", "-qm", "fixture"]);
+  const environment = { TEST_WORKSPACE: testRoot };
+  const candidatePath = join(testRoot, "workspace-candidate.json");
+  writeFileSync(
+    candidatePath,
+    JSON.stringify({
+      workspaceLabel: "private recovery workspace",
+      safeDisplayName: "Account experience",
+      repositories: [
+        {
+          path: repository,
+          name: "account-recovery-ui",
+          productRole: "customer-web",
+          surfaces: ["account-recovery"],
+          userFacing: true,
+          safeDescription: "Customer-facing account recovery experience.",
+        },
+      ],
+    }),
+  );
+  const statePath = join(testRoot, ".doable", "workspace-private.json");
+  const handshakePath = join(testRoot, "mcp-handshake.json");
+  writeFileSync(
+    handshakePath,
+    JSON.stringify({ organization: { id: "org-safe", display_name: "Example Org" }, workspace: null }),
+  );
+  await runHelper(
+    ["prepare-workspace", "--candidate", candidatePath, "--handshake", handshakePath, "--state", statePath, "--round-code", "DQ-AGENT1"],
+    environment,
+  );
+  const profilePayloadPath = join(testRoot, "mcp-profile-payload.json");
+  await runHelper(
+    ["build-workspace-profile", "--state", statePath, "--output", profilePayloadPath, "--approved"],
+    environment,
+  );
+  const profileEnvelope = JSON.parse(readFileSync(profilePayloadPath, "utf8"));
+  const profileResponsePath = join(testRoot, "mcp-profile-response.json");
+  writeFileSync(
+    profileResponsePath,
+    JSON.stringify({ workspace: { id: "workspace-agent-safe", client_workspace_id: profileEnvelope.workspace_ref } }),
+  );
+  await runHelper(
+    ["record-workspace-sync", "--state", statePath, "--payload", profilePayloadPath, "--response", profileResponsePath],
+    environment,
+  );
+  const roundResponsePath = join(testRoot, "mcp-round-response.json");
+  writeFileSync(
+    roundResponsePath,
+    JSON.stringify({
+      round_id: "round-agent-safe",
+      round_code: "DQ-AGENT1",
+      workspace_id: "workspace-agent-safe",
+      status: "open_for_agent",
+      revision: 1,
+      feature_scope: "Account recovery",
+      questions: [
+        {
+          id: "question-base",
+          purpose: "base_context",
+          question: "Test account recovery",
+          why: "",
+          answer_requirements: "",
+          required: true,
+          scope_hints: { surfaces: ["account-recovery"], repo_refs: [] },
+        },
+      ],
+    }),
+  );
+  const roundOutput = await runHelper(
+    ["record-round", "--code", "DQ-AGENT1", "--response", roundResponsePath, "--state", statePath, "--suite", "ts-agentflow"],
+    environment,
+  );
+  assert.match(roundOutput, /Round: DQ-AGENT1 revision 1/);
   const originPath = join(testRoot, ".doable", "requests", "DQ-AGENT1", "agent-origin.json");
   assert.equal(statSync(originPath).mode & 0o777, 0o600);
 
+  const finalizeResponsePath = join(testRoot, "mcp-finalize-response.json");
+  writeFileSync(
+    finalizeResponsePath,
+    JSON.stringify({
+      round_id: "round-agent-safe",
+      mode: "create",
+      trd_id: "trd-agent-safe",
+      trd_session_id: "session-agent-safe",
+    }),
+  );
   const finalizeOutput = await runHelper(
-    ["finalize-round", "--code", "DQ-AGENT1", "--mode", "auto"],
+    ["record-finalize", "--code", "DQ-AGENT1", "--response", finalizeResponsePath],
     environment,
   );
   assert.match(finalizeOutput, /TRD mode: create/);
-  assert.deepEqual(finalizeBody, { mode: "auto" });
   const receipt = JSON.parse(
     readFileSync(
       join(testRoot, ".doable", "requests", "DQ-AGENT1", "finalize-receipt.json"),
