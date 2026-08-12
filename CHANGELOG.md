@@ -2,7 +2,7 @@
 
 All notable changes to Doable Agent Plugins are documented here.
 
-## [0.2.0] - Unreleased
+## [0.2.0] - 2026-08-12
 
 ### Added
 
