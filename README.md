@@ -1,12 +1,13 @@
 # Doable Agent Plugins
 
-Official beta plugins for [Doable](https://getdoable.ai), supporting Codex, Claude Code, and Cursor.
+Official agent plugins for [Doable](https://getdoable.ai), supporting Codex, Claude Code, and Cursor.
+
+[![Validate plugin packages](https://github.com/getdoable/doable-agent-plugins/actions/workflows/validate.yml/badge.svg)](https://github.com/getdoable/doable-agent-plugins/actions/workflows/validate.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 | Plugin | Version | Purpose | Network |
 | --- | --- | --- | --- |
 | `doable-code-context` | `0.2.0` | Resolve context requests or start a managed feature-testing workflow | Configured Doable MCP |
-
-The repository is private during beta. Installation requires GitHub access to `getdoable/doable-agent-plugins`.
 
 ## Workflow
 
@@ -67,19 +68,52 @@ In a new Cursor Agent chat, install the plugin:
 /add-plugin doable-code-context@https://github.com/getdoable/doable-agent-plugins
 ```
 
-For local beta development, clone the repository, link the selected plugin, and fully restart Cursor:
-
-```bash
-git clone https://github.com/getdoable/doable-agent-plugins.git
-mkdir -p ~/.cursor/plugins/local
-ln -s "$(pwd)/doable-agent-plugins/plugins/doable-code-context" ~/.cursor/plugins/local/doable-code-context
-```
-
-Cursor Marketplace installation will replace this fallback after approval.
-
 ## Connect Doable MCP once
 
-The plugin supplies Skills and the local privacy helper; it does not bundle or duplicate the remote MCP server. Configure the official Streamable HTTP endpoint `https://mcp.getdoable.ai/mcp` once in the coding-agent host using the organization API key from Doable Settings. The host stores and sends this credential; the Skill and helper never read it. See the [Doable MCP client instructions](https://github.com/getdoable/doable-mcp#connect-a-client) for host-specific configuration.
+The plugin supplies Skills and the local privacy helper; it does not bundle or duplicate the remote MCP server. Get the organization API key from Doable Settings and configure the official Streamable HTTP endpoint once in the coding-agent host.
+
+Keep the key in the host environment or credential store. Never paste it into chat, commit it, add it to a project-level MCP file, or save it under `.doable/`.
+
+### Codex
+
+Make `DOABLE_API_KEY` available to the environment that launches Codex, then register the remote server without putting the key value in Codex configuration:
+
+```bash
+codex mcp add doable \
+  --url https://mcp.getdoable.ai/mcp \
+  --bearer-token-env-var DOABLE_API_KEY
+```
+
+### Claude Code
+
+Make `DOABLE_API_KEY` available to the environment that launches Claude Code. Single quotes preserve the environment reference instead of placing the key value in shell history:
+
+```bash
+claude mcp add doable \
+  --scope user \
+  --transport http \
+  https://mcp.getdoable.ai/mcp \
+  --header 'Authorization: Bearer ${DOABLE_API_KEY}'
+```
+
+### Cursor
+
+Make `DOABLE_API_KEY` available to the Cursor process and add the server to the global `~/.cursor/mcp.json` file, not the customer's repository:
+
+```json
+{
+  "mcpServers": {
+    "doable": {
+      "url": "https://mcp.getdoable.ai/mcp",
+      "headers": {
+        "Authorization": "Bearer ${env:DOABLE_API_KEY}"
+      }
+    }
+  }
+}
+```
+
+Restart the coding-agent host after changing its environment. Confirm that the `doable` tools are connected before starting a context request.
 
 ## Use Doable Code Context
 
@@ -127,7 +161,7 @@ PRDs, screenshots, Figma exports, and runtime captures outside Git can be used o
 
 The connected plugin:
 
-- support mono-repos, multi-repo workspaces, selected changes, PRDs, designs, screenshots, and supplied artifacts;
+- supports mono-repos, multi-repo workspaces, selected changes, PRDs, designs, screenshots, and supplied artifacts;
 - inspect the smallest connected evidence graph for the named feature;
 - distinguish desired, implemented, deployed/artifact, inference, and unknown truth planes;
 - record fixtures, permissions, validation, persistence, failures, and cross-repo seams only when they affect testing;
@@ -136,6 +170,8 @@ The connected plugin:
 Doable never receives source code or snippets, real repository names or paths, branches or commits, secrets or environment values, private URLs, raw logs, internal topology, or real customer data.
 
 See [PRIVACY.md](PRIVACY.md) for the exact per-plugin boundary.
+
+See [CHANGELOG.md](CHANGELOG.md) for version history and [CONTRIBUTING.md](CONTRIBUTING.md) before proposing changes.
 
 ## Current limitations
 
