@@ -11,9 +11,9 @@ const semver = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:
 const plugins = [
   {
     name: "doable-code-context",
-    version: "0.1.2",
-    skillNames: ["doable-connect", "doable-answer-questions"],
-    network: "doable-rest",
+    version: "0.2.0",
+    skillNames: ["doable-connect", "doable-answer-questions", "doable-test-feature"],
+    network: "configured-doable-mcp",
   },
 ];
 
@@ -66,6 +66,8 @@ const requiredRootFiles = [
   ".agents/plugins/marketplace.json",
   ".claude-plugin/marketplace.json",
   ".cursor-plugin/marketplace.json",
+  "CHANGELOG.md",
+  "CONTRIBUTING.md",
   "LICENSE",
   "PRIVACY.md",
   "README.md",
@@ -79,6 +81,7 @@ for (const path of requiredRootFiles) {
 const packageJson = readJson(join(root, "package.json"));
 assert(semver.test(packageJson.version ?? ""), "package version must be strict semver");
 assert(packageJson.private === true, "release package must remain private");
+assert(!/private[- ]beta/i.test(packageJson.description ?? ""), "package description must be public-release ready");
 assert(!("dependencies" in packageJson), "release package must not add runtime dependencies");
 assert(!("bin" in packageJson), "the connected helper must not be exposed as a standalone CLI");
 
@@ -162,7 +165,7 @@ const textExtensions = new Set([".json", ".md", ".mjs", ".py", ".yaml", ".yml", 
 const secretPatterns = [
   [/(?:^|[^A-Za-z0-9])sk-[A-Za-z0-9_-]{20,}/, "secret-looking sk- token"],
   [/gh[opusr]_[A-Za-z0-9]{20,}/, "GitHub token"],
-  [/Authorization:\s*Bearer\s+\S+/i, "literal Bearer credential"],
+  [/Authorization:\s*Bearer\s+(?!\$\{(?:env:)?[A-Z][A-Z0-9_]*\})\S+/i, "literal Bearer credential"],
   [/(?:^|[\s"'`])\/Users\//m, "absolute macOS user path"],
   [/(?:^|[\s"'`])\/tmp\//m, "absolute temporary path"],
   [/C:\\Users\\/i, "absolute Windows user path"],
@@ -176,6 +179,17 @@ for (const path of allPaths) {
   }
 }
 
+const readme = readFileSync(join(root, "README.md"), "utf8");
+assert(!/private during beta|private[- ]beta/i.test(readme), "README must not describe the release as private beta");
+assert(!readme.includes("github.com/getdoable/doable-mcp"), "README must not depend on private MCP documentation");
+for (const requiredSetup of [
+  "codex mcp add doable",
+  "claude mcp add doable",
+  '"Authorization": "Bearer ${env:DOABLE_API_KEY}"',
+]) {
+  assert(readme.includes(requiredSetup), `README is missing public MCP setup: ${requiredSetup}`);
+}
+
 const forbiddenReleaseFiles = allPaths.filter((path) => {
   const name = path.split(sep).at(-1);
   return name === ".mcp.json" || name === ".app.json" || name === ".env";
@@ -185,22 +199,34 @@ assert(
   `forbidden integration files found: ${forbiddenReleaseFiles.map((path) => relative(root, path)).join(", ")}`,
 );
 
-// The connected helper may call only the explicit Doable REST contract.
+// The helper is a deterministic local boundary. All remote work belongs to
+// the separately configured Doable MCP connection.
 const connectedHelperPath = join(root, "plugins", "doable-code-context", "scripts", "doable-code-context.mjs");
 assert(existsSync(connectedHelperPath), "connected plugin is missing its deterministic helper");
 const connectedHelper = readFileSync(connectedHelperPath, "utf8");
-for (const endpoint of [
-  "/code-context/workspaces/handshake",
-  "/code-context/workspaces/",
-  "/code-context/rounds/by-code/",
-  "/code-context/rounds/",
+for (const remotePrimitive of [
+  "DOABLE_API_KEY",
+  "DOABLE_API_BASE_URL",
+  "fetch(",
+  "axios",
+  "undici",
+  "WebSocket",
+  "/code-context/",
 ]) {
-  assert(connectedHelper.includes(endpoint), `connected helper is missing endpoint ${endpoint}`);
+  assert(!connectedHelper.includes(remotePrimitive), `connected helper must not contain remote primitive ${remotePrimitive}`);
 }
-assert(connectedHelper.includes("DOABLE_API_KEY"), "connected helper must read DOABLE_API_KEY at call time");
-assert(connectedHelper.includes("DOABLE_API_BASE_URL"), "connected helper must support an API-base override");
-assert(!/write(?:File)?Sync\([^\n]*DOABLE_API_KEY/.test(connectedHelper), "connected helper must never persist DOABLE_API_KEY");
-assert(!/\b(?:axios|undici|WebSocket)\b/.test(connectedHelper), "connected helper must use only Node built-ins and fetch");
+for (const localCommand of [
+  "prepare-workspace",
+  "build-workspace-profile",
+  "record-workspace-sync",
+  "record-round",
+  "validate-submission",
+  "build-submission",
+  "record-submission",
+  "record-finalize",
+]) {
+  assert(connectedHelper.includes(localCommand), `connected helper is missing local command ${localCommand}`);
+}
 for (const match of connectedHelper.matchAll(/from\s+["']([^"']+)["']/g)) {
   assert(match[1].startsWith("node:"), `connected helper imports a non-built-in dependency: ${match[1]}`);
 }

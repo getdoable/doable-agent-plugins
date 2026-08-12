@@ -1,0 +1,4 @@
+interface:
+  display_name: "Test a feature with Doable"
+  short_description: "Create grounded TRDs and run managed feature tests"
+  default_prompt: "Use Doable to test the feature I just implemented. Reuse the right suite, collect grounded code context only if needed, then prepare the TRD and managed test run."

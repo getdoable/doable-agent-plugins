@@ -10,7 +10,7 @@
     {
       "name": "doable-code-context",
       "source": "./plugins/doable-code-context",
-      "description": "Connect a private workspace and resolve published Doable context questions before TRD creation."
+      "description": "Resolve grounded Doable context requests or start a managed feature-testing workflow from the coding agent."
     }
   ]
 }

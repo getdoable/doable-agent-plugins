@@ -1,0 +1,30 @@
+name: Feature request
+description: Propose a plugin workflow or compatibility improvement
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What developer workflow is difficult today?
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: Describe the result without including private repository or customer data.
+    validations:
+      required: true
+  - type: dropdown
+    id: host
+    attributes:
+      label: Coding-agent host
+      multiple: true
+      options:
+        - Codex
+        - Claude Code
+        - Cursor
+        - Host-independent

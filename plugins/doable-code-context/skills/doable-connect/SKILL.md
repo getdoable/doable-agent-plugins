@@ -1,6 +1,6 @@
 ---
 name: doable-connect
-description: Connect the current private mono-repo or multi-repo workspace to the Doable organization bound to a Doable API key. Use when the user says “Doable setup,” asks to connect a workspace, or a Doable context request cannot be pulled because `.doable/workspace-private.json` is missing or stale. Build only a routing-level workspace map, keep real repository identities and source provenance local, and upload a sanitized profile after approval.
+description: Connect the current private mono-repo or multi-repo workspace through the configured Doable MCP connection. Use when the user says “Doable setup,” asks to connect a workspace, or a Doable context request cannot be resolved because `.doable/workspace-private.json` is missing or stale. Build only a routing-level workspace map, keep real repository identities and source provenance local, and sync a sanitized profile after approval.
 ---
 
 # Connect Doable Workspace
@@ -15,7 +15,7 @@ node <plugin-directory>/scripts/doable-code-context.mjs <command> ...
 
 ## Workflow
 
-1. Verify that `DOABLE_API_KEY` is available in the coding agent's local environment. If missing, direct the user to create a key in Doable Settings and configure it in the agent environment. Never ask the user to paste the key into chat and never write it to a workspace file. Use `DOABLE_API_BASE_URL` only to override the default API origin for local or staging development.
+1. Call the configured Doable MCP tool `get_code_context_connection`. If the MCP connection is not authenticated, ask the user to connect Doable through the coding agent's MCP settings. Never ask for or handle the key in chat or local workspace files. Save the MCP response to a private temporary JSON file for the helper; do not reinterpret the organization binding.
 2. Look for `.doable/workspace-private.json` at the workspace root.
    - If it is valid and bound to the current organization, reuse it.
    - If paths moved but repositories are the same, refresh the local paths while preserving `workspaceId` and `repoRef` values.
@@ -31,9 +31,9 @@ node <plugin-directory>/scripts/doable-code-context.mjs <command> ...
    orientation hints, not an exhaustive workspace map.
    When the user has explicitly supplied PRDs, screenshots, Figma exports, or runtime captures outside Git, record only the narrow directory containing those supplied files as a private `artifactRoot`. Do not infer broad roots such as a home, Downloads, Documents, or workspace-parent directory, and do not scan adjacent files.
 4. Do not inventory every feature, symbol, endpoint, package, database, or deployment component. Setup exists to route later questions to likely owners. A feature missing from the map is not evidence that it is missing from the product; later requests still search the current workspace from the base feature query.
-5. Write `.doable/workspace-candidate.json` using the contract in [references/workspace-contract.md](references/workspace-contract.md), then run `prepare-workspace`. It is private, ignored, and must never be uploaded. When setup was entered from a round copy prompt, pass its code with `--round-code`; this lets Doable recover the already-selected workspace even if local state was deleted. The helper authenticates, assigns stable opaque repository references, records local Git provenance, writes `.doable/workspace-private.json` with private permissions, and validates the remote profile.
+5. Write `.doable/workspace-candidate.json` using the contract in [references/workspace-contract.md](references/workspace-contract.md), then run `prepare-workspace` with the saved MCP handshake response. It is private, ignored, and must never be uploaded. When setup was entered from a round copy prompt, pass its code with `--round-code`; this lets Doable recover the already-selected workspace even if local state was deleted. The helper assigns stable opaque repository references, records local Git provenance, writes `.doable/workspace-private.json` with private permissions, and validates the safe profile locally. It performs no network request.
 6. Show the user only the organization, product roles, surfaces, and safe descriptions that would be shared. Ask once before the first profile upload or any material role/surface/description change. A revision-only refresh needs no new approval.
-7. After approval, run `sync-workspace --approved`. If the helper says approval is not required, omit `--approved`. Repeated calls are idempotent.
+7. After approval, run `build-workspace-profile --approved --output <private-path>`. If the helper says approval is not required, omit `--approved`. Read only the generated `profile` and `workspace_ref`, then call Doable MCP `sync_code_context_workspace` with those exact values. Save the MCP response privately and run `record-workspace-sync --payload <profile-path> --response <response-path>`. Do not author or modify the safe payload between validation and the MCP call. Repeated calls are idempotent.
 8. If setup was entered from a Doable request, return immediately to `doable-answer-questions` and pull that exact request. Do not make the user repeat the copy prompt.
 
 ## Privacy boundary
