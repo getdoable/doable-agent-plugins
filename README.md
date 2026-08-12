@@ -50,7 +50,7 @@ Install only the plugin needed for the desired workflow, then start a new task.
 ### Claude Code
 
 ```bash
-claude plugin marketplace add getdoable/doable-agent-plugins
+claude plugin marketplace add https://github.com/getdoable/doable-agent-plugins.git
 claude plugin install doable-code-context@doable --scope user
 ```
 
