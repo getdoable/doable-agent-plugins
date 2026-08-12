@@ -41,20 +41,30 @@ Rules:
 Commands:
 
 ```bash
+# Save the result of MCP get_code_context_connection to this private file first.
 node <plugin-directory>/scripts/doable-code-context.mjs prepare-workspace \
   --candidate .doable/workspace-candidate.json \
+  --handshake .doable/mcp-connection-response.json \
   --state .doable/workspace-private.json \
   --round-code DQ-7F3K
 
-node <plugin-directory>/scripts/doable-code-context.mjs sync-workspace \
+node <plugin-directory>/scripts/doable-code-context.mjs build-workspace-profile \
   --state .doable/workspace-private.json \
+  --output .doable/workspace-profile.json \
   --approved
+
+# Call MCP sync_code_context_workspace with the exact generated workspace_ref
+# and profile, save its result, then record it locally.
+node <plugin-directory>/scripts/doable-code-context.mjs record-workspace-sync \
+  --state .doable/workspace-private.json \
+  --payload .doable/workspace-profile.json \
+  --response .doable/mcp-workspace-sync-response.json
 ```
 
 Omit `--round-code` for an explicit standalone “Doable setup” request. Include it when recovering setup from a Doable copy prompt so the organization-authenticated handshake binds this local map to the workspace already selected for that round.
 For a first-time workspace whose published round is not yet bound, the helper carries this code only into the first profile sync; Doable atomically binds that same-organization round to the newly created workspace.
 
-`prepare-workspace` reports whether material approval is required. Remove `--approved` for a revision-only refresh. The API key comes only from `DOABLE_API_KEY`; the optional `DOABLE_API_BASE_URL` override is for a local or staging server.
+`prepare-workspace` reports whether material approval is required. Remove `--approved` for a revision-only refresh. The helper never reads a Doable credential or calls a remote endpoint; organization authentication comes from the configured Doable MCP connection.
 
 The helper sends `material_change_approved: true` only after its local `--approved` gate succeeds. A revision-only refresh sends `false` and relies on the previously approved material profile.
 

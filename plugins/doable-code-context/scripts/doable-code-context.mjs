@@ -18,23 +18,9 @@ import {
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { execFileSync } from "node:child_process";
 
-const CLIENT = Object.freeze({ name: "doable-code-context", version: "0.1.2" });
-const DEFAULT_API_BASE_URL = "https://qa.getdoable.ai/be";
+const CLIENT = Object.freeze({ name: "doable-code-context", version: "0.2.0" });
 const STATE_SCHEMA_VERSION = "1";
 const SUBMISSION_SCHEMA_VERSION = "1";
-const REQUEST_TIMEOUT_MS = 20_000;
-
-// Keep every HTTP path in one place so the helper can follow an API rename
-// without changing either Skill's workflow.
-const ENDPOINTS = Object.freeze({
-  handshake: "/code-context/workspaces/handshake",
-  workspaceProfile: (workspaceId) =>
-    `/code-context/workspaces/${encodeURIComponent(workspaceId)}/profile`,
-  roundByCode: (roundCode) =>
-    `/code-context/rounds/by-code/${encodeURIComponent(roundCode)}`,
-  roundSubmissions: (roundId) =>
-    `/code-context/rounds/${encodeURIComponent(roundId)}/submissions`,
-});
 
 const TRUTH_PLANES = new Set([
   "implemented_behavior",
@@ -217,30 +203,6 @@ function inside(path, root) {
   return path === root || (path.startsWith(root) && relative.startsWith(sep));
 }
 
-function apiBaseUrl() {
-  const raw = process.env.DOABLE_API_BASE_URL || DEFAULT_API_BASE_URL;
-  let url;
-  try {
-    url = new URL(raw);
-  } catch {
-    fail("DOABLE_API_BASE_URL must be an absolute HTTP(S) URL");
-  }
-  assert(url.protocol === "https:" || url.protocol === "http:", "DOABLE_API_BASE_URL must use HTTP(S)");
-  if (url.protocol === "http:") {
-    assert(
-      ["127.0.0.1", "localhost", "::1", "[::1]"].includes(url.hostname),
-      "plain HTTP is allowed only for a loopback development server",
-    );
-  }
-  return url.toString().replace(/\/$/, "");
-}
-
-function apiToken() {
-  const token = process.env.DOABLE_API_KEY;
-  assert(token && token.trim(), "DOABLE_API_KEY is not configured in the coding agent environment");
-  return token.trim();
-}
-
 function sanitizedServerDetail(value) {
   if (typeof value !== "string") return "";
   return value
@@ -251,44 +213,14 @@ function sanitizedServerDetail(value) {
     .trim();
 }
 
-async function requestJson(method, path, { body, idempotencyKey } = {}) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-  try {
-    const headers = {
-      accept: "application/json",
-      authorization: ["Bearer", apiToken()].join(" "),
-      "user-agent": `${CLIENT.name}/${CLIENT.version}`,
-    };
-    if (body !== undefined) headers["content-type"] = "application/json";
-    if (idempotencyKey) headers["idempotency-key"] = idempotencyKey;
-    const response = await fetch(`${apiBaseUrl()}${path}`, {
-      method,
-      headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
-      signal: controller.signal,
-      redirect: "error",
-    });
-    const raw = await response.text();
-    let parsed = {};
-    if (raw.trim()) {
-      try {
-        parsed = JSON.parse(raw);
-      } catch {
-        if (response.ok) fail(`Doable returned non-JSON data for ${method} ${path}`);
-      }
-    }
-    if (!response.ok) {
-      const detail = sanitizedServerDetail(parsed.detail || parsed.message || parsed.error || "");
-      fail(`Doable request failed (${response.status})${detail ? `: ${detail}` : ""}`);
-    }
-    return parsed;
-  } catch (error) {
-    if (error.name === "AbortError") fail("Doable request timed out");
-    throw error;
-  } finally {
-    clearTimeout(timeout);
-  }
+function readMcpResponse(path, label) {
+  const response = readJson(resolve(path), label);
+  const error = response?.error;
+  assert(
+    !error,
+    `${label} failed${response?.message ? `: ${sanitizedServerDetail(response.message)}` : ""}`,
+  );
+  return response;
 }
 
 function newRepoRef() {
@@ -605,8 +537,9 @@ function assertRemotePayloadSafe(value, state, label = "remote payload", key = "
   }
 }
 
-async function prepareWorkspace(options) {
+function prepareWorkspace(options) {
   const candidatePath = resolve(requiredOption(options, "candidate"));
+  const handshakePath = resolve(requiredOption(options, "handshake"));
   const statePath = resolve(options.state || ".doable/workspace-private.json");
   const candidate = readJson(candidatePath, "workspace candidate");
   chmodSync(candidatePath, 0o600);
@@ -629,13 +562,7 @@ async function prepareWorkspace(options) {
     : null;
   if (roundCode) assert(ROUND_CODE_RE.test(roundCode), "round code has an invalid format");
   const handshake = normalizeHandshake(
-    await requestJson("POST", ENDPOINTS.handshake, {
-      body: {
-        client: CLIENT,
-        local_workspace_id: localWorkspaceId,
-        ...(roundCode ? { round_code: roundCode } : {}),
-      },
-    }),
+    readMcpResponse(handshakePath, "MCP workspace handshake"),
     localWorkspaceId,
   );
   if (existingState) {
@@ -742,8 +669,9 @@ async function prepareWorkspace(options) {
   console.log(`Private state: ${statePath}`);
 }
 
-async function syncWorkspace(options) {
+function buildWorkspaceProfile(options) {
   const statePath = resolve(options.state || ".doable/workspace-private.json");
+  const outputPath = resolve(requiredOption(options, "output"));
   const state = readState(statePath);
   const profile = buildRemoteProfile(state);
   state.profile = profile;
@@ -762,10 +690,28 @@ async function syncWorkspace(options) {
   };
   assertRemotePayloadSafe(payload, state);
   const payloadDigest = sha256(stableJson(payload));
-  const response = await requestJson("PUT", ENDPOINTS.workspaceProfile(state.workspace.clientRef), {
-    body: payload,
-    idempotencyKey: `workspace:${state.workspace.clientRef}:${payloadDigest}`,
+  atomicWriteJson(statePath, state);
+  atomicWriteJson(outputPath, {
+    workspace_ref: state.workspace.clientRef,
+    profile: payload,
+    payload_digest: payloadDigest,
   });
+  console.log(`Workspace profile ready: ${outputPath}`);
+  console.log(`Workspace ref: ${state.workspace.clientRef}`);
+  console.log(`Profile revision: ${profile.profileRevision}`);
+}
+
+function recordWorkspaceSync(options) {
+  const statePath = resolve(options.state || ".doable/workspace-private.json");
+  const payloadPath = resolve(requiredOption(options, "payload"));
+  const responsePath = resolve(requiredOption(options, "response"));
+  const state = readState(statePath);
+  const envelope = readJson(payloadPath, "workspace profile payload");
+  assert(envelope.workspace_ref === state.workspace.clientRef, "workspace profile payload belongs to a different workspace");
+  assert(envelope.profile && typeof envelope.profile === "object", "workspace profile payload is missing profile");
+  const payloadDigest = sha256(stableJson(envelope.profile));
+  assert(envelope.payload_digest === payloadDigest, "workspace profile payload digest changed");
+  const response = readMcpResponse(responsePath, "MCP workspace sync");
   const remoteWorkspace = response.workspace || response;
   state.workspace.serverId = string(
     remoteWorkspace.id || remoteWorkspace.workspace_id,
@@ -780,14 +726,14 @@ async function syncWorkspace(options) {
   state.workspace.pendingRoundCode = null;
   state.workspace.remoteProfileAhead = false;
   state.sync = {
-    materialFingerprint: profile.materialFingerprint,
-    profileFingerprint: profile.profileFingerprint,
+    materialFingerprint: state.profile.materialFingerprint,
+    profileFingerprint: state.profile.profileFingerprint,
     payloadDigest,
     syncedAt: new Date().toISOString(),
   };
   atomicWriteJson(statePath, state);
   console.log(`Workspace connected: ${state.workspace.serverId}`);
-  console.log(`Profile revision: ${profile.profileRevision}`);
+  console.log(`Profile revision: ${state.profile.profileRevision}`);
   console.log(`Product surfaces: ${unique(state.repositories.flatMap((repository) => repository.surfaces), "product surfaces").sort().join(", ")}`);
 }
 
@@ -840,8 +786,9 @@ function normalizeRound(data, state, requestedCode) {
   return { id, code, workspaceId, revision, status, featureScope, questions };
 }
 
-async function pullRound(options) {
+function recordRound(options) {
   const code = string(requiredOption(options, "code"), "round code", { max: 64 }).toUpperCase();
+  const responsePath = resolve(requiredOption(options, "response"));
   assert(ROUND_CODE_RE.test(code), "round code has an invalid format");
   const statePath = resolve(options.state || ".doable/workspace-private.json");
   const state = readState(statePath);
@@ -852,7 +799,7 @@ async function pullRound(options) {
   assert(state.sync?.profileFingerprint === state.profile?.profileFingerprint, "workspace profile is not synced; complete Doable setup first");
   assert(state.workspace.serverId, "workspace has no server binding; sync the workspace profile first");
   const round = normalizeRound(
-    await requestJson("GET", ENDPOINTS.roundByCode(code)),
+    readMcpResponse(responsePath, "MCP code-context round"),
     state,
     code,
   );
@@ -879,6 +826,19 @@ async function pullRound(options) {
       agentObservations: [],
       conflicts: [],
       evidence: [],
+    });
+  }
+  if (options.suite) {
+    const suiteId = validateSafeSlug(options.suite, "suite id");
+    atomicWriteJson(join(requestDirectory, "agent-origin.json"), {
+      schemaVersion: "1",
+      suiteId,
+      roundId: round.id,
+      roundCode: round.code,
+      revision: round.revision,
+      status: round.status,
+      featureScope: round.featureScope,
+      createdAt: new Date().toISOString(),
     });
   }
   console.log(`Round: ${round.code} revision ${round.revision}`);
@@ -1268,10 +1228,61 @@ function validateSubmission(options) {
   console.log(`Safe payload digest: ${payloadDigest}`);
 }
 
-async function submit(options) {
+function writeSubmissionPayload(options) {
   const statePath = resolve(options.state || ".doable/workspace-private.json");
   const candidatePath = resolve(requiredOption(options, "candidate"));
+  const outputPath = resolve(requiredOption(options, "output"));
   const { frozenRound, payload, payloadDigest } = buildSubmission(statePath, candidatePath);
+  atomicWriteJson(outputPath, {
+    round_id: frozenRound.id,
+    submission: payload,
+    payload_digest: payloadDigest,
+  });
+  console.log(`Safe Round submission ready: ${outputPath}`);
+  console.log(`Round: ${frozenRound.code} revision ${frozenRound.revision}`);
+  console.log(`Safe payload digest: ${payloadDigest}`);
+}
+
+function recordFinalize(options) {
+  const code = string(requiredOption(options, "code"), "round code", { max: 64 }).toUpperCase();
+  const responsePath = resolve(requiredOption(options, "response"));
+  assert(ROUND_CODE_RE.test(code), "round code has an invalid format");
+  const statePath = resolve(options.state || ".doable/workspace-private.json");
+  const requestDirectory = join(dirname(statePath), "requests", code);
+  const origin = readJson(join(requestDirectory, "agent-origin.json"), "agent-origin round metadata");
+  const suiteId = validateSafeSlug(origin.suiteId, "suite id");
+  const roundId = string(origin.roundId, "round id", { max: 160 });
+  const response = readMcpResponse(responsePath, "MCP Round finalization");
+  assert(response.round_id === roundId, "finalize response belongs to a different round");
+  const receipt = {
+    schemaVersion: "1",
+    suiteId,
+    roundId,
+    roundCode: code,
+    mode: string(response.mode, "finalize mode", { max: 40 }),
+    trdId: string(response.trd_id, "TRD id", { max: 160 }),
+    trdSessionId: string(response.trd_session_id, "TRD session id", { max: 160 }),
+    finalizedAt: new Date().toISOString(),
+  };
+  atomicWriteJson(join(requestDirectory, "finalize-receipt.json"), receipt);
+  console.log(`Round finalized: ${code}`);
+  console.log(`TRD mode: ${receipt.mode}`);
+  console.log(`TRD: ${receipt.trdId}`);
+  console.log(`TRD session: ${receipt.trdSessionId}`);
+  console.log("Next step: monitor the TRD in Doable, then review or approve generated test cases.");
+}
+
+function recordSubmission(options) {
+  const statePath = resolve(options.state || ".doable/workspace-private.json");
+  const candidatePath = resolve(requiredOption(options, "candidate"));
+  const payloadPath = resolve(requiredOption(options, "payload"));
+  const responsePath = resolve(requiredOption(options, "response"));
+  const { frozenRound, payload, payloadDigest } = buildSubmission(statePath, candidatePath);
+  const envelope = readJson(payloadPath, "safe Round submission payload");
+  assert(envelope.round_id === frozenRound.id, "safe submission payload belongs to a different round");
+  assert(envelope.payload_digest === payloadDigest, "safe submission payload changed after validation");
+  assert(stableJson(envelope.submission) === stableJson(payload), "safe submission payload does not match the local candidate");
+  readMcpResponse(responsePath, "MCP Round submission");
   const receiptPath = join(dirname(candidatePath), `receipt-r${frozenRound.revision}.json`);
   if (existsSync(receiptPath)) {
     const receipt = readJson(receiptPath, "submission receipt");
@@ -1279,10 +1290,6 @@ async function submit(options) {
     console.log(`Round already submitted: ${frozenRound.code} revision ${frozenRound.revision}`);
     return;
   }
-  await requestJson("POST", ENDPOINTS.roundSubmissions(frozenRound.id), {
-    body: payload,
-    idempotencyKey: `round:${frozenRound.id}:r${frozenRound.revision}:${payloadDigest}`,
-  });
   atomicWriteJson(receiptPath, {
     schemaVersion: "1",
     roundId: frozenRound.id,
@@ -1300,17 +1307,20 @@ async function submit(options) {
 }
 
 function usage() {
-  console.error("Internal helper commands: prepare-workspace, sync-workspace, pull-round, validate-submission, submit");
+  console.error("Internal helper commands: prepare-workspace, build-workspace-profile, record-workspace-sync, record-round, validate-submission, build-submission, record-submission, record-finalize");
   process.exit(2);
 }
 
 async function main() {
   const { command, options } = parseArgs(process.argv.slice(2));
   if (command === "prepare-workspace") return prepareWorkspace(options);
-  if (command === "sync-workspace") return syncWorkspace(options);
-  if (command === "pull-round") return pullRound(options);
+  if (command === "build-workspace-profile") return buildWorkspaceProfile(options);
+  if (command === "record-workspace-sync") return recordWorkspaceSync(options);
+  if (command === "record-round") return recordRound(options);
   if (command === "validate-submission") return validateSubmission(options);
-  if (command === "submit") return submit(options);
+  if (command === "build-submission") return writeSubmissionPayload(options);
+  if (command === "record-submission") return recordSubmission(options);
+  if (command === "record-finalize") return recordFinalize(options);
   usage();
 }
 

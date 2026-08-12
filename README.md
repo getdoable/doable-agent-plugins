@@ -4,7 +4,7 @@ Official beta plugins for [Doable](https://getdoable.ai), supporting Codex, Clau
 
 | Plugin | Version | Purpose | Network |
 | --- | --- | --- | --- |
-| `doable-code-context` | `0.1.2` | Connect a workspace and resolve a published pre-TRD feature-context round | Doable REST only |
+| `doable-code-context` | `0.2.0` | Resolve context requests or start a managed feature-testing workflow | Configured Doable MCP |
 
 The repository is private during beta. Installation requires GitHub access to `getdoable/doable-agent-plugins`.
 
@@ -24,16 +24,16 @@ Use **Doable Code Context** for the connected pre-TRD workflow:
 3. The coding agent performs demand-driven workspace setup if needed, pulls that exact frozen round, grounds the base request across the relevant private repositories, answers the focused supplements, asks one batched clarification round only when product authority is missing, and pushes structured grounded findings suitable for later knowledge reuse.
 4. Doable reviews the dispositions and continues the existing TRD loop.
 
-The connected plugin uses REST in this MVP, not MCP. Its bundled helper is invoked by the Skills and is not installed as a standalone CLI.
+All remote operations use the separately configured Doable MCP connection. The bundled helper is not a service or standalone CLI: it deterministically maps local repositories, keeps exact provenance private, builds safe payloads, and validates MCP responses.
 
 ## Requirements
 
 - Codex, Claude Code, or Cursor with Agent Skills or plugin support;
 - Node.js 20 or newer;
 - Git for repository-bound evidence;
-- for `doable-code-context`, a Doable organization API key configured as `DOABLE_API_KEY` in the coding agent's local environment.
+- an authenticated Doable MCP connection configured in the coding agent.
 
-Never paste an API key into chat or save it under `.doable/`. `DOABLE_API_BASE_URL` is an optional local/staging override; production uses the built-in Doable API origin.
+Never paste an API key into chat or save it under `.doable/`. The MCP connection owns organization authentication; the helper never reads a credential or calls the Doable API directly.
 
 ## Install
 
@@ -57,6 +57,7 @@ Natural-language requests activate the Skills. Explicit invocations are:
 
 - `/doable-code-context:doable-connect`
 - `/doable-code-context:doable-answer-questions`
+- `/doable-code-context:doable-test-feature`
 
 ### Cursor
 
@@ -76,6 +77,10 @@ ln -s "$(pwd)/doable-agent-plugins/plugins/doable-code-context" ~/.cursor/plugin
 
 Cursor Marketplace installation will replace this fallback after approval.
 
+## Connect Doable MCP once
+
+The plugin supplies Skills and the local privacy helper; it does not bundle or duplicate the remote MCP server. Configure the official Streamable HTTP endpoint `https://mcp.getdoable.ai/mcp` once in the coding-agent host using the organization API key from Doable Settings. The host stores and sends this credential; the Skill and helper never read it. See the [Doable MCP client instructions](https://github.com/getdoable/doable-mcp#connect-a-client) for host-specific configuration.
+
 ## Use Doable Code Context
 
 Normally, paste the short prompt copied from the Doable TRD composer:
@@ -89,6 +94,17 @@ Setup is recovered inside the same conversation if needed. The user may also req
 ```text
 Doable setup for this workspace.
 ```
+
+Or start from the coding agent after implementing a feature:
+
+```text
+Use Doable to test the feature I just implemented.
+```
+
+The agent reuses or creates the appropriate suite, opens one coding-agent-origin
+Round only when context or requirements changed, resolves that Round from the
+private workspace, and then continues through the existing TRD and managed-case
+workflow.
 
 The connected plugin writes private state under:
 
@@ -127,7 +143,7 @@ See [PRIVACY.md](PRIVACY.md) for the exact per-plugin boundary.
 - The connected workflow requires server-side code-context rounds and organization capability enablement.
 - Multiple workspaces are selected in Doable before publishing the round; the coding agent never guesses across workspaces.
 - Required skips return to platform-user review. Coding agents cannot defer or waive scope.
-- MCP, active notifications, setup-time exhaustive knowledge mapping, and automatic TRD creation after the last answer are outside this MVP.
+- Active notifications, setup-time exhaustive knowledge mapping, and automatic historical-knowledge reuse are outside this MVP.
 
 ## Verify
 
@@ -136,7 +152,7 @@ npm test
 claude plugin validate ./plugins/doable-code-context
 ```
 
-The release verifier requires exactly two Skills and one dependency-free helper limited to the explicit Doable REST contract.
+The release verifier requires exactly three Skills and one dependency-free, local-only helper with no network or credential primitives.
 
 Use [TESTING.md](TESTING.md) for the fresh-session acceptance matrix.
 
@@ -147,6 +163,7 @@ plugins/
   doable-code-context/
     skills/doable-connect/
     skills/doable-answer-questions/
+    skills/doable-test-feature/
     scripts/doable-code-context.mjs
 ```
 

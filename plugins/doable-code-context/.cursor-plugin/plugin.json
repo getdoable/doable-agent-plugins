@@ -1,8 +1,8 @@
 {
   "name": "doable-code-context",
   "displayName": "Doable Code Context",
-  "version": "0.1.2",
-  "description": "Connect a private workspace to Doable and resolve one published pre-TRD context request with grounded, privacy-safe answers.",
+  "version": "0.2.0",
+  "description": "Connect private code to Doable through MCP, resolve grounded context requests, and start managed feature-testing workflows.",
   "author": {
     "name": "Doable AI"
   },
