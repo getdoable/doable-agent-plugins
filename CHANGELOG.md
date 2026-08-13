@@ -2,6 +2,13 @@
 
 All notable changes to Doable Agent Plugins are documented here.
 
+## [0.2.1] - 2026-08-13
+
+### Fixed
+
+- Resume coding-agent feature testing from an existing Round state instead of
+  assuming every retry requires another code scan.
+
 ## [0.2.0] - 2026-08-12
 
 ### Added

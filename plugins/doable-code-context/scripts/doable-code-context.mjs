@@ -18,7 +18,7 @@ import {
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { execFileSync } from "node:child_process";
 
-const CLIENT = Object.freeze({ name: "doable-code-context", version: "0.2.0" });
+const CLIENT = Object.freeze({ name: "doable-code-context", version: "0.2.1" });
 const STATE_SCHEMA_VERSION = "1";
 const SUBMISSION_SCHEMA_VERSION = "1";
 
@@ -747,9 +747,15 @@ function normalizeRound(data, state, requestedCode) {
   const revision = Number(round.revision);
   assert(Number.isInteger(revision) && revision > 0, "round revision must be a positive integer");
   const status = round.status || "open_for_agent";
-  assert(status === "open_for_agent", `round is not available to the coding agent (status: ${status})`);
+  assert(
+    ["open_for_agent", "needs_attention", "ready_to_create", "creating"].includes(status),
+    `round cannot be resumed by the coding agent (status: ${status})`,
+  );
   const featureScope = string(round.feature_scope || round.featureScope, "round feature scope", { max: 2_000 });
-  assert(Array.isArray(round.questions) && round.questions.length > 0, "published round has no questions");
+  assert(Array.isArray(round.questions), "round questions must be an array");
+  if (status === "open_for_agent") {
+    assert(round.questions.length > 0, "published round has no questions");
+  }
   const questions = round.questions.map((question, index) => {
     const scopeHints = question.scope_hints || question.scopeHints || {};
     const repoRefs = stringArray(scopeHints.repo_refs || scopeHints.repoRefs || [], `questions[${index}] repo refs`, { max: 100 });
@@ -779,10 +785,12 @@ function normalizeRound(data, state, requestedCode) {
     };
   });
   unique(questions.map((question) => question.id), "question ids");
-  assert(
-    questions.filter((question) => question.purpose === "base_context").length === 1,
-    "published round must contain exactly one base feature context request",
-  );
+  if (status === "open_for_agent") {
+    assert(
+      questions.filter((question) => question.purpose === "base_context").length === 1,
+      "published round must contain exactly one base feature context request",
+    );
+  }
   return { id, code, workspaceId, revision, status, featureScope, questions };
 }
 
@@ -808,7 +816,7 @@ function recordRound(options) {
   const candidatePath = join(requestDirectory, `submission-r${round.revision}.json`);
   ensurePrivateIgnore(statePath);
   atomicWriteJson(roundPath, round);
-  if (!existsSync(candidatePath)) {
+  if (round.status === "open_for_agent" && !existsSync(candidatePath)) {
     atomicWriteJson(candidatePath, {
       schemaVersion: SUBMISSION_SCHEMA_VERSION,
       round: {
@@ -842,6 +850,7 @@ function recordRound(options) {
     });
   }
   console.log(`Round: ${round.code} revision ${round.revision}`);
+  console.log(`Status: ${round.status}`);
   console.log(`Scope: ${round.featureScope}`);
   console.log(`Questions: ${round.questions.length}`);
   console.log(`Round file: ${roundPath}`);
