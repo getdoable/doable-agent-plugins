@@ -74,6 +74,10 @@
 
 ## Answer fields
 
+- The frozen feature scope, question, reason, completion criteria, routing hints, and any quoted
+  prior belief are investigation context, not evidence. A confirmed finding must be independently
+  supported by evidence inspected in this round or by exact current human authority. Repeating,
+  paraphrasing, or agreeing with a supplied belief does not create a finding.
 - `status`: `answered` or `skipped`. A skipped answer has `unknownReason` and no fabricated finding.
 - `findingRef`: optional stable `f_...` identifier. The helper derives one when omitted. Set it explicitly for every finding named by a conflict; values must be unique across the full submission.
 - `truthPlane`: `implemented_behavior`, `desired_behavior`, `artifact_observation`, `inference`, or `unknown`.
@@ -89,6 +93,10 @@
 - `journeyRef`, `step`, and `role` are optional ordering metadata. Provide all three or none. `journeyRef` matches `j_[a-z0-9_]+`; `step` starts at 1 and is consecutive within a journey; `role` is `entry`, `precondition`, `action`, `outcome`, or `failure`. A journey needs at least two distinct steps and an entry or action. These fields add no claim: the finding must remain complete without them. Use the same step when evidence does not establish an order between two facts, omit ordering when the sequence is unknown, and never annotate an `unknown` or `inference` finding.
 - `humanClarifications`: exact `{ "question": "...", "answer": "..." }` pairs. Preserve the user's wording except mandatory secret or personal-data redaction.
 - For a `human_clarification` finding, `statement` must exactly equal one submitted clarification answer. Put interpretation in a separate `inference` finding.
+- Human clarification is authoritative only for the desired behavior or product decision that the
+  person controls. It never independently confirms current code, deployed behavior, or an artifact
+  observation. If current evidence re-derives a supplied claim, submit that new evidence-backed
+  finding with its generated fingerprint; if not, use `unknown` or an explicit grounded conflict.
 
 ## Explicit conflicts
 

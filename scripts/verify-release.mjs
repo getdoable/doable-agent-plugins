@@ -140,6 +140,26 @@ for (const plugin of plugins) {
     JSON.stringify(names) === JSON.stringify([...plugin.skillNames].sort()),
     `${plugin.name} must contain Skills ${plugin.skillNames.join(", ")}; found ${names.join(", ")}`,
   );
+
+  if (plugin.name === "doable-code-context") {
+    const answerSkillPath = join(
+      pluginRoot,
+      "skills",
+      "doable-answer-questions",
+      "SKILL.md",
+    );
+    const answerSkill = readFileSync(answerSkillPath, "utf8");
+    for (const requiredGroundingRule of [
+      "This is an investigation packet, not a list of standalone questions.",
+      "Repeating, paraphrasing, or agreeing with a supplied belief is not a new finding",
+      "Human agreement is authority only for the desired behavior",
+    ]) {
+      assert(
+        answerSkill.includes(requiredGroundingRule),
+        `${relative(root, answerSkillPath)} is missing grounding rule: ${requiredGroundingRule}`,
+      );
+    }
+  }
 }
 
 const allPaths = walk(root);
