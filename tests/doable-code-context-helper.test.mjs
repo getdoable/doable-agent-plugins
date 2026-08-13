@@ -648,8 +648,29 @@ test("agent-origin helper records the exact MCP round and finalize result", asyn
     environment,
   );
   assert.match(roundOutput, /Round: DQ-AGENT1 revision 1/);
+  assert.match(roundOutput, /Status: open_for_agent/);
   const originPath = join(testRoot, ".doable", "requests", "DQ-AGENT1", "agent-origin.json");
   assert.equal(statSync(originPath).mode & 0o777, 0o600);
+
+  const readyResponsePath = join(testRoot, "mcp-round-ready-response.json");
+  writeFileSync(
+    readyResponsePath,
+    JSON.stringify({
+      round_id: "round-agent-safe",
+      round_code: "DQ-AGENT1",
+      workspace_id: "workspace-agent-safe",
+      status: "ready_to_create",
+      revision: 1,
+      feature_scope: "Account recovery",
+      questions: [],
+    }),
+  );
+  const readyOutput = await runHelper(
+    ["record-round", "--code", "DQ-AGENT1", "--response", readyResponsePath, "--state", statePath, "--suite", "ts-agentflow"],
+    environment,
+  );
+  assert.match(readyOutput, /Status: ready_to_create/);
+  assert.equal(JSON.parse(readFileSync(originPath, "utf8")).status, "ready_to_create");
 
   const finalizeResponsePath = join(testRoot, "mcp-finalize-response.json");
   writeFileSync(
