@@ -2,6 +2,15 @@
 
 All notable changes to Doable Agent Plugins are documented here.
 
+## [0.2.2] - 2026-08-17
+
+### Changed
+
+- Let the coding agent use an already-installed local code retriever for candidate
+  discovery while keeping Doable provider-neutral.
+- Require current-source verification before retrieved candidates can become
+  remotely submitted evidence, with direct repository search as the fallback.
+
 ## [0.2.1] - 2026-08-13
 
 ### Fixed
