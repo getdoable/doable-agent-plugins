@@ -1,4 +1,4 @@
 interface:
   display_name: "Resolve Doable Context"
   short_description: "Answer a Doable context request from code"
-  default_prompt: "Resolve Doable context request DQ-7F3K for this workspace."
+  default_prompt: "Resolve Doable context request DQ-7F3K for organization HireEZ (hireez)."

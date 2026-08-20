@@ -1,6 +1,6 @@
 # Private answer candidate contract
 
-`record-round` creates the candidate from the exact MCP response for the frozen request. Preserve its round identity and question IDs. Fill only `answers`, `agentObservations`, `conflicts`, and `evidence`.
+`record-round` creates the candidate from the exact MCP response for the current open questions. Preserve its round identity and question IDs. Fill only those open `answers`, plus `agentObservations`, `conflicts`, and `evidence`. Do not re-answer IDs in `established_context`.
 
 ```json
 {
