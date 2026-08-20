@@ -165,6 +165,35 @@ test("connected helper preserves the local/private boundary and retries idempote
   );
   privateState = JSON.parse(readFileSync(statePath, "utf8"));
 
+  const rootRoundResponsePath = join(testRoot, "mcp-root-round-response.json");
+  writeFileSync(
+    rootRoundResponsePath,
+    JSON.stringify({
+      round_id: "round-root",
+      round_code: "DQ-ROOT99",
+      workspace_id: serverWorkspaceId,
+      revision: 1,
+      status: "open_for_agent",
+      feature_scope: "Staff promotion creation",
+      prior_round_context: [],
+      questions: [
+        {
+          id: "question-root-context",
+          purpose: "base_context",
+          question: "Test staff promotion creation.",
+          why: "",
+          answer_requirements: "",
+          required: true,
+          scope_hints: { surfaces: ["promotion-management"], repo_refs: [] },
+        },
+      ],
+    }),
+  );
+  await runHelper(
+    ["record-round", "--code", "DQ-ROOT99", "--response", rootRoundResponsePath, "--state", statePath],
+    environment,
+  );
+
   const roundResponsePath = join(testRoot, "mcp-round-response.json");
   writeFileSync(
     roundResponsePath,
@@ -175,10 +204,32 @@ test("connected helper preserves the local/private boundary and retries idempote
       revision: 1,
       status: "open_for_agent",
       feature_scope: "Staff promotion creation",
+      prior_round_context: [
+        {
+          round_code: "DQ-PRIOR1",
+          revision: 1,
+          feature_scope: "Staff promotion creation",
+          items: [
+            {
+              question: "Which roles can create promotions?",
+              resolution: "answered",
+              findings: [
+                {
+                  statement: "Staff users with promotion-management access can open the creation form.",
+                  truth_plane: "implemented_behavior",
+                  source_type: "code",
+                  observable_anchors: ["Create promotion"],
+                },
+              ],
+              human_clarifications: [],
+            },
+          ],
+        },
+      ],
       questions: [
         {
           id: "question-save-label",
-          purpose: "base_context",
+          purpose: "supplemental",
           question: "What exact label submits the promotion creation form?",
           why: "",
           answer_requirements: "",
@@ -192,6 +243,13 @@ test("connected helper preserves the local/private boundary and retries idempote
     }),
   );
   await runHelper(["record-round", "--code", "DQ-7F3K", "--response", roundResponsePath, "--state", statePath], environment);
+  const recordedRound = JSON.parse(readFileSync(
+    join(testRoot, ".doable", "requests", "DQ-7F3K", "round-r1.json"),
+    "utf8",
+  ));
+  assert.equal(recordedRound.priorRoundContext.length, 1);
+  assert.equal(recordedRound.priorRoundContext[0].roundCode, "DQ-PRIOR1");
+  assert.equal(recordedRound.priorRoundContext[0].items[0].findings[0].truthPlane, "implemented_behavior");
   const submissionPath = join(testRoot, ".doable", "requests", "DQ-7F3K", "submission-r1.json");
   const submission = JSON.parse(readFileSync(submissionPath, "utf8"));
   submission.answers[0] = {
