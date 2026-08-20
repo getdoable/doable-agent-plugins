@@ -186,6 +186,10 @@ const secretPatterns = [
   [/(?:^|[^A-Za-z0-9])sk-[A-Za-z0-9_-]{20,}/, "secret-looking sk- token"],
   [/gh[opusr]_[A-Za-z0-9]{20,}/, "GitHub token"],
   [/Authorization:\s*Bearer\s+(?!\$\{(?:env:)?[A-Z][A-Z0-9_]*\})\S+/i, "literal Bearer credential"],
+  [
+    /https:\/\/github\.com\/getdoable\/(?!doable-agent-plugins(?:\.git)?(?=[/\s"'`)#?]|$))[A-Za-z0-9_.-]+/i,
+    "unapproved cross-repository URL",
+  ],
   [/(?:^|[\s"'`])\/Users\//m, "absolute macOS user path"],
   [/(?:^|[\s"'`])\/tmp\//m, "absolute temporary path"],
   [/C:\\Users\\/i, "absolute Windows user path"],
@@ -201,7 +205,6 @@ for (const path of allPaths) {
 
 const readme = readFileSync(join(root, "README.md"), "utf8");
 assert(!/private during beta|private[- ]beta/i.test(readme), "README must not describe the release as private beta");
-assert(!readme.includes("github.com/getdoable/doable-mcp"), "README must not depend on private MCP documentation");
 for (const requiredSetup of [
   "codex mcp add doable",
   "claude mcp add doable",
