@@ -23,9 +23,21 @@ Use **Doable Code Context** for the connected pre-TRD workflow:
    ```
 
 3. The coding agent performs demand-driven workspace setup if needed, pulls that exact frozen round, grounds the base request across the relevant private repositories, answers the focused supplements, asks one batched clarification round only when product authority is missing, and pushes structured grounded findings suitable for later knowledge reuse.
-4. Doable reviews the dispositions and continues the existing TRD loop.
+4. Doable reviews the dispositions. It can continue TRD generation immediately or publish one sequential continuation round when more code context is needed.
 
 All remote operations use the separately configured Doable MCP connection. The bundled helper is not a service or standalone CLI: it deterministically maps local repositories, keeps exact provenance private, builds safe payloads, and validates MCP responses.
+
+### Continue across engineers
+
+A continuation round lets another engineer investigate the next set of questions without repeating the completed work:
+
+```text
+Round 1 · Engineer A -> answered -> Round 2 · Engineer B -> answered -> continue the TRD
+```
+
+Doable sends Round 2 the privacy-safe conclusions from Round 1 as orientation. They help the coding agent understand the feature and avoid duplicate exploration, but they are not new evidence: every confirmed Round 2 finding must still be verified against Engineer B's current checkout or exact current human authority.
+
+The Round does not transfer a Git branch, PR, worktree, commit, or dirty state. Before answering, the coding agent verifies that the requested change is present in the connected repositories. If the intended target is missing or ambiguous, it stops and asks the engineer to fetch, check out, or identify it instead of answering from a neighboring revision. Continuation rounds are sequential, remain separately auditable, and may be handled by different engineers using the same Doable organization and workspace routing profile.
 
 ## Requirements
 
