@@ -74,8 +74,8 @@
 
 ## Answer fields
 
-- The frozen feature scope, question, reason, completion criteria, routing hints, and any quoted
-  prior belief are investigation context, not evidence. A confirmed finding must be independently
+- The frozen feature scope, question, reason, completion criteria, routing hints, `priorRoundContext`,
+  and any quoted prior belief are investigation context, not evidence. A confirmed finding must be independently
   supported by evidence inspected in this round or by exact current human authority. Repeating,
   paraphrasing, or agreeing with a supplied belief does not create a finding.
 - `status`: `answered` or `skipped`. A skipped answer has `unknownReason` and no fabricated finding.

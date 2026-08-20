@@ -37,6 +37,7 @@ const SOURCE_TYPES = new Set([
   "inference",
 ]);
 const ANSWER_STATUSES = new Set(["answered", "skipped"]);
+const PRIOR_ROUND_RESOLUTIONS = new Set(["answered", "skipped", "deferred", "waived"]);
 const ROUND_CODE_RE = /^DQ-[A-Z0-9]{4,16}$/;
 const OPAQUE_REPO_RE = /^repo_[a-z0-9]{8,64}$/;
 const EVIDENCE_ID_RE = /^ev_[a-z0-9]{8,80}$/;
@@ -752,6 +753,48 @@ function normalizeRound(data, state, requestedCode) {
     `round cannot be resumed by the coding agent (status: ${status})`,
   );
   const featureScope = string(round.feature_scope || round.featureScope, "round feature scope", { max: 2_000 });
+  const priorRoundContextRaw = round.prior_round_context || round.priorRoundContext || [];
+  assert(Array.isArray(priorRoundContextRaw), "prior round context must be an array");
+  const priorRoundContext = priorRoundContextRaw.map((priorRound, roundIndex) => {
+    assert(priorRound && typeof priorRound === "object" && !Array.isArray(priorRound), `prior round context[${roundIndex}] must be an object`);
+    const items = priorRound.items || [];
+    assert(Array.isArray(items), `prior round context[${roundIndex}] items must be an array`);
+    const priorRevision = Number(priorRound.revision);
+    assert(Number.isInteger(priorRevision) && priorRevision > 0, `prior round context[${roundIndex}] revision must be a positive integer`);
+    const priorRoundCode = string(priorRound.round_code || priorRound.roundCode, `prior round context[${roundIndex}] code`, { max: 64 });
+    assert(ROUND_CODE_RE.test(priorRoundCode), `prior round context[${roundIndex}] code is invalid`);
+    return {
+      roundCode: priorRoundCode,
+      revision: priorRevision,
+      featureScope: string(priorRound.feature_scope || priorRound.featureScope, `prior round context[${roundIndex}] feature scope`, { max: 2_000 }),
+      items: items.map((item, itemIndex) => {
+        const findings = item.findings || [];
+        assert(Array.isArray(findings), `prior round context[${roundIndex}] items[${itemIndex}] findings must be an array`);
+        const resolution = string(item.resolution, `prior round context[${roundIndex}] items[${itemIndex}] resolution`, { max: 40 });
+        assert(PRIOR_ROUND_RESOLUTIONS.has(resolution), `prior round context[${roundIndex}] items[${itemIndex}] resolution is invalid`);
+        return {
+          question: string(item.question, `prior round context[${roundIndex}] items[${itemIndex}] question`, { max: 4_000 }),
+          resolution,
+          findings: findings.map((finding, findingIndex) => {
+            const truthPlane = string(finding.truth_plane || finding.truthPlane, `prior round context[${roundIndex}] items[${itemIndex}] findings[${findingIndex}] truth plane`, { max: 40 });
+            const sourceType = string(finding.source_type || finding.sourceType, `prior round context[${roundIndex}] items[${itemIndex}] findings[${findingIndex}] source type`, { max: 40 });
+            assert(TRUTH_PLANES.has(truthPlane), `prior round context[${roundIndex}] items[${itemIndex}] findings[${findingIndex}] truth plane is invalid`);
+            assert(SOURCE_TYPES.has(sourceType), `prior round context[${roundIndex}] items[${itemIndex}] findings[${findingIndex}] source type is invalid`);
+            return {
+              statement: string(finding.statement, `prior round context[${roundIndex}] items[${itemIndex}] findings[${findingIndex}] statement`, { max: 8_000 }),
+              truthPlane,
+              sourceType,
+              observableAnchors: stringArray(finding.observable_anchors || finding.observableAnchors || [], `prior round context[${roundIndex}] items[${itemIndex}] findings[${findingIndex}] anchors`, { max: 100 }),
+            };
+          }),
+          humanClarifications: item.human_clarifications || item.humanClarifications || [],
+          unknownReason: item.unknown_reason || item.unknownReason || null,
+          disposition: item.disposition || null,
+          skipReason: item.skip_reason || item.skipReason || null,
+        };
+      }),
+    };
+  });
   assert(Array.isArray(round.questions), "round questions must be an array");
   if (status === "open_for_agent") {
     assert(round.questions.length > 0, "published round has no questions");
@@ -786,12 +829,22 @@ function normalizeRound(data, state, requestedCode) {
   });
   unique(questions.map((question) => question.id), "question ids");
   if (status === "open_for_agent") {
-    assert(
-      questions.filter((question) => question.purpose === "base_context").length === 1,
-      "published round must contain exactly one base feature context request",
-    );
+    const baseContextCount = questions.filter(
+      (question) => question.purpose === "base_context",
+    ).length;
+    if (priorRoundContext.length > 0) {
+      assert(
+        baseContextCount === 0,
+        "continuation round must not duplicate the base feature context request",
+      );
+    } else {
+      assert(
+        baseContextCount === 1,
+        "root round must contain exactly one base feature context request",
+      );
+    }
   }
-  return { id, code, workspaceId, revision, status, featureScope, questions };
+  return { id, code, workspaceId, revision, status, featureScope, priorRoundContext, questions };
 }
 
 function recordRound(options) {
@@ -852,6 +905,7 @@ function recordRound(options) {
   console.log(`Round: ${round.code} revision ${round.revision}`);
   console.log(`Status: ${round.status}`);
   console.log(`Scope: ${round.featureScope}`);
+  console.log(`Prior rounds: ${round.priorRoundContext.length}`);
   console.log(`Questions: ${round.questions.length}`);
   console.log(`Round file: ${roundPath}`);
   console.log(`Submission file: ${candidatePath}`);
