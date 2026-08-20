@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
 import {
   chmodSync,
+  existsSync,
   mkdtempSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
   realpathSync,
   rmSync,
   statSync,
@@ -486,6 +488,30 @@ test("connected helper preserves the local/private boundary and retries idempote
     ["record-submission", "--state", statePath, "--candidate", submissionPath, "--payload", submissionPayloadPath, "--response", submissionResponsePath],
     environment,
   );
+
+  const followUp = structuredClone(submission);
+  followUp.agentObservations = [];
+  followUp.conflicts = submission.conflicts;
+  writeFileSync(submissionPath, `${JSON.stringify(followUp, null, 2)}\n`);
+  const followUpPayloadPath = join(testRoot, ".doable", "requests", "DQ-7F3K", "safe-submission-r1-batch2.json");
+  await runHelper(
+    ["build-submission", "--state", statePath, "--candidate", submissionPath, "--output", followUpPayloadPath],
+    environment,
+  );
+  await runHelper(
+    ["record-submission", "--state", statePath, "--candidate", submissionPath, "--payload", followUpPayloadPath, "--response", submissionResponsePath],
+    environment,
+  );
+  await runHelper(
+    ["record-submission", "--state", statePath, "--candidate", submissionPath, "--payload", followUpPayloadPath, "--response", submissionResponsePath],
+    environment,
+  );
+  const requestDirectory = join(testRoot, ".doable", "requests", "DQ-7F3K");
+  const receipts = readdirSync(requestDirectory).filter((name) => name.startsWith("receipt-r1-"));
+  assert.equal(receipts.length, 2);
+  assert.equal(existsSync(join(requestDirectory, "receipt-r1.json")), false);
+  writeFileSync(submissionPath, `${JSON.stringify(submission, null, 2)}\n`);
+
   const remoteSubmissionText = JSON.stringify(capturedSubmission);
   assert.doesNotMatch(remoteSubmissionText, /private-admin-repository/);
   assert.doesNotMatch(remoteSubmissionText, /supplied-product-artifacts|promotion-requirements\.md|promotion-design\.png/);
@@ -649,6 +675,7 @@ test("agent-origin helper records the exact MCP round and finalize result", asyn
   );
   assert.match(roundOutput, /Round: DQ-AGENT1 revision 1/);
   assert.match(roundOutput, /Status: open_for_agent/);
+  assert.match(roundOutput, /Next action: answer/);
   const originPath = join(testRoot, ".doable", "requests", "DQ-AGENT1", "agent-origin.json");
   assert.equal(statSync(originPath).mode & 0o777, 0o600);
 
@@ -670,7 +697,91 @@ test("agent-origin helper records the exact MCP round and finalize result", asyn
     environment,
   );
   assert.match(readyOutput, /Status: ready_to_create/);
+  assert.match(readyOutput, /Next action: wait/);
   assert.equal(JSON.parse(readFileSync(originPath, "utf8")).status, "ready_to_create");
+  assert.equal(JSON.parse(readFileSync(originPath, "utf8")).action, "wait");
+
+  const followUpResponsePath = join(testRoot, "mcp-round-follow-up-response.json");
+  writeFileSync(
+    followUpResponsePath,
+    JSON.stringify({
+      round_id: "round-agent-safe",
+      round_code: "DQ-AGENT1",
+      workspace_id: "workspace-agent-safe",
+      status: "open_for_agent",
+      revision: 1,
+      feature_scope: "Account recovery",
+      questions: [
+        {
+          id: "question-expiry",
+          purpose: "supplemental",
+          question: "What happens when the recovery code is expired?",
+          why: "Expiry changes the rejection oracle.",
+          answer_requirements: "Return the visible rejection outcome.",
+          required: true,
+          scope_hints: { surfaces: ["account-recovery"], repo_refs: [] },
+        },
+      ],
+      established_context: [
+        {
+          id: "question-base",
+          purpose: "base_context",
+          question: "Test account recovery",
+          status: "answered",
+          answer: {
+            findings: [
+              {
+                statement: "Account recovery starts from the Forgot password page.",
+                truth_plane: "implemented_behavior",
+                source_type: "code",
+                observable_anchors: ["Forgot password"],
+              },
+            ],
+            human_clarifications: [],
+          },
+        },
+      ],
+    }),
+  );
+  const followUpOutput = await runHelper(
+    ["record-round", "--code", "DQ-AGENT1", "--response", followUpResponsePath, "--state", statePath],
+    environment,
+  );
+  assert.match(followUpOutput, /Next action: answer/);
+  assert.match(followUpOutput, /Open questions: 1/);
+  assert.match(followUpOutput, /Established context: 1/);
+  const followUpSnapshot = JSON.parse(
+    readFileSync(join(testRoot, ".doable", "requests", "DQ-AGENT1", "round-r1.json"), "utf8"),
+  );
+  assert.equal(followUpSnapshot.action, "answer");
+  assert.equal(followUpSnapshot.establishedContext[0].id, "question-base");
+  const followUpCandidate = JSON.parse(
+    readFileSync(join(testRoot, ".doable", "requests", "DQ-AGENT1", "submission-r1.json"), "utf8"),
+  );
+  assert.deepEqual(
+    followUpCandidate.answers.map((answer) => answer.questionId),
+    ["question-expiry"],
+  );
+
+  const creatingResponsePath = join(testRoot, "mcp-round-creating-response.json");
+  writeFileSync(
+    creatingResponsePath,
+    JSON.stringify({
+      round_id: "round-agent-safe",
+      round_code: "DQ-AGENT1",
+      workspace_id: "workspace-agent-safe",
+      status: "creating",
+      revision: 1,
+      feature_scope: "Account recovery",
+      questions: [],
+      established_context: followUpSnapshot.establishedContext,
+    }),
+  );
+  const creatingOutput = await runHelper(
+    ["record-round", "--code", "DQ-AGENT1", "--response", creatingResponsePath, "--state", statePath],
+    environment,
+  );
+  assert.match(creatingOutput, /Next action: stop/);
 
   const finalizeResponsePath = join(testRoot, "mcp-finalize-response.json");
   writeFileSync(

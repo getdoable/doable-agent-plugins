@@ -18,7 +18,7 @@ import {
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { execFileSync } from "node:child_process";
 
-const CLIENT = Object.freeze({ name: "doable-code-context", version: "0.2.1" });
+const CLIENT = Object.freeze({ name: "doable-code-context", version: "0.2.2" });
 const STATE_SCHEMA_VERSION = "1";
 const SUBMISSION_SCHEMA_VERSION = "1";
 
@@ -737,25 +737,124 @@ function recordWorkspaceSync(options) {
   console.log(`Product surfaces: ${unique(state.repositories.flatMap((repository) => repository.surfaces), "product surfaces").sort().join(", ")}`);
 }
 
+function watchAction(status, openQuestions) {
+  if (["creating", "consumed", "cancelled"].includes(status)) return "stop";
+  if (status === "open_for_agent" && openQuestions.length > 0) return "answer";
+  return "wait";
+}
+
+function normalizeEstablishedQuestion(question, index) {
+  assert(question && typeof question === "object" && !Array.isArray(question), `established_context[${index}] must be an object`);
+  const status = string(question.status, `established_context[${index}] status`, { max: 20 });
+  assert(
+    ["answered", "skipped", "deferred", "waived"].includes(status),
+    `established_context[${index}] has an invalid status`,
+  );
+  const purpose = question.purpose || "supplemental";
+  assert(
+    purpose === "base_context" || purpose === "supplemental",
+    `established_context[${index}] has an invalid purpose`,
+  );
+  const answer = question.answer && typeof question.answer === "object" ? question.answer : null;
+  const findings = Array.isArray(answer?.findings) ? answer.findings : [];
+  return {
+    id: string(question.id || question.question_id, `established_context[${index}] id`, { max: 160 }),
+    purpose,
+    question: string(question.question, `established_context[${index}] question`, { max: 4_000 }),
+    status,
+    skipReason: string(question.skip_reason ?? question.skipReason ?? "", `established_context[${index}] skip reason`, { min: 0, max: 2_000 }),
+    answer: answer
+      ? {
+          findings: findings.map((finding, findingIndex) => ({
+            findingRef: finding.finding_ref ?? finding.findingRef ?? null,
+            statement: string(
+              finding.statement,
+              `established_context[${index}].findings[${findingIndex}] statement`,
+              { max: 4_000 },
+            ),
+            truthPlane: string(
+              finding.truth_plane ?? finding.truthPlane ?? "unknown",
+              `established_context[${index}].findings[${findingIndex}] truth plane`,
+              { max: 40 },
+            ),
+            sourceType: string(
+              finding.source_type ?? finding.sourceType ?? "inference",
+              `established_context[${index}].findings[${findingIndex}] source type`,
+              { max: 40 },
+            ),
+            observableAnchors: stringArray(
+              finding.observable_anchors ?? finding.observableAnchors ?? [],
+              `established_context[${index}].findings[${findingIndex}] anchors`,
+              { max: 20, itemMax: 160 },
+            ),
+          })),
+          humanClarifications: Array.isArray(answer.human_clarifications || answer.humanClarifications)
+            ? (answer.human_clarifications || answer.humanClarifications).map((item, clarificationIndex) => ({
+                question: string(
+                  item.question,
+                  `established_context[${index}].human_clarifications[${clarificationIndex}] question`,
+                  { max: 2_000 },
+                ),
+                answer: string(
+                  item.answer,
+                  `established_context[${index}].human_clarifications[${clarificationIndex}] answer`,
+                  { max: 4_000 },
+                ),
+              }))
+            : [],
+          unknownReason: string(
+            answer.unknown_reason ?? answer.unknownReason ?? "",
+            `established_context[${index}] unknown reason`,
+            { min: 0, max: 2_000 },
+          ),
+        }
+      : null,
+  };
+}
+
+function emptyAnswer(question) {
+  return {
+    questionId: question.id,
+    status: null,
+    findings: [],
+    humanClarifications: [],
+  };
+}
+
+function reconcileCandidateAnswers(existingAnswers, openQuestions) {
+  const openIds = new Set(openQuestions.map((question) => question.id));
+  const kept = (Array.isArray(existingAnswers) ? existingAnswers : []).filter((answer) =>
+    openIds.has(answer.questionId),
+  );
+  const keptIds = new Set(kept.map((answer) => answer.questionId));
+  const added = openQuestions.filter((question) => !keptIds.has(question.id)).map(emptyAnswer);
+  return [...kept, ...added];
+}
+
 function normalizeRound(data, state, requestedCode) {
   const round = data.round || data;
   const id = string(round.round_id || round.id, "round id", { max: 160 });
   const code = string(round.round_code || round.code, "round code", { max: 64 });
   assert(code.toLowerCase() === requestedCode.toLowerCase(), "Doable returned a different round code");
-  const workspaceId = string(round.workspace_id || round.workspaceId, "round workspace id", { max: 160 });
-  assert(workspaceId === state.workspace.serverId, "the requested round belongs to a different workspace");
+  const workspaceId = round.workspace_id || round.workspaceId || "";
   const revision = Number(round.revision);
   assert(Number.isInteger(revision) && revision > 0, "round revision must be a positive integer");
   const status = round.status || "open_for_agent";
   assert(
-    ["open_for_agent", "needs_attention", "ready_to_create", "creating"].includes(status),
-    `round cannot be resumed by the coding agent (status: ${status})`,
+    ["open_for_agent", "needs_attention", "ready_to_create", "creating", "consumed", "cancelled"].includes(status),
+    `round cannot be watched by the coding agent (status: ${status})`,
   );
+  if (!["creating", "consumed", "cancelled"].includes(status)) {
+    assert(typeof workspaceId === "string" && workspaceId.length > 0, "round workspace id must be a string");
+    assert(workspaceId === state.workspace.serverId, "the requested round belongs to a different workspace");
+  } else if (workspaceId) {
+    assert(workspaceId === state.workspace.serverId, "the requested round belongs to a different workspace");
+  }
   const featureScope = string(round.feature_scope || round.featureScope, "round feature scope", { max: 2_000 });
   assert(Array.isArray(round.questions), "round questions must be an array");
-  if (status === "open_for_agent") {
-    assert(round.questions.length > 0, "published round has no questions");
-  }
+  const establishedContext = Array.isArray(round.established_context || round.establishedContext)
+    ? (round.established_context || round.establishedContext).map(normalizeEstablishedQuestion)
+    : [];
   const questions = round.questions.map((question, index) => {
     const scopeHints = question.scope_hints || question.scopeHints || {};
     const repoRefs = stringArray(scopeHints.repo_refs || scopeHints.repoRefs || [], `questions[${index}] repo refs`, { max: 100 });
@@ -785,13 +884,29 @@ function normalizeRound(data, state, requestedCode) {
     };
   });
   unique(questions.map((question) => question.id), "question ids");
+  unique(
+    [...questions.map((question) => question.id), ...establishedContext.map((question) => question.id)],
+    "open and established question ids",
+  );
   if (status === "open_for_agent") {
-    assert(
-      questions.filter((question) => question.purpose === "base_context").length === 1,
-      "published round must contain exactly one base feature context request",
-    );
+    assert(questions.length > 0, "published round has no open questions");
+    const baseCount = [...questions, ...establishedContext].filter(
+      (question) => question.purpose === "base_context",
+    ).length;
+    assert(baseCount === 1, "round must contain exactly one base feature context request");
   }
-  return { id, code, workspaceId, revision, status, featureScope, questions };
+  const action = watchAction(status, questions);
+  return {
+    id,
+    code,
+    workspaceId: workspaceId || null,
+    revision,
+    status,
+    action,
+    featureScope,
+    questions,
+    establishedContext,
+  };
 }
 
 function recordRound(options) {
@@ -816,25 +931,26 @@ function recordRound(options) {
   const candidatePath = join(requestDirectory, `submission-r${round.revision}.json`);
   ensurePrivateIgnore(statePath);
   atomicWriteJson(roundPath, round);
-  if (round.status === "open_for_agent" && !existsSync(candidatePath)) {
-    atomicWriteJson(candidatePath, {
-      schemaVersion: SUBMISSION_SCHEMA_VERSION,
-      round: {
-        id: round.id,
-        code: round.code,
-        revision: round.revision,
-        workspaceId: round.workspaceId,
-      },
-      answers: round.questions.map((question) => ({
-        questionId: question.id,
-        status: null,
-        findings: [],
-        humanClarifications: [],
-      })),
-      agentObservations: [],
-      conflicts: [],
-      evidence: [],
-    });
+  if (round.action === "answer") {
+    if (!existsSync(candidatePath)) {
+      atomicWriteJson(candidatePath, {
+        schemaVersion: SUBMISSION_SCHEMA_VERSION,
+        round: {
+          id: round.id,
+          code: round.code,
+          revision: round.revision,
+          workspaceId: round.workspaceId,
+        },
+        answers: round.questions.map(emptyAnswer),
+        agentObservations: [],
+        conflicts: [],
+        evidence: [],
+      });
+    } else {
+      const candidate = readJson(candidatePath, "submission candidate");
+      candidate.answers = reconcileCandidateAnswers(candidate.answers, round.questions);
+      atomicWriteJson(candidatePath, candidate);
+    }
   }
   if (options.suite) {
     const suiteId = validateSafeSlug(options.suite, "suite id");
@@ -845,14 +961,17 @@ function recordRound(options) {
       roundCode: round.code,
       revision: round.revision,
       status: round.status,
+      action: round.action,
       featureScope: round.featureScope,
       createdAt: new Date().toISOString(),
     });
   }
   console.log(`Round: ${round.code} revision ${round.revision}`);
   console.log(`Status: ${round.status}`);
+  console.log(`Next action: ${round.action}`);
   console.log(`Scope: ${round.featureScope}`);
-  console.log(`Questions: ${round.questions.length}`);
+  console.log(`Open questions: ${round.questions.length}`);
+  console.log(`Established context: ${round.establishedContext.length}`);
   console.log(`Round file: ${roundPath}`);
   console.log(`Submission file: ${candidatePath}`);
 }
@@ -1281,6 +1400,19 @@ function recordFinalize(options) {
   console.log("Next step: monitor the TRD in Doable, then review or approve generated test cases.");
 }
 
+function submissionReceiptPath(requestDirectory, revision, payloadDigest) {
+  return join(requestDirectory, `receipt-r${revision}-${payloadDigest}.json`);
+}
+
+function existingSubmissionReceiptPath(requestDirectory, revision, payloadDigest) {
+  const digestPath = submissionReceiptPath(requestDirectory, revision, payloadDigest);
+  if (existsSync(digestPath)) return digestPath;
+  const legacyPath = join(requestDirectory, `receipt-r${revision}.json`);
+  if (!existsSync(legacyPath)) return null;
+  const receipt = readJson(legacyPath, "submission receipt");
+  return receipt.payloadDigest === payloadDigest ? legacyPath : null;
+}
+
 function recordSubmission(options) {
   const statePath = resolve(options.state || ".doable/workspace-private.json");
   const candidatePath = resolve(requiredOption(options, "candidate"));
@@ -1292,14 +1424,12 @@ function recordSubmission(options) {
   assert(envelope.payload_digest === payloadDigest, "safe submission payload changed after validation");
   assert(stableJson(envelope.submission) === stableJson(payload), "safe submission payload does not match the local candidate");
   readMcpResponse(responsePath, "MCP Round submission");
-  const receiptPath = join(dirname(candidatePath), `receipt-r${frozenRound.revision}.json`);
-  if (existsSync(receiptPath)) {
-    const receipt = readJson(receiptPath, "submission receipt");
-    assert(receipt.payloadDigest === payloadDigest, "this frozen round was already submitted with a different payload");
+  const requestDirectory = dirname(candidatePath);
+  if (existingSubmissionReceiptPath(requestDirectory, frozenRound.revision, payloadDigest)) {
     console.log(`Round already submitted: ${frozenRound.code} revision ${frozenRound.revision}`);
     return;
   }
-  atomicWriteJson(receiptPath, {
+  atomicWriteJson(submissionReceiptPath(requestDirectory, frozenRound.revision, payloadDigest), {
     schemaVersion: "1",
     roundId: frozenRound.id,
     roundCode: frozenRound.code,
@@ -1312,7 +1442,7 @@ function recordSubmission(options) {
   console.log(`Round submitted: ${frozenRound.code} revision ${frozenRound.revision}`);
   console.log(`Answers: ${answered} answered, ${skipped} skipped`);
   console.log(`Nonblocking observations: ${payload.agent_observations.length}`);
-  console.log("Next step: review the round in Doable and continue TRD generation.");
+  console.log("Next action: wait");
 }
 
 function usage() {

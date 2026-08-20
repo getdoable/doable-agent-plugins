@@ -1,6 +1,6 @@
 {
   "name": "doable-code-context",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Connect private code to Doable through MCP, resolve grounded context requests, and start managed feature-testing workflows.",
   "author": {
     "name": "Doable AI",
@@ -33,7 +33,7 @@
     "websiteURL": "https://getdoable.ai",
     "privacyPolicyURL": "https://qa.getdoable.ai/privacy-policy",
     "defaultPrompt": [
-      "Resolve Doable context request DQ-7F3K for this workspace.",
+      "Resolve Doable context request DQ-7F3K for organization HireEZ (hireez).",
       "Connect this workspace to Doable for code-context requests.",
       "Use Doable to test the feature I just implemented."
     ]

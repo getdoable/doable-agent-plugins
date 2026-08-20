@@ -2,6 +2,19 @@
 
 All notable changes to Doable Agent Plugins are documented here.
 
+## [0.2.2] - 2026-08-20
+
+### Changed
+
+- Watch one published Round until the editor continues TRD generation. `record-round`
+  prints `Next action: answer|wait|stop`, keeps same-round answers as established
+  context, and does not treat `ready_to_create` as finished.
+- `record-submission` keeps one receipt per payload digest so a later batch on the
+  same revision can be recorded. Retrying the exact same payload stays idempotent.
+- Before scanning, the answering Skill verifies any named branch, PR, worktree, or
+  change set locally, refreshes a stale checkout, and stops if that target is
+  missing or ambiguous. A Round does not transfer Git state.
+
 ## [0.2.1] - 2026-08-13
 
 ### Fixed
