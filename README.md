@@ -11,7 +11,7 @@ Official agent plugins for [Doable](https://getdoable.ai), supporting Codex, Cla
 
 ## Workflow
 
-Use **Doable Code Context** for the connected pre-TRD workflow:
+Use **Doable Code Context** for connected pre-TRD and post-create context workflows:
 
 1. The user submits a TRD request in Doable.
 2. Doable shows the original feature request as the required base investigation,
@@ -29,12 +29,13 @@ Use **Doable Code Context** for the connected pre-TRD workflow:
    organization's API Key, connects the workspace if needed, confirms the agreed
    branch/commit, then pulls that Round and answers from the private
    repositories. If a word in the brief could mean more than one thing in the
-   code, it asks the user locally. After the first paste, new questions from the
-   TRD-editor arrive on the same Round automatically — do not copy the prompt
-   again.
-4. The coding agent keeps watching until the TRD-editor continues TRD generation
-   or the Round is cancelled. `ready_to_create` is not finished. Doable then
-   continues the existing TRD create loop.
+   code, it asks the user locally. After the first paste, appended questions and
+   later published Rounds on the same TRD connection arrive automatically — do
+   not copy each Round's prompt again.
+4. A pre-TRD connection ends when the TRD-editor continues generation or cancels
+   the request; `ready_to_create` is not finished. A post-create connection stays
+   open after a Round is applied or cancelled, follows later Rounds for that TRD,
+   and ends when the user stops the coding-agent task.
 
 The Round does not transfer a Git branch, PR, worktree, commit, dirty state, or
 code graph. Before answering, the coding agent verifies that any named target
@@ -143,8 +144,12 @@ continues TRD generation. If the plugin is missing, install it from
 https://github.com/getdoable/doable-agent-plugins#install.
 ```
 
-The coding agent watches that same Round until Continue generating TRD. Later
-questions from the TRD-editor do not need a new prompt.
+For pre-TRD requests, the coding agent watches that connection until Continue
+generating TRD. For post-create requests, it keeps the original connection code
+and follows later published Rounds for the same TRD even after one Round is
+applied or cancelled. Appended questions and successor Rounds do not need a new
+prompt while the coding-agent task remains active; pasting the original prompt
+again resumes the current server Round after an interruption.
 
 Setup is recovered inside the same conversation if needed. The user may also request it directly:
 
