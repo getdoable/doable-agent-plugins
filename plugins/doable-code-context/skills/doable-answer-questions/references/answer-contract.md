@@ -142,7 +142,7 @@ The helper always serializes observations as optional. Outside-scope discoveries
 
 ## Evidence rules
 
-- Prefer a minimal progressive evidence graph: public entry or operation → owning handler/domain transition → exact observable outcome. Stop deepening once this chain and its material boundary are established, but perform one bounded directory-, route-, or schema-level sweep of sibling user-reachable lifecycle operations and configuration dimensions. Record an explicit include/exclude/ask-user decision locally for each; do not collect sibling call sites, tests, generated clients, translations, or internal helpers.
+- Prefer a minimal progressive evidence graph: public entry or operation → owning handler/domain transition → exact observable outcome. Stop deepening once this chain and its material boundary are established. For `pre_create`, perform one bounded directory-, route-, or schema-level sweep of sibling user-reachable lifecycle operations and configuration dimensions and record an explicit include/exclude/ask-user decision locally for each. For `follow_up`, inspect only what is needed to resolve the open propositions and do not add sibling coverage. Never collect sibling call sites, tests, generated clients, translations, or internal helpers as coverage.
 - Capture the smallest independently useful source span or artifact, not one item per finding. Do not impose a hard line limit when a larger factual span is required.
 - Reuse evidence IDs across separate atomic findings when the same span supports them; never merge unrelated findings just to reduce evidence items.
 - A positive existence claim needs direct evidence.

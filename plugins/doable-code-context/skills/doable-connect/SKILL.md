@@ -15,7 +15,7 @@ node <plugin-directory>/scripts/doable-code-context.mjs <command> ...
 
 ## Workflow
 
-1. Call the configured Doable MCP tool `get_code_context_connection`. If the MCP connection is not authenticated, ask the user to connect Doable through the coding agent's MCP settings. Never ask for or handle the key in chat or local workspace files. Save the MCP response to a private temporary JSON file for the helper; do not reinterpret the organization binding.
+1. Call the configured Doable MCP tool `get_code_context_connection`. When `.doable/workspace-private.json` already exists, pass its `workspace.clientRef` as `local_workspace_id`; when setup came from a Round copy prompt, also pass that original code as `round_code`. This lets an unbound new Round recover the existing workspace and its latest server revision instead of inventing a new binding. If the MCP connection is not authenticated, ask the user to connect Doable through the coding agent's MCP settings. Never ask for or handle the key in chat or local workspace files. Save the MCP response to a private temporary JSON file for the helper; do not reinterpret the organization binding.
 2. Look for `.doable/workspace-private.json` at the workspace root.
    - If it is valid and bound to the current organization, reuse it.
    - If paths moved but repositories are the same, refresh the local paths while preserving `workspaceId` and `repoRef` values.

@@ -139,6 +139,9 @@ test("connected helper preserves the local/private boundary and retries idempote
     ["record-workspace-sync", "--state", statePath, "--payload", profilePayloadPath, "--response", profileResponsePath],
     environment,
   );
+  privateState = JSON.parse(readFileSync(statePath, "utf8"));
+  privateState.workspace.localId = "93b35e98-0000-4000-8000-000000000001";
+  writeFileSync(statePath, `${JSON.stringify(privateState, null, 2)}\n`);
   const remoteProfileText = JSON.stringify(capturedProfile);
   assert.doesNotMatch(remoteProfileText, /private-admin-repository/);
   assert.doesNotMatch(remoteProfileText, /supplied-product-artifacts|promotion-requirements\.md/);
@@ -157,6 +160,8 @@ test("connected helper preserves the local/private boundary and retries idempote
     environment,
   );
   assert.match(refreshOutput, /Material profile approval required: no/);
+  privateState = JSON.parse(readFileSync(statePath, "utf8"));
+  assert.equal(privateState.workspace.clientRef, serverClientWorkspaceId);
   await runHelper(["build-workspace-profile", "--state", statePath, "--output", profilePayloadPath], environment);
   const refreshEnvelope = JSON.parse(readFileSync(profilePayloadPath, "utf8"));
   assert.equal(refreshEnvelope.profile.round_code, "DQ-7F3K");
@@ -806,4 +811,44 @@ test("agent-origin helper records the exact MCP round and finalize result", asyn
   );
   assert.equal(receipt.trdId, "trd-agent-safe");
   assert.equal(receipt.trdSessionId, "session-agent-safe");
+
+  const postCreateResponsePath = join(testRoot, "mcp-post-create-round-response.json");
+  writeFileSync(
+    postCreateResponsePath,
+    JSON.stringify({
+      round_id: "round-follow-up-safe",
+      round_code: "DQ-FOLLOW1",
+      round_use: "follow_up",
+      test_suite_public_id: "ts-agentflow",
+      workspace_id: "workspace-agent-safe",
+      status: "open_for_agent",
+      revision: 1,
+      feature_scope: "Account recovery",
+      questions: [
+        {
+          id: "question-expired-state",
+          purpose: "supplemental",
+          question: "What visible state appears for an expired recovery code?",
+          why: "This resolves U-recovery-1.",
+          answer_requirements: "Return the grounded current observable state.",
+          required: true,
+          scope_hints: { surfaces: ["account-recovery"], repo_refs: [] },
+        },
+      ],
+    }),
+  );
+  const postCreateOutput = await runHelper(
+    ["record-round", "--code", "DQ-FOLLOW1", "--response", postCreateResponsePath, "--state", statePath],
+    environment,
+  );
+  assert.match(postCreateOutput, /Next action: answer/);
+  const postCreateSnapshot = JSON.parse(
+    readFileSync(join(testRoot, ".doable", "requests", "DQ-FOLLOW1", "round-r1.json"), "utf8"),
+  );
+  assert.equal(postCreateSnapshot.roundUse, "follow_up");
+  assert.equal(postCreateSnapshot.testSuitePublicId, "ts-agentflow");
+  assert.deepEqual(
+    postCreateSnapshot.questions.map((question) => question.purpose),
+    ["supplemental"],
+  );
 });

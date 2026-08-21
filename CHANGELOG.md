@@ -2,6 +2,22 @@
 
 All notable changes to Doable Agent Plugins are documented here.
 
+## [0.2.3] - 2026-08-21
+
+### Changed
+
+- Keep one post-create context connection open across sequential TRD follow-up
+  Rounds. The original copied DQ code resolves to the newest published Round
+  until the user stops the coding-agent task.
+- Fetch the current TRD for each newly resolved follow-up Round while keeping
+  code, tests, and runtime evidence descriptive rather than treating it as
+  authoritative product intent.
+
+### Fixed
+
+- Preserve an existing workspace client reference when a new Round has not yet
+  been bound, avoiding duplicate workspace profiles and unnecessary approval.
+
 ## [0.2.2] - 2026-08-20
 
 ### Changed

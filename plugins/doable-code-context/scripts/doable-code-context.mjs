@@ -18,7 +18,7 @@ import {
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { execFileSync } from "node:child_process";
 
-const CLIENT = Object.freeze({ name: "doable-code-context", version: "0.2.2" });
+const CLIENT = Object.freeze({ name: "doable-code-context", version: "0.2.3" });
 const STATE_SCHEMA_VERSION = "1";
 const SUBMISSION_SCHEMA_VERSION = "1";
 
@@ -324,7 +324,7 @@ function normalizeHandshake(data, localWorkspaceId) {
         "handshake client workspace id",
         { max: 160 },
       )
-    : localWorkspaceId;
+    : null;
   const workspaceProfileRevision = workspace?.profile_revision ?? workspace?.profileRevision ?? 0;
   assert(
     Number.isInteger(Number(workspaceProfileRevision)) && Number(workspaceProfileRevision) >= 0,
@@ -737,8 +737,10 @@ function recordWorkspaceSync(options) {
   console.log(`Product surfaces: ${unique(state.repositories.flatMap((repository) => repository.surfaces), "product surfaces").sort().join(", ")}`);
 }
 
-function watchAction(status, openQuestions) {
-  if (["creating", "consumed", "cancelled"].includes(status)) return "stop";
+function watchAction(roundUse, status, openQuestions) {
+  if (["creating", "consumed", "cancelled"].includes(status)) {
+    return roundUse === "follow_up" ? "wait" : "stop";
+  }
   if (status === "open_for_agent" && openQuestions.length > 0) return "answer";
   return "wait";
 }
@@ -835,10 +837,34 @@ function normalizeRound(data, state, requestedCode) {
   const round = data.round || data;
   const id = string(round.round_id || round.id, "round id", { max: 160 });
   const code = string(round.round_code || round.code, "round code", { max: 64 });
-  assert(code.toLowerCase() === requestedCode.toLowerCase(), "Doable returned a different round code");
+  const connectionCode = string(
+    round.connection_round_code || round.connectionRoundCode || code,
+    "connection round code",
+    { max: 64 },
+  );
+  assert(
+    connectionCode.toLowerCase() === requestedCode.toLowerCase(),
+    "Doable returned a different context connection",
+  );
   const workspaceId = round.workspace_id || round.workspaceId || "";
   const revision = Number(round.revision);
   assert(Number.isInteger(revision) && revision > 0, "round revision must be a positive integer");
+  const roundUse = round.round_use || round.roundUse || "pre_create";
+  assert(
+    roundUse === "pre_create" || roundUse === "follow_up",
+    "round use must be pre_create or follow_up",
+  );
+  assert(
+    code.toLowerCase() === requestedCode.toLowerCase() || roundUse === "follow_up",
+    "Doable returned a different pre-create round code",
+  );
+  const rawTestSuitePublicId = round.test_suite_public_id || round.testSuitePublicId || "";
+  const testSuitePublicId = rawTestSuitePublicId
+    ? string(rawTestSuitePublicId, "test suite public id", { max: 160 })
+    : null;
+  if (roundUse === "follow_up") {
+    assert(testSuitePublicId, "follow-up round is missing its test suite public id");
+  }
   const status = round.status || "open_for_agent";
   assert(
     ["open_for_agent", "needs_attention", "ready_to_create", "creating", "consumed", "cancelled"].includes(status),
@@ -893,14 +919,23 @@ function normalizeRound(data, state, requestedCode) {
     const baseCount = [...questions, ...establishedContext].filter(
       (question) => question.purpose === "base_context",
     ).length;
-    assert(baseCount === 1, "round must contain exactly one base feature context request");
+    if (roundUse === "pre_create") {
+      assert(baseCount === 1, "pre-create round must contain exactly one base feature context request");
+    } else {
+      // New follow-up rounds contain only supplements. Accept one legacy base
+      // item so an already-published round can still reach a terminal state.
+      assert(baseCount <= 1, "follow-up round contains multiple base feature context requests");
+    }
   }
-  const action = watchAction(status, questions);
+  const action = watchAction(roundUse, status, questions);
   return {
     id,
     code,
+    connectionCode,
     workspaceId: workspaceId || null,
     revision,
+    roundUse,
+    testSuitePublicId,
     status,
     action,
     featureScope,
@@ -967,6 +1002,9 @@ function recordRound(options) {
     });
   }
   console.log(`Round: ${round.code} revision ${round.revision}`);
+  if (round.connectionCode !== round.code) {
+    console.log(`Connection: ${round.connectionCode}`);
+  }
   console.log(`Status: ${round.status}`);
   console.log(`Next action: ${round.action}`);
   console.log(`Scope: ${round.featureScope}`);
