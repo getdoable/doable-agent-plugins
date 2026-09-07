@@ -1,6 +1,6 @@
 {
   "name": "doable-code-context",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "Connect private code to Doable through MCP, resolve grounded context requests, and start managed feature-testing workflows.",
   "author": {
     "name": "Doable AI",
@@ -18,6 +18,13 @@
     "coding-agent"
   ],
   "skills": "./skills/",
+  "mcpServers": {
+    "doable": {
+      "type": "http",
+      "url": "https://mcp.getdoable.ai/mcp",
+      "bearer_token_env_var": "DOABLE_API_KEY"
+    }
+  },
   "interface": {
     "displayName": "Doable Code Context",
     "shortDescription": "Resolve Doable questions from private code",

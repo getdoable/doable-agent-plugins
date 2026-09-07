@@ -1,7 +1,7 @@
 {
   "name": "doable-code-context",
   "displayName": "Doable Code Context",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "Connect private code to Doable through MCP, resolve grounded context requests, and start managed feature-testing workflows.",
   "author": {
     "name": "Doable AI"
@@ -21,5 +21,19 @@
     "requirements",
     "code-context"
   ],
-  "skills": "./skills/"
+  "skills": "./skills/",
+  "variables": {
+    "type": "object",
+    "properties": {
+      "DOABLE_API_KEY": {
+        "type": "string",
+        "title": "Doable organization API key",
+        "description": "API key from the target organization's Doable Settings."
+      }
+    },
+    "required": [
+      "DOABLE_API_KEY"
+    ]
+  },
+  "mcpServers": "./.mcp.json"
 }

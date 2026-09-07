@@ -2,6 +2,16 @@
 
 All notable changes to Doable Agent Plugins are documented here.
 
+## [0.2.5] - 2026-09-07
+
+### Changed
+
+- Bundle the official remote Doable MCP connection for Codex, Claude Code, and Cursor.
+- Ask for `DOABLE_API_KEY` as a required Cursor installation variable so a
+  first-time user authenticates while installing the plugin.
+- Define the cold-start acceptance path from a TRD Editor copy prompt through
+  plugin approval, authentication, exact-Round preflight, and automatic resume.
+
 ## [0.2.4] - 2026-09-07
 
 ### Changed

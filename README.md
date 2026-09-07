@@ -7,7 +7,7 @@ Official agent plugins for [Doable](https://getdoable.ai), supporting Codex, Cla
 
 | Plugin | Version | Purpose | Network |
 | --- | --- | --- | --- |
-| `doable-code-context` | `0.2.4` | Resolve context requests or start a managed feature-testing workflow | Configured Doable MCP |
+| `doable-code-context` | `0.2.5` | Resolve context requests or start a managed feature-testing workflow | Doable MCP |
 
 ## Workflow
 
@@ -44,7 +44,7 @@ change is present in the connected repositories. If that target is missing or
 ambiguous, it stops and asks the user to fetch, check out, or identify it
 instead of answering from a neighboring revision.
 
-All remote operations use the separately configured Doable MCP connection. The bundled helper is not a service or standalone CLI: it deterministically maps local repositories, keeps exact provenance private, builds safe payloads, and validates MCP responses.
+All remote operations use the Doable MCP connection. Codex, Claude Code, and Cursor load its official remote endpoint from the plugin package. The bundled helper is not a service or standalone CLI: it deterministically maps local repositories, keeps exact provenance private, builds safe payloads, and validates MCP responses.
 
 ## Requirements
 
@@ -59,19 +59,25 @@ The MCP connection owns organization authentication; the helper never reads a cr
 
 ### Codex
 
+Make `DOABLE_API_KEY` available to the environment that launches the next Codex task, then install the plugin:
+
 ```bash
 codex plugin marketplace add getdoable/doable-agent-plugins --ref main
 codex plugin add doable-code-context@getdoable
 ```
 
-Install only the plugin needed for the desired workflow, then start a new task.
+The plugin registers the official Doable MCP endpoint automatically. Start a new task so Codex loads the new Skill and MCP connection.
 
 ### Claude Code
+
+Make `DOABLE_API_KEY` available to the environment that launches the next Claude Code session, then install the plugin:
 
 ```bash
 claude plugin marketplace add https://github.com/getdoable/doable-agent-plugins.git
 claude plugin install doable-code-context@doable --scope user
 ```
+
+The plugin registers the official Doable MCP endpoint automatically. Claude Code loads the new Skill and MCP connection in the next session.
 
 Natural-language requests activate the Skills. Explicit invocations are:
 
@@ -87,52 +93,17 @@ In a new Cursor Agent chat, install the plugin:
 /add-plugin doable-code-context@https://github.com/getdoable/doable-agent-plugins
 ```
 
+Cursor asks for the target organization's `DOABLE_API_KEY` during installation and uses it only for the plugin's user-level Doable MCP connection. After the user approves installation and enters the key, continue the original DQ request in the same conversation; do not ask them to copy it again.
+
 ## Connect Doable MCP
 
-The plugin supplies Skills and the local privacy helper; it does not bundle or duplicate the remote MCP server. On every entry path, the Skill first verifies the active connection against Doable. A copied Round also verifies the exact `DQ-...` code and organization before any workspace inspection. If recovery is needed, the coding agent configures the user-scoped connection and resumes the original request after the connection refreshes.
+The plugin supplies Skills, a declarative connection to the hosted Doable MCP endpoint for Codex, Claude Code, and Cursor, and the local privacy helper. It does not contain an MCP server implementation. On every entry path, the Skill first verifies the active connection against Doable. A copied Round also verifies the exact `DQ-...` code and organization before any workspace inspection. If recovery is needed, the coding agent configures the user-scoped connection and resumes the original request after the connection refreshes.
 
 Keep the key in the host environment or user-scoped credential store. Never commit it, add it to a project-level MCP file, save it under `.doable/`, or print it in agent output.
 
-### Codex
+### Host credential loading
 
-Make `DOABLE_API_KEY` available to the environment that launches Codex, then register the remote server without putting the key value in Codex configuration:
-
-```bash
-codex mcp add doable \
-  --url https://mcp.getdoable.ai/mcp \
-  --bearer-token-env-var DOABLE_API_KEY
-```
-
-### Claude Code
-
-Make `DOABLE_API_KEY` available to the environment that launches Claude Code. Single quotes preserve the environment reference instead of placing the key value in shell history:
-
-```bash
-claude mcp add doable \
-  --scope user \
-  --transport http \
-  https://mcp.getdoable.ai/mcp \
-  --header 'Authorization: Bearer ${DOABLE_API_KEY}'
-```
-
-### Cursor
-
-Make `DOABLE_API_KEY` available to the Cursor process and add the server to the global `~/.cursor/mcp.json` file, not the customer's repository:
-
-```json
-{
-  "mcpServers": {
-    "doable": {
-      "url": "https://mcp.getdoable.ai/mcp",
-      "headers": {
-        "Authorization": "Bearer ${env:DOABLE_API_KEY}"
-      }
-    }
-  }
-}
-```
-
-When configuring the environment ahead of time, launch the coding-agent host from that environment. If Claude Code updates an existing MCP connection during a request, open `/mcp` and reconnect `doable` once; the Skill then retries the original preflight and continues without a restart, a new session, or another copy-paste.
+Cursor and Claude Code load `plugins/doable-code-context/.mcp.json`; the Codex manifest embeds the equivalent server using Codex's native bearer-token environment field. Cursor collects the required variable during installation. Codex and Claude Code expand `DOABLE_API_KEY` from the environment when the next task or session loads the plugin. If Claude Code updates an existing connection during a request, open `/mcp` and reconnect `doable` once; the Skill then retries the original preflight and continues without another copy-paste.
 
 ## Use Doable Code Context
 

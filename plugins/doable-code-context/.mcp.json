@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "doable": {
+      "type": "http",
+      "url": "https://mcp.getdoable.ai/mcp",
+      "headers": {
+        "Authorization": "Bearer ${DOABLE_API_KEY}"
+      }
+    }
+  }
+}
