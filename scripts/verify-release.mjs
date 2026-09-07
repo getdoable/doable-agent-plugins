@@ -11,9 +11,9 @@ const semver = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:
 const plugins = [
   {
     name: "doable-code-context",
-    version: "0.2.4",
+    version: "0.2.5",
     skillNames: ["doable-connect", "doable-answer-questions", "doable-test-feature"],
-    network: "configured-doable-mcp",
+    network: "bundled-doable-mcp-config",
   },
 ];
 
@@ -110,12 +110,31 @@ for (const plugin of plugins) {
     assert(manifest.name === plugin.name, `${host} plugin name must be ${plugin.name}`);
     assert(manifest.version === plugin.version, `${host} ${plugin.name} version must be ${plugin.version}`);
     assert(semver.test(manifest.version ?? ""), `${host} ${plugin.name} version must be strict semver`);
-    for (const forbidden of ["mcpServers", "apps", "hooks"]) {
+    for (const forbidden of ["apps", "hooks"]) {
       assert(!(forbidden in manifest), `${host} ${plugin.name} must not declare ${forbidden}`);
     }
   }
   assert(codex.skills === "./skills/", `${plugin.name} Codex skills path must be ./skills/`);
   assert(cursor.skills === "./skills/", `${plugin.name} Cursor skills path must be ./skills/`);
+  assert(
+    JSON.stringify(codex.mcpServers) ===
+      JSON.stringify({
+        doable: {
+          type: "http",
+          url: "https://mcp.getdoable.ai/mcp",
+          bearer_token_env_var: "DOABLE_API_KEY",
+        },
+      }),
+    `${plugin.name} Codex MCP config must use the native bearer-token environment reference`,
+  );
+  assert(claude.mcpServers === "./.mcp.json", `${plugin.name} Claude MCP config is missing`);
+  assert(cursor.mcpServers === "./.mcp.json", `${plugin.name} Cursor MCP config is missing`);
+  assert(cursor.variables?.type === "object", `${plugin.name} Cursor variables schema is missing`);
+  assert(
+    cursor.variables?.properties?.DOABLE_API_KEY?.type === "string" &&
+      cursor.variables?.required?.includes("DOABLE_API_KEY"),
+    `${plugin.name} Cursor must require DOABLE_API_KEY during installation`,
+  );
   assert(codex.license === "MIT" && cursor.license === "MIT", `${plugin.name} manifests must use MIT`);
   assert(codex.author?.name === "Doable AI", `${plugin.name} publisher must be Doable AI`);
   assert(codex.interface?.privacyPolicyURL === "https://qa.getdoable.ai/privacy-policy", `${plugin.name} must use the QA privacy policy`);
@@ -127,7 +146,7 @@ for (const plugin of plugins) {
   const cursorEntry = cursorMarketplace.plugins?.find((entry) => entry.name === plugin.name);
   assert(codexEntry?.source?.path === `./plugins/${plugin.name}`, `${plugin.name} Codex marketplace source is incorrect`);
   assert(codexEntry?.policy?.installation === "AVAILABLE", `${plugin.name} must be available, not forced`);
-  assert(codexEntry?.policy?.authentication === "ON_USE", `${plugin.name} authentication policy must be ON_USE`);
+  assert(codexEntry?.policy?.authentication === "ON_INSTALL", `${plugin.name} authentication policy must be ON_INSTALL`);
   assert(JSON.stringify(codexEntry?.policy?.products) === JSON.stringify(["CODEX"]), `${plugin.name} must be gated to CODEX`);
   assert(claudeEntry?.source === `./plugins/${plugin.name}`, `${plugin.name} Claude marketplace source is incorrect`);
   assert(cursorEntry?.source === `./plugins/${plugin.name}`, `${plugin.name} Cursor marketplace source is incorrect`);
@@ -256,24 +275,41 @@ const readme = readFileSync(join(root, "README.md"), "utf8");
 assert(!/private during beta|private[- ]beta/i.test(readme), "README must not describe the release as private beta");
 assert(!readme.includes("github.com/getdoable/doable-mcp"), "README must not depend on private MCP documentation");
 for (const requiredSetup of [
-  "codex mcp add doable",
-  "claude mcp add doable",
-  '"Authorization": "Bearer ${env:DOABLE_API_KEY}"',
+  "The plugin registers the official Doable MCP endpoint automatically",
+  "/add-plugin doable-code-context@https://github.com/getdoable/doable-agent-plugins",
+  "Cursor asks for the target organization's `DOABLE_API_KEY` during installation",
+  "plugins/doable-code-context/.mcp.json",
 ]) {
   assert(readme.includes(requiredSetup), `README is missing public MCP setup: ${requiredSetup}`);
 }
 
+const allowedMcpConfig = join(root, "plugins", "doable-code-context", ".mcp.json");
 const forbiddenReleaseFiles = allPaths.filter((path) => {
   const name = path.split(sep).at(-1);
-  return name === ".mcp.json" || name === ".app.json" || name === ".env";
+  return (name === ".mcp.json" && path !== allowedMcpConfig) || name === ".app.json" || name === ".env";
 });
 assert(
   forbiddenReleaseFiles.length === 0,
   `forbidden integration files found: ${forbiddenReleaseFiles.map((path) => relative(root, path)).join(", ")}`,
 );
 
+const bundledMcp = readJson(allowedMcpConfig);
+assert(
+  JSON.stringify(bundledMcp) ===
+    JSON.stringify({
+      mcpServers: {
+        doable: {
+          type: "http",
+          url: "https://mcp.getdoable.ai/mcp",
+          headers: { Authorization: "Bearer ${DOABLE_API_KEY}" },
+        },
+      },
+    }),
+  "bundled Doable MCP config must contain only the official endpoint and variable reference",
+);
+
 // The helper is a deterministic local boundary. All remote work belongs to
-// the separately configured Doable MCP connection.
+// the host-loaded Doable MCP connection declared by the plugin where supported.
 const connectedHelperPath = join(root, "plugins", "doable-code-context", "scripts", "doable-code-context.mjs");
 assert(existsSync(connectedHelperPath), "connected plugin is missing its deterministic helper");
 const connectedHelper = readFileSync(connectedHelperPath, "utf8");
