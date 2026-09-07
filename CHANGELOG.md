@@ -2,6 +2,13 @@
 
 All notable changes to Doable Agent Plugins are documented here.
 
+## [0.2.6] - 2026-09-07
+
+### Fixed
+
+- Wait for Cursor's asynchronous MCP refresh after replacing credentials, then
+  retry the original preflight before treating a `401` as a rejected new key.
+
 ## [0.2.5] - 2026-09-07
 
 ### Changed

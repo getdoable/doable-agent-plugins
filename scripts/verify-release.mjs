@@ -11,7 +11,7 @@ const semver = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:
 const plugins = [
   {
     name: "doable-code-context",
-    version: "0.2.5",
+    version: "0.2.6",
     skillNames: ["doable-connect", "doable-answer-questions", "doable-test-feature"],
     network: "bundled-doable-mcp-config",
   },
@@ -220,6 +220,8 @@ for (const plugin of plugins) {
           "Do not ask the user to restart Claude Code",
           "Do not narrate the diagnosis unless the user asks",
           "paste the original request again",
+          "In Cursor, the user-scoped MCP configuration reloads asynchronously",
+          "Treat an immediate `401` as a potentially stale live transport",
           "Retry `get_code_context_connection` with the same preflight arguments",
         ],
       ],
