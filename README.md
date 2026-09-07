@@ -7,7 +7,7 @@ Official agent plugins for [Doable](https://getdoable.ai), supporting Codex, Cla
 
 | Plugin | Version | Purpose | Network |
 | --- | --- | --- | --- |
-| `doable-code-context` | `0.2.3` | Resolve context requests or start a managed feature-testing workflow | Configured Doable MCP |
+| `doable-code-context` | `0.2.4` | Resolve context requests or start a managed feature-testing workflow | Configured Doable MCP |
 
 ## Workflow
 
@@ -25,8 +25,10 @@ Use **Doable Code Context** for the connected pre-TRD workflow:
    https://github.com/getdoable/doable-agent-plugins#install.
    ```
 
-3. Paste that prompt once. The coding agent checks the Skill and this
-   organization's API Key, connects the workspace if needed, confirms the agreed
+3. Paste that prompt once. Before using local state or scanning code, the coding
+   agent verifies the live MCP connection against that exact Round and organization.
+   It recovers a missing or stale connection in the same conversation, connects the
+   workspace if needed, confirms the agreed
    branch/commit, then pulls that Round and answers from the private
    repositories. If a word in the brief could mean more than one thing in the
    code, it asks the user locally. After the first paste, new questions from the
@@ -49,9 +51,9 @@ All remote operations use the separately configured Doable MCP connection. The b
 - Codex, Claude Code, or Cursor with Agent Skills or plugin support;
 - Node.js 20 or newer;
 - Git for repository-bound evidence;
-- an authenticated Doable MCP connection configured in the coding agent.
+- a Doable organization API key available when the coding agent first connects.
 
-Never paste an API key into chat or save it under `.doable/`. The MCP connection owns organization authentication; the helper never reads a credential or calls the Doable API directly.
+The MCP connection owns organization authentication; the helper never reads a credential or calls the Doable API directly. Prefer the coding-agent host's masked credential input. If a key is supplied during connection recovery, the agent must treat it as a secret, store it only in the host's user-scoped MCP credential/configuration store, and never echo it or write it under the project workspace.
 
 ## Install
 
@@ -85,11 +87,11 @@ In a new Cursor Agent chat, install the plugin:
 /add-plugin doable-code-context@https://github.com/getdoable/doable-agent-plugins
 ```
 
-## Connect Doable MCP once
+## Connect Doable MCP
 
-The plugin supplies Skills and the local privacy helper; it does not bundle or duplicate the remote MCP server. Get the organization API key from Doable Settings and configure the official Streamable HTTP endpoint once in the coding-agent host.
+The plugin supplies Skills and the local privacy helper; it does not bundle or duplicate the remote MCP server. On every entry path, the Skill first verifies the active connection against Doable. A copied Round also verifies the exact `DQ-...` code and organization before any workspace inspection. If recovery is needed, the coding agent configures the user-scoped connection and resumes the original request after the connection refreshes.
 
-Keep the key in the host environment or credential store. Never paste it into chat, commit it, add it to a project-level MCP file, or save it under `.doable/`.
+Keep the key in the host environment or user-scoped credential store. Never commit it, add it to a project-level MCP file, save it under `.doable/`, or print it in agent output.
 
 ### Codex
 
@@ -130,7 +132,7 @@ Make `DOABLE_API_KEY` available to the Cursor process and add the server to the 
 }
 ```
 
-Restart the coding-agent host after changing its environment. Confirm that the `doable` tools are connected before starting a context request.
+When configuring the environment ahead of time, launch the coding-agent host from that environment. If Claude Code updates an existing MCP connection during a request, open `/mcp` and reconnect `doable` once; the Skill then retries the original preflight and continues without a restart, a new session, or another copy-paste.
 
 ## Use Doable Code Context
 

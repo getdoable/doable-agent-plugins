@@ -11,7 +11,7 @@ const semver = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:
 const plugins = [
   {
     name: "doable-code-context",
-    version: "0.2.3",
+    version: "0.2.4",
     skillNames: ["doable-connect", "doable-answer-questions", "doable-test-feature"],
     network: "configured-doable-mcp",
   },
@@ -158,6 +158,59 @@ for (const plugin of plugins) {
         answerSkill.includes(requiredGroundingRule),
         `${relative(root, answerSkillPath)} is missing grounding rule: ${requiredGroundingRule}`,
       );
+    }
+
+    const connectSkillPath = join(pluginRoot, "skills", "doable-connect", "SKILL.md");
+    const connectSkill = readFileSync(connectSkillPath, "utf8");
+    const testFeatureSkillPath = join(pluginRoot, "skills", "doable-test-feature", "SKILL.md");
+    const testFeatureSkill = readFileSync(testFeatureSkillPath, "utf8");
+    const authenticationPath = join(
+      pluginRoot,
+      "skills",
+      "doable-connect",
+      "references",
+      "authentication.md",
+    );
+    const authentication = readFileSync(authenticationPath, "utf8");
+    for (const [path, text, requiredAuthRules] of [
+      [
+        answerSkillPath,
+        answerSkill,
+        [
+          "Before using `.doable` state to proceed or inspecting the workspace",
+          "with the original code as `round_code`",
+          "continue this original request automatically after recovery",
+        ],
+      ],
+      [
+        connectSkillPath,
+        connectSkill,
+        ["Before using workspace state to prepare a profile or scanning repositories", "references/authentication.md"],
+      ],
+      [
+        testFeatureSkillPath,
+        testFeatureSkill,
+        ["Before inspecting `.doable` state or searching remote suites", "connection recovery workflow"],
+      ],
+      [
+        authenticationPath,
+        authentication,
+        [
+          "Open `/mcp` and reconnect `doable`",
+          "If the user already supplied",
+          "Do not ask the user to restart Claude Code",
+          "Do not narrate the diagnosis unless the user asks",
+          "paste the original request again",
+          "Retry `get_code_context_connection` with the same preflight arguments",
+        ],
+      ],
+    ]) {
+      for (const requiredRule of requiredAuthRules) {
+        assert(
+          text.includes(requiredRule),
+          `${relative(root, path)} is missing authentication recovery rule: ${requiredRule}`,
+        );
+      }
     }
   }
 }

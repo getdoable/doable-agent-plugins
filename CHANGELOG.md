@@ -2,6 +2,18 @@
 
 All notable changes to Doable Agent Plugins are documented here.
 
+## [0.2.4] - 2026-09-07
+
+### Changed
+
+- Preflight copied context requests against their exact Round and organization
+  before reading local state or scanning source.
+- Recover missing, stale, invalid, or wrong-organization MCP connections in the
+  original conversation. Claude Code users reconnect `doable` once in `/mcp`;
+  they no longer restart the host or paste the request again.
+- Apply the same live-connection preflight to coding-agent-origin feature tests
+  before workspace setup or suite lookup.
+
 ## [0.2.3] - 2026-08-21
 
 ### Changed

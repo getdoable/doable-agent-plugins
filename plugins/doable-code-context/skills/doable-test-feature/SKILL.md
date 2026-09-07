@@ -16,7 +16,7 @@ node <plugin-directory>/scripts/doable-code-context.mjs <command> ...
 ## Workflow
 
 1. Resolve the feature scope locally from the request, selected change, ticket, PRD, or current conversation before calling any Doable tool. Inspect only enough local change context to name the feature and its user-visible boundary. Ask one short clarification only when that feature is genuinely ambiguous. Do not turn “test the feature I just built” into a whole-product scan, and do not create a remote Round while the user may be in the wrong workspace.
-2. Ensure the configured Doable MCP connection is authenticated with `get_code_context_connection`. Do not build or sync a workspace profile yet; an implementation catch-up or regression may be answerable from an existing TRD and cases without a new Round.
+2. Before inspecting `.doable` state or searching remote suites, preflight the live connection with `get_code_context_connection`. The tool response, not the presence of a local MCP entry or environment variable, proves that the active credential is valid. If the tool is unavailable or disconnected or returns `401`, follow [the connection recovery workflow](../doable-connect/references/authentication.md), retry the preflight, and resume this original feature-testing request automatically. Do not build or sync a workspace profile yet; an implementation catch-up or regression may be answerable from an existing TRD and cases without a new Round.
 3. Use Doable MCP to search accessible test suites by feature scope, flows, entry surface, and existing case coverage.
    - Reuse one clear match.
    - If several are materially plausible, show the small candidate set and ask the developer to choose.
@@ -39,7 +39,7 @@ node <plugin-directory>/scripts/doable-code-context.mjs <command> ...
 
 ## Safety and boundaries
 
-- The configured Doable MCP connection is the only remote authority used by these Skills. Never ask for, read, or save its credential in workspace files.
+- The configured Doable MCP connection is the only remote authority used by these Skills. A credential supplied during connection recovery belongs only in the coding-agent host's user-scoped MCP credential/configuration store; never echo it, pass it on a command line, or save it in workspace files.
 - Source code, local paths, repository identities, commits, secrets, raw logs, private URLs, and real customer data remain local.
 - Setup sends only the user-approved sanitized routing profile. Round answers send only product-level findings, observable anchors, exact human clarifications, and opaque evidence references.
 - Do not mutate a feature environment merely to collect context. Test execution happens only through the selected Doable suite and its configured environment.
