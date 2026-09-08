@@ -46,7 +46,8 @@ function runHelper(args, env) {
 test("connected helper preserves the local/private boundary and retries idempotently", async (t) => {
   const testRoot = mkdtempSync(join(tmpdir(), "doable-code-context-test-"));
   t.after(() => rmSync(testRoot, { recursive: true, force: true }));
-  const repository = join(testRoot, "private-admin-repository");
+  // A generic checkout name must not collide with the opaque repo_ ID prefix.
+  const repository = join(testRoot, "repo");
   mkdirSync(repository);
   execFileSync("git", ["init", "-q", repository]);
   execFileSync("git", ["-C", repository, "config", "user.email", "test@example.invalid"]);
@@ -311,6 +312,27 @@ test("connected helper preserves the local/private boundary and retries idempote
   ];
   writeFileSync(submissionPath, `${JSON.stringify(submission, null, 2)}\n`);
   chmodSync(submissionPath, 0o600);
+
+  for (const statement of [
+    "The repo contains the Save control.",
+    "The private-admin-repository contains the Save control.",
+  ]) {
+    const leakingFinding = structuredClone(submission);
+    leakingFinding.answers[0].findings[0].statement = statement;
+    writeFileSync(submissionPath, `${JSON.stringify(leakingFinding, null, 2)}\n`);
+    await assert.rejects(
+      runHelper(["validate-submission", "--state", statePath, "--candidate", submissionPath], environment),
+      /exposes local repository provenance/i,
+    );
+  }
+
+  const unmappedEvidence = structuredClone(submission);
+  unmappedEvidence.evidence[0].repoRef = "repo_00000000";
+  writeFileSync(submissionPath, `${JSON.stringify(unmappedEvidence, null, 2)}\n`);
+  await assert.rejects(
+    runHelper(["validate-submission", "--state", statePath, "--candidate", submissionPath], environment),
+    /unknown repository/i,
+  );
 
   const orderedJourney = structuredClone(submission);
   Object.assign(orderedJourney.answers[0].findings[0], {

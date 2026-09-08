@@ -18,7 +18,7 @@ import {
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { execFileSync } from "node:child_process";
 
-const CLIENT = Object.freeze({ name: "doable-code-context", version: "0.2.3" });
+const CLIENT = Object.freeze({ name: "doable-code-context", version: "0.2.7" });
 const STATE_SCHEMA_VERSION = "1";
 const SUBMISSION_SCHEMA_VERSION = "1";
 
@@ -533,6 +533,15 @@ function assertRemotePayloadSafe(value, state, label = "remote payload", key = "
       assertRemotePayloadSafe(childValue, state, `${label}.${childKey}`, childKey);
     }
   } else if (typeof value === "string") {
+    if (key === "repo_ref") {
+      // This is a typed, mapped identifier, not prose containing a repository name.
+      // Checking it as prose rejects every repo_ ID when the checkout is named repo.
+      assert(
+        OPAQUE_REPO_RE.test(value) && state.repositories.some((repository) => repository.repoRef === value),
+        `${label} must reference a mapped opaque repository`,
+      );
+      return;
+    }
     assertSafeText(value, label, state, { max: 8_000 });
   }
 }

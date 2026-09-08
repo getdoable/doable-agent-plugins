@@ -2,6 +2,18 @@
 
 All notable changes to Doable Agent Plugins are documented here.
 
+## [0.2.7] - 2026-09-09
+
+### Fixed
+
+- Validate mapped opaque repository references as identifiers so a checkout named
+  `repo` can connect and submit without weakening repository-name privacy checks.
+- Keep specific behavior questions focused on their execution path and material
+  conditions; retain flow and sibling coverage for feature-wide testing requests.
+- Check concrete fixture values against validation and guards before asserting
+  their outcome; keep illustrative journeys out of unrelated behavior answers.
+- Require candidate repairs without modifying helper privacy or transport checks.
+
 ## [0.2.6] - 2026-09-07
 
 ### Fixed
