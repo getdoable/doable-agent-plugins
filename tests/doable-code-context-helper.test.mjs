@@ -851,4 +851,26 @@ test("agent-origin helper records the exact MCP round and finalize result", asyn
     postCreateSnapshot.questions.map((question) => question.purpose),
     ["supplemental"],
   );
+  // First code connection after a walkthrough can carry the same base purpose
+  // as pre-create, alongside focused gaps; Apply still leaves watch running.
+  const firstBaseline = JSON.parse(readFileSync(postCreateResponsePath, "utf8"));
+  firstBaseline.questions.unshift({
+    id: "question-feature-baseline", purpose: "base_context",
+    question: "Test account recovery", why: "Establish the feature baseline from code.",
+    answer_requirements: "Ground user-visible flows, roles, prerequisites and outcomes.",
+    required: true, scope_hints: { surfaces: ["account-recovery"], repo_refs: [] },
+  });
+  writeFileSync(postCreateResponsePath, JSON.stringify(firstBaseline));
+  assert.match(await runHelper(
+    ["record-round", "--code", "DQ-FOLLOW1", "--response", postCreateResponsePath, "--state", statePath], environment,
+  ), /Next action: answer/);
+  const baselineSnapshot = JSON.parse(readFileSync(
+    join(testRoot, ".doable", "requests", "DQ-FOLLOW1", "round-r1.json"), "utf8",
+  ));
+  assert.deepEqual(baselineSnapshot.questions.map(q => q.purpose), ["base_context", "supplemental"]);
+  writeFileSync(postCreateResponsePath, JSON.stringify({ ...firstBaseline, status: "consumed", questions: [] }));
+  assert.match(await runHelper(
+    ["record-round", "--code", "DQ-FOLLOW1", "--response", postCreateResponsePath, "--state", statePath], environment,
+  ), /Next action: wait/);
+
 });

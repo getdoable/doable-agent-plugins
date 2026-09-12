@@ -922,8 +922,8 @@ function normalizeRound(data, state, requestedCode) {
     if (roundUse === "pre_create") {
       assert(baseCount === 1, "pre-create round must contain exactly one base feature context request");
     } else {
-      // New follow-up rounds contain only supplements. Accept one legacy base
-      // item so an already-published round can still reach a terminal state.
+      // Follow-up can establish its first feature baseline, then continue with
+      // supplements. The connection keeps watching after this Round is applied.
       assert(baseCount <= 1, "follow-up round contains multiple base feature context requests");
     }
   }
