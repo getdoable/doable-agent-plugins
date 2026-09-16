@@ -350,6 +350,47 @@ test("connected helper preserves the local/private boundary and retries idempote
     runHelper(["validate-submission", "--state", statePath, "--candidate", submissionPath], environment),
     /cannot carry executable order/i,
   );
+  // A declaration names journeys the findings already ordered. It must not be able to
+  // introduce one, or the journey map could assert structure no evidence supports.
+  const declaredJourneys = structuredClone(orderedJourney);
+  declaredJourneys.journeys = [
+    {
+      journeyRef: "j_submit_promotion",
+      name: "Submit a promotion",
+      goal: "Turn a drafted promotion into one buyers can redeem.",
+      actor: "Store staff",
+      alternatePaths: ["Submitting an expired date range is rejected"],
+    },
+  ];
+  writeFileSync(submissionPath, `${JSON.stringify(declaredJourneys, null, 2)}\n`);
+  await runHelper(["validate-submission", "--state", statePath, "--candidate", submissionPath], environment);
+
+  const unbackedJourney = structuredClone(declaredJourneys);
+  unbackedJourney.journeys[0].journeyRef = "j_nothing_orders_this";
+  writeFileSync(submissionPath, `${JSON.stringify(unbackedJourney, null, 2)}\n`);
+  await assert.rejects(
+    runHelper(["validate-submission", "--state", statePath, "--candidate", submissionPath], environment),
+    /has no ordered findings/i,
+  );
+
+  const duplicateJourney = structuredClone(declaredJourneys);
+  duplicateJourney.journeys.push(structuredClone(declaredJourneys.journeys[0]));
+  writeFileSync(submissionPath, `${JSON.stringify(duplicateJourney, null, 2)}\n`);
+  await assert.rejects(
+    runHelper(["validate-submission", "--state", statePath, "--candidate", submissionPath], environment),
+    /more than once/i,
+  );
+
+  // The journey's own wording crosses the boundary like any other prose, so it gets the
+  // same provenance check rather than riding along unexamined.
+  const leakyJourney = structuredClone(declaredJourneys);
+  leakyJourney.journeys[0].goal = "Turn a draft into a live promotion in private-admin-repository.";
+  writeFileSync(submissionPath, `${JSON.stringify(leakyJourney, null, 2)}\n`);
+  await assert.rejects(
+    runHelper(["validate-submission", "--state", statePath, "--candidate", submissionPath], environment),
+    /journeys\[0\]\.goal exposes local repository provenance/i,
+  );
+
   writeFileSync(submissionPath, `${JSON.stringify(submission, null, 2)}\n`);
 
   const invalidStatus = structuredClone(submission);
