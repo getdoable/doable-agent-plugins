@@ -182,6 +182,7 @@ test("connected helper preserves the local/private boundary and retries idempote
       revision: 1,
       status: "open_for_agent",
       feature_scope: "Staff promotion creation",
+      journey_map: { requested: true, how: "", may_skip: "" },
       questions: [
         {
           id: "question-save-label",
@@ -390,6 +391,22 @@ test("connected helper preserves the local/private boundary and retries idempote
     runHelper(["validate-submission", "--state", statePath, "--candidate", submissionPath], environment),
     /journeys\[0\]\.goal exposes local repository provenance/i,
   );
+
+  // A Round that did not ask for a map must never receive one: a backend that predates
+  // the field rejects the whole submission. Re-record the same Round without the request.
+  const unrequestedRoundPath = join(testRoot, "mcp-round-unrequested-response.json");
+  writeFileSync(
+    unrequestedRoundPath,
+    JSON.stringify({ ...JSON.parse(readFileSync(roundResponsePath, "utf8")), journey_map: undefined }),
+  );
+  await runHelper(["record-round", "--code", "DQ-7F3K", "--response", unrequestedRoundPath, "--state", statePath], environment);
+  writeFileSync(submissionPath, `${JSON.stringify(declaredJourneys, null, 2)}\n`);
+  const unrequestedOutput = await runHelper(
+    ["validate-submission", "--state", statePath, "--candidate", submissionPath],
+    environment,
+  );
+  assert.match(unrequestedOutput, /Journey map not requested by this Round; omitted 1 declaration/);
+  await runHelper(["record-round", "--code", "DQ-7F3K", "--response", roundResponsePath, "--state", statePath], environment);
 
   writeFileSync(submissionPath, `${JSON.stringify(submission, null, 2)}\n`);
 
@@ -828,6 +845,19 @@ test("agent-origin helper records the exact MCP round and finalize result", asyn
     environment,
   );
   assert.match(creatingOutput, /Next action: stop/);
+
+  // Without next_action the local rule still stops a pre-create Round (an older server).
+  // With one, the server wins: it can see the follow-up Rounds this code now reaches.
+  const handedOverResponsePath = join(testRoot, "mcp-round-handed-over-response.json");
+  writeFileSync(
+    handedOverResponsePath,
+    JSON.stringify({ ...JSON.parse(readFileSync(creatingResponsePath, "utf8")), status: "consumed", next_action: "wait" }),
+  );
+  const handedOverOutput = await runHelper(
+    ["record-round", "--code", "DQ-AGENT1", "--response", handedOverResponsePath, "--state", statePath],
+    environment,
+  );
+  assert.match(handedOverOutput, /Next action: wait/);
 
   const finalizeResponsePath = join(testRoot, "mcp-finalize-response.json");
   writeFileSync(
