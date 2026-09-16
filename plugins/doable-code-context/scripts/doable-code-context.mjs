@@ -927,7 +927,15 @@ function normalizeRound(data, state, requestedCode) {
       assert(baseCount <= 1, "follow-up round contains multiple base feature context requests");
     }
   }
-  const action = watchAction(roundUse, status, questions);
+  // The server decides whether a connection continues: only it can see the TRD a
+  // pre-create Round was consumed into and the follow-up Rounds that code now reaches.
+  // Recomputing that here drifted from the server once already, so its answer wins.
+  // The local rule is the fallback for a server that sends none.
+  const serverAction = round.next_action ?? round.nextAction;
+  const action = ["answer", "wait", "stop"].includes(serverAction)
+    ? serverAction
+    : watchAction(roundUse, status, questions);
+  const journeyMap = round.journey_map ?? round.journeyMap;
   return {
     id,
     code,
@@ -938,6 +946,8 @@ function normalizeRound(data, state, requestedCode) {
     testSuitePublicId,
     status,
     action,
+    // Carried into the frozen snapshot so the submission can be gated on it.
+    journeyMapRequested: journeyMap?.requested === true,
     featureScope,
     questions,
     establishedContext,
@@ -1406,10 +1416,17 @@ function buildSubmission(statePath, candidatePath) {
   ];
   validateFindingJourneys(allFindings);
   const conflicts = normalizeConflicts(candidate.conflicts || [], "conflicts", privacyState, allFindings);
-  const journeys = normalizeJourneys(candidate.journeys || [], "journeys", privacyState, allFindings);
-  const journeyMapSkipReason = candidate.journeyMapSkipReason
+  // Send a journey map only where this Round asked for one. A Doable backend that
+  // predates the field rejects any submission carrying it, and a gap-only follow-up
+  // never requests one, so the helper enforces this rather than trusting the prose.
+  const journeyMapRequested = frozenRound.journeyMapRequested === true;
+  const journeys = journeyMapRequested
+    ? normalizeJourneys(candidate.journeys || [], "journeys", privacyState, allFindings)
+    : [];
+  const journeyMapSkipReason = journeyMapRequested && candidate.journeyMapSkipReason
     ? string(candidate.journeyMapSkipReason, "journeyMapSkipReason", { max: 500 })
     : undefined;
+  const omittedJourneyCount = journeyMapRequested ? 0 : (candidate.journeys || []).length;
   const payload = {
     round_revision: roundRevision,
     workspace_id: state.workspace.serverId,
@@ -1421,18 +1438,21 @@ function buildSubmission(statePath, candidatePath) {
     ...(journeyMapSkipReason ? { journey_map_skip_reason: journeyMapSkipReason } : {}),
   };
   assertRemotePayloadSafe(payload, privacyState);
-  return { state, frozenRound, payload, payloadDigest: sha256(stableJson(payload)) };
+  return { state, frozenRound, payload, payloadDigest: sha256(stableJson(payload)), omittedJourneyCount };
 }
 
 function validateSubmission(options) {
   const statePath = resolve(options.state || ".doable/workspace-private.json");
   const candidatePath = resolve(requiredOption(options, "candidate"));
-  const { frozenRound, payload, payloadDigest } = buildSubmission(statePath, candidatePath);
+  const { frozenRound, payload, payloadDigest, omittedJourneyCount } = buildSubmission(statePath, candidatePath);
   const answered = payload.answers.filter((answer) => answer.status === "answered").length;
   const skipped = payload.answers.length - answered;
   console.log(`Round: ${frozenRound.code} revision ${frozenRound.revision}`);
   console.log(`Answers valid: ${answered} answered, ${skipped} skipped`);
   console.log(`Nonblocking observations: ${payload.agent_observations.length}`);
+  if (omittedJourneyCount > 0) {
+    console.log(`Journey map not requested by this Round; omitted ${omittedJourneyCount} declaration(s)`);
+  }
   console.log(`Safe payload digest: ${payloadDigest}`);
 }
 
