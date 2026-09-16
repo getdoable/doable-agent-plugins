@@ -1222,6 +1222,42 @@ function validateFindingJourneys(findings) {
   }
 }
 
+function normalizeJourneys(value, label, state, findings) {
+  assert(Array.isArray(value), `${label} must be an array`);
+  const ordered = new Set(findings.filter((finding) => finding.journey_ref).map((finding) => finding.journey_ref));
+  const seen = new Set();
+  return value.map((journey, index) => {
+    assert(journey && typeof journey === "object" && !Array.isArray(journey), `${label}[${index}] must be an object`);
+    const journeyRef = string(journey.journeyRef, `${label}[${index}].journeyRef`, { max: 42 });
+    assert(JOURNEY_REF_RE.test(journeyRef), `${label}[${index}].journeyRef is invalid`);
+    // A declaration names findings; it never introduces a journey of its own.
+    assert(ordered.has(journeyRef), `${label}[${index}].journeyRef ${journeyRef} has no ordered findings`);
+    assert(!seen.has(journeyRef), `${label} declares ${journeyRef} more than once`);
+    seen.add(journeyRef);
+    const name = string(journey.name, `${label}[${index}].name`, { max: 200 });
+    const goal = string(journey.goal, `${label}[${index}].goal`, { max: 500 });
+    assertNoLocalProvenance(name, `${label}[${index}].name`, state);
+    assertNoLocalProvenance(goal, `${label}[${index}].goal`, state);
+    let actor;
+    if (journey.actor !== undefined && journey.actor !== null) {
+      actor = string(journey.actor, `${label}[${index}].actor`, { max: 120 });
+      assertNoLocalProvenance(actor, `${label}[${index}].actor`, state);
+    }
+    const alternatePaths = (journey.alternatePaths || []).map((path, pathIndex) => {
+      const text = string(path, `${label}[${index}].alternatePaths[${pathIndex}]`, { max: 300 });
+      assertNoLocalProvenance(text, `${label}[${index}].alternatePaths[${pathIndex}]`, state);
+      return text;
+    });
+    return {
+      journey_ref: journeyRef,
+      name,
+      goal,
+      ...(actor ? { actor } : {}),
+      alternate_paths: alternatePaths,
+    };
+  });
+}
+
 function normalizeConflicts(value, label, state, findings) {
   assert(Array.isArray(value), `${label} must be an array`);
   const findingsByRef = new Map(findings.map((finding) => [finding.finding_ref, finding]));
@@ -1370,6 +1406,10 @@ function buildSubmission(statePath, candidatePath) {
   ];
   validateFindingJourneys(allFindings);
   const conflicts = normalizeConflicts(candidate.conflicts || [], "conflicts", privacyState, allFindings);
+  const journeys = normalizeJourneys(candidate.journeys || [], "journeys", privacyState, allFindings);
+  const journeyMapSkipReason = candidate.journeyMapSkipReason
+    ? string(candidate.journeyMapSkipReason, "journeyMapSkipReason", { max: 500 })
+    : undefined;
   const payload = {
     round_revision: roundRevision,
     workspace_id: state.workspace.serverId,
@@ -1377,6 +1417,8 @@ function buildSubmission(statePath, candidatePath) {
     agent_observations: agentObservations,
     conflicts,
     evidence_references: evidenceReferences,
+    ...(journeys.length ? { journeys } : {}),
+    ...(journeyMapSkipReason ? { journey_map_skip_reason: journeyMapSkipReason } : {}),
   };
   assertRemotePayloadSafe(payload, privacyState);
   return { state, frozenRound, payload, payloadDigest: sha256(stableJson(payload)) };
