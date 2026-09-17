@@ -7,7 +7,7 @@ Official agent plugins for [Doable](https://getdoable.ai), supporting Codex, Cla
 
 | Plugin | Version | Purpose | Network |
 | --- | --- | --- | --- |
-| `doable-code-context` | `0.2.6` | Resolve context requests or start a managed feature-testing workflow | Doable MCP |
+| `doable-code-context` | `0.2.7` | Resolve context requests or start a managed feature-testing workflow | Doable MCP |
 
 ## Workflow
 
@@ -84,6 +84,28 @@ Natural-language requests activate the Skills. Explicit invocations are:
 - `/doable-code-context:doable-connect`
 - `/doable-code-context:doable-answer-questions`
 - `/doable-code-context:doable-test-feature`
+
+#### Check the version and update
+
+Run `claude plugin list` and find `doable-code-context` to see the installed
+plugin version. `claude --version` reports the Claude Code version instead.
+
+For the user-scoped installation above, update with:
+
+```bash
+claude plugin marketplace update doable
+claude plugin update doable-code-context@doable --scope user
+```
+
+Use the actual installation scope if it differs. In a supported interactive
+session, run `/reload-plugins` to load the update, then invoke the Skill again
+with the original DQ. If the host requires a new session, resume the original
+request there. Downloading an update does not mean an existing session has
+loaded it.
+
+For future updates, open `/plugin` → **Marketplaces** → **doable** →
+**Enable auto-update**. Third-party marketplaces have auto-update disabled by
+default. See the [Claude Code update documentation](https://code.claude.com/docs/en/discover-plugins#configure-auto-updates).
 
 ### Cursor
 

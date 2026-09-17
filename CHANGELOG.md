@@ -2,6 +2,23 @@
 
 All notable changes to Doable Agent Plugins are documented here.
 
+## [0.2.7] - 2026-09-17
+
+### Fixed
+
+- Advance the plugin version so existing installations can receive the changes
+  merged after 0.2.6: persistent follow-up watching, journey declarations, and
+  result observation. A reused version can leave an installed plugin cached.
+- Follow the server's next-action decision when a pre-create Round hands over
+  to TRD follow-ups, and omit journey declarations when the Round did not
+  request them, preserving compatibility with older backends.
+- Align the local helper's client version with the plugin release.
+
+### Documentation
+
+- Explain how to inspect the installed Doable version, update the Claude Code
+  plugin, load it into a session, and enable marketplace auto-updates.
+
 ## [0.2.6] - 2026-09-07
 
 ### Fixed
