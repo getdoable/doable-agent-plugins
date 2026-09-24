@@ -18,7 +18,7 @@ import {
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { execFileSync } from "node:child_process";
 
-const CLIENT = Object.freeze({ name: "doable-code-context", version: "0.2.7" });
+const CLIENT = Object.freeze({ name: "doable-code-context", version: "0.2.8" });
 const STATE_SCHEMA_VERSION = "1";
 const SUBMISSION_SCHEMA_VERSION = "1";
 
@@ -854,10 +854,9 @@ function normalizeRound(data, state, requestedCode) {
     roundUse === "pre_create" || roundUse === "follow_up",
     "round use must be pre_create or follow_up",
   );
-  assert(
-    code.toLowerCase() === requestedCode.toLowerCase() || roundUse === "follow_up",
-    "Doable returned a different pre-create round code",
-  );
+  // The server may resolve the connection to a create-resume pre-create Round.
+  // The original connection code was checked above; workspace checks below still
+  // reject a successor from another local workspace.
   const rawTestSuitePublicId = round.test_suite_public_id || round.testSuitePublicId || "";
   const testSuitePublicId = rawTestSuitePublicId
     ? string(rawTestSuitePublicId, "test suite public id", { max: 160 })
