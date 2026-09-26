@@ -2,6 +2,16 @@
 
 All notable changes to Doable Agent Plugins are documented here.
 
+## [0.2.8] - 2026-09-25
+
+### Fixed
+
+- Accept a server-bound pre-create successor when a TRD needs more context to
+  finish creation. Keep checking the original connection code and local workspace.
+- Requires the matching TRD connection resolver fix; older servers retain their
+  existing behavior. Cross-repository contract: `getdoable/trd`
+  `docs/change-sets/pre-create-code-context-toggle.yaml`.
+
 ## [0.2.7] - 2026-09-17
 
 ### Fixed

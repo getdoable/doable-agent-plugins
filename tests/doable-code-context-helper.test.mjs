@@ -945,3 +945,37 @@ test("agent-origin helper records the exact MCP round and finalize result", asyn
   ), /Next action: wait/);
 
 });
+
+test("a pre-create successor requires the original connection and matching workspace", async (t) => {
+  const testRoot = mkdtempSync(join(tmpdir(), "doable-resume-connection-"));
+  t.after(() => rmSync(testRoot, { recursive: true, force: true }));
+  mkdirSync(join(testRoot, ".doable"));
+  const statePath = join(testRoot, ".doable", "workspace-private.json");
+  writeFileSync(statePath, JSON.stringify({
+    schemaVersion: "1", workspace: { localId: "local-fixture", serverId: "workspace-safe" },
+    organization: { id: "org-safe" }, repositories: [],
+    privateFingerprintKey: "local-test-only",
+    sync: { profileFingerprint: "fixture" }, profile: { profileFingerprint: "fixture" },
+  }));
+  const responsePath = join(testRoot, "resume-round.json");
+  const round = {
+    round_id: "resume-round", round_code: "DQ-RESUME1", connection_round_code: "DQ-ORIGIN1",
+    round_use: "pre_create", workspace_id: "workspace-safe", status: "open_for_agent",
+    next_action: "answer", revision: 1, feature_scope: "Account recovery",
+    questions: [{ id: "base-question", purpose: "base_context", question: "Ground account recovery.", why: "Resume creation." }],
+  };
+  const environment = { TEST_WORKSPACE: testRoot };
+  const args = ["record-round", "--code", "DQ-ORIGIN1", "--response", responsePath, "--state", statePath];
+  writeFileSync(responsePath, JSON.stringify(round));
+  assert.match(await runHelper(args, environment), /Next action: answer/);
+  const candidate = JSON.parse(readFileSync(join(testRoot, ".doable", "requests", "DQ-RESUME1", "submission-r1.json"), "utf8"));
+  assert.equal(candidate.round.id, "resume-round");
+  assert.deepEqual(candidate.answers.map(answer => answer.questionId), ["base-question"]);
+
+  for (const changes of [{ connection_round_code: undefined }, { connection_round_code: "DQ-OTHER1" }]) {
+    writeFileSync(responsePath, JSON.stringify({ ...round, ...changes }));
+    await assert.rejects(runHelper(args, environment), /different context connection/);
+  }
+  writeFileSync(responsePath, JSON.stringify({ ...round, workspace_id: "workspace-other" }));
+  await assert.rejects(runHelper(args, environment), /different workspace/);
+});
