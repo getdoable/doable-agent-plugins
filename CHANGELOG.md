@@ -2,6 +2,17 @@
 
 All notable changes to Doable Agent Plugins are documented here.
 
+## [0.2.9] - 2026-09-26
+
+### Added
+
+- Report investigation stages and the current question to the TRD editor, with
+  updates during long active work at the next tool boundary (about 60 seconds).
+- Fall back to phase-only reporting on older MCP/backend deployments; never
+  report artificial activity during idle connection polling.
+- Cross-repository contract: `getdoable/trd`
+  `docs/change-sets/code-context-live-progress.yaml`.
+
 ## [0.2.8] - 2026-09-25
 
 ### Fixed
