@@ -6,7 +6,7 @@ All notable changes to Doable Agent Plugins are documented here.
 
 ### Added
 
-- Report investigation stages and the current question to the TRD editor, with
+- Report investigation stages and the current question to the test spec editor, with
   updates during long active work at the next tool boundary (about 60 seconds).
 - Fall back to phase-only reporting on older MCP/backend deployments; never
   report artificial activity during idle connection polling.
@@ -17,9 +17,9 @@ All notable changes to Doable Agent Plugins are documented here.
 
 ### Fixed
 
-- Accept a server-bound pre-create successor when a TRD needs more context to
+- Accept a server-bound pre-create successor when a test spec needs more context to
   finish creation. Keep checking the original connection code and local workspace.
-- Requires the matching TRD connection resolver fix; older servers retain their
+- Requires the matching test spec connection resolver fix; older servers retain their
   existing behavior. Cross-repository contract: `getdoable/trd`
   `docs/change-sets/pre-create-code-context-toggle.yaml`.
 
@@ -31,7 +31,7 @@ All notable changes to Doable Agent Plugins are documented here.
   merged after 0.2.6: persistent follow-up watching, journey declarations, and
   result observation. A reused version can leave an installed plugin cached.
 - Follow the server's next-action decision when a pre-create Round hands over
-  to TRD follow-ups, and omit journey declarations when the Round did not
+  to test spec follow-ups, and omit journey declarations when the Round did not
   request them, preserving compatibility with older backends.
 - Align the local helper's client version with the plugin release.
 
@@ -54,7 +54,7 @@ All notable changes to Doable Agent Plugins are documented here.
 - Bundle the official remote Doable MCP connection for Codex, Claude Code, and Cursor.
 - Ask for `DOABLE_API_KEY` as a required Cursor installation variable so a
   first-time user authenticates while installing the plugin.
-- Define the cold-start acceptance path from a TRD Editor copy prompt through
+- Define the cold-start acceptance path from a Test Spec Editor copy prompt through
   plugin approval, authentication, exact-Round preflight, and automatic resume.
 
 ## [0.2.4] - 2026-09-07
@@ -73,10 +73,10 @@ All notable changes to Doable Agent Plugins are documented here.
 
 ### Changed
 
-- Keep one post-create context connection open across sequential TRD follow-up
+- Keep one post-create context connection open across sequential test spec follow-up
   Rounds. The original copied DQ code resolves to the newest published Round
   until the user stops the coding-agent task.
-- Fetch the current TRD for each newly resolved follow-up Round while keeping
+- Fetch the current test spec for each newly resolved follow-up Round while keeping
   code, tests, and runtime evidence descriptive rather than treating it as
   authoritative product intent.
 
@@ -89,7 +89,7 @@ All notable changes to Doable Agent Plugins are documented here.
 
 ### Changed
 
-- Watch one published Round until the editor continues TRD generation. `record-round`
+- Watch one published Round until the editor continues test spec generation. `record-round`
   prints `Next action: answer|wait|stop`, keeps same-round answers as established
   context, and does not treat `ready_to_create` as finished.
 - `record-submission` keeps one receipt per payload digest so a later batch on the
@@ -110,8 +110,8 @@ All notable changes to Doable Agent Plugins are documented here.
 ### Added
 
 - Doable Code Context for Codex, Claude Code, and Cursor.
-- MCP-backed pre-TRD context rounds with grounded, privacy-safe findings.
-- Coding-agent-first feature testing through the existing Doable suite, TRD, and managed-case workflow.
+- MCP-backed pre-test-spec context rounds with grounded, privacy-safe findings.
+- Coding-agent-first feature testing through the existing Doable suite, test spec, and managed-case workflow.
 - Demand-driven mono-repo and multi-repo workspace mapping with local-only provenance.
 
 ### Changed

@@ -1,4 +1,4 @@
-# Progress visible in the TRD editor
+# Progress visible in the test spec editor
 
 Report actual work through `report_code_context_activity`, using the current
 returned Round ID and revision. Keep the original connection code only for pulls.

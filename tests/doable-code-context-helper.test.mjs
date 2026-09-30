@@ -865,23 +865,23 @@ test("agent-origin helper records the exact MCP round and finalize result", asyn
     JSON.stringify({
       round_id: "round-agent-safe",
       mode: "create",
-      trd_id: "trd-agent-safe",
-      trd_session_id: "session-agent-safe",
+      test_spec_id: "test-spec-agent-safe",
+      test_spec_session_id: "session-agent-safe",
     }),
   );
   const finalizeOutput = await runHelper(
     ["record-finalize", "--code", "DQ-AGENT1", "--response", finalizeResponsePath],
     environment,
   );
-  assert.match(finalizeOutput, /TRD mode: create/);
+  assert.match(finalizeOutput, /test spec mode: create/);
   const receipt = JSON.parse(
     readFileSync(
       join(testRoot, ".doable", "requests", "DQ-AGENT1", "finalize-receipt.json"),
       "utf8",
     ),
   );
-  assert.equal(receipt.trdId, "trd-agent-safe");
-  assert.equal(receipt.trdSessionId, "session-agent-safe");
+  assert.equal(receipt.testSpecId, "test-spec-agent-safe");
+  assert.equal(receipt.testSpecSessionId, "session-agent-safe");
 
   const postCreateResponsePath = join(testRoot, "mcp-post-create-round-response.json");
   writeFileSync(
