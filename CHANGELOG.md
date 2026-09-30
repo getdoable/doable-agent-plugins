@@ -2,6 +2,21 @@
 
 All notable changes to Doable Agent Plugins are documented here.
 
+## [0.2.10] - 2026-09-30
+
+### Changed
+
+- Say "test spec" instead of "TRD" in the skills, helper output, and documentation,
+  following Doable's rename of the Test Requirement Document (TRD) to test spec.
+- Read the current test spec with the Doable MCP tool `get_test_spec`. This requires
+  the updated Doable MCP server, which keeps `get_trd` as a deprecated alias for
+  earlier plugin versions.
+- `record-finalize` reads `test_spec_id` / `test_spec_session_id` and falls back to
+  the pre-rename `trd_id` / `trd_session_id`, so it works with a Doable MCP server
+  from either side of the rename. New finalize receipts store `testSpecId` /
+  `testSpecSessionId`.
+- Add the `test-spec` keyword to every host manifest; `trd` stays for discoverability.
+
 ## [0.2.9] - 2026-09-26
 
 ### Added

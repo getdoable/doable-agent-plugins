@@ -7,7 +7,7 @@ Official agent plugins for [Doable](https://getdoable.ai), supporting Codex, Cla
 
 | Plugin | Version | Purpose | Network |
 | --- | --- | --- | --- |
-| `doable-code-context` | `0.2.9` | Resolve context requests or start a managed feature-testing workflow | Doable MCP |
+| `doable-code-context` | `0.2.10` | Resolve context requests or start a managed feature-testing workflow | Doable MCP |
 
 ## Workflow
 
@@ -32,9 +32,9 @@ Use **Doable Code Context** for the connected pre-test-spec workflow:
    branch/commit, then pulls that Round and answers from the private
    repositories. If a word in the brief could mean more than one thing in the
    code, it asks the user locally. After the first paste, new questions from the
-   test-spec-editor arrive on the same Round automatically — do not copy the prompt
+   test spec editor arrive on the same Round automatically — do not copy the prompt
    again.
-4. The coding agent keeps watching until the test-spec-editor continues test spec generation
+4. The coding agent keeps watching until the test spec editor continues test spec generation
    or the Round is cancelled. `ready_to_create` is not finished. Doable then
    continues the existing test spec create loop.
 
@@ -129,7 +129,7 @@ Cursor and Claude Code load `plugins/doable-code-context/.mcp.json`; the Codex m
 
 ## Use Doable Code Context
 
-Normally, paste the short prompt copied from the Doable Test-Spec-editor once:
+Normally, paste the short prompt copied from the Doable Test Spec Editor once:
 
 ```text
 Use the `doable-answer-questions` skill to resolve Doable context request
@@ -138,8 +138,8 @@ continues test spec generation. If the plugin is missing, install it from
 https://github.com/getdoable/doable-agent-plugins#install.
 ```
 
-The coding agent watches that same Round until Continue generating test spec. Later
-questions from the test-spec-editor do not need a new prompt.
+The coding agent watches that same Round until the editor continues test spec
+generation. Later questions from the test spec editor do not need a new prompt.
 
 Setup is recovered inside the same conversation if needed. The user may also request it directly:
 

@@ -18,7 +18,7 @@ import {
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { execFileSync } from "node:child_process";
 
-const CLIENT = Object.freeze({ name: "doable-code-context", version: "0.2.9" });
+const CLIENT = Object.freeze({ name: "doable-code-context", version: "0.2.10" });
 const STATE_SCHEMA_VERSION = "1";
 const SUBMISSION_SCHEMA_VERSION = "1";
 
@@ -1487,8 +1487,9 @@ function recordFinalize(options) {
     roundId,
     roundCode: code,
     mode: string(response.mode, "finalize mode", { max: 40 }),
-    testSpecId: string(response.test_spec_id, "Test spec id", { max: 160 }),
-    testSpecSessionId: string(response.test_spec_session_id, "Test spec session id", { max: 160 }),
+    // `trd_id` / `trd_session_id` are the pre-rename keys an older Doable MCP server returns.
+    testSpecId: string(response.test_spec_id ?? response.trd_id, "test spec id", { max: 160 }),
+    testSpecSessionId: string(response.test_spec_session_id ?? response.trd_session_id, "test spec session id", { max: 160 }),
     finalizedAt: new Date().toISOString(),
   };
   atomicWriteJson(join(requestDirectory, "finalize-receipt.json"), receipt);

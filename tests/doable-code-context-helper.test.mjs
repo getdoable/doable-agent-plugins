@@ -873,7 +873,7 @@ test("agent-origin helper records the exact MCP round and finalize result", asyn
     ["record-finalize", "--code", "DQ-AGENT1", "--response", finalizeResponsePath],
     environment,
   );
-  assert.match(finalizeOutput, /test spec mode: create/);
+  assert.match(finalizeOutput, /Test spec mode: create/);
   const receipt = JSON.parse(
     readFileSync(
       join(testRoot, ".doable", "requests", "DQ-AGENT1", "finalize-receipt.json"),
@@ -882,6 +882,30 @@ test("agent-origin helper records the exact MCP round and finalize result", asyn
   );
   assert.equal(receipt.testSpecId, "test-spec-agent-safe");
   assert.equal(receipt.testSpecSessionId, "session-agent-safe");
+
+  // A Doable MCP server from before the TRD -> test spec rename returns only the old keys.
+  const legacyFinalizeResponsePath = join(testRoot, "mcp-finalize-legacy-response.json");
+  writeFileSync(
+    legacyFinalizeResponsePath,
+    JSON.stringify({
+      round_id: "round-agent-safe",
+      mode: "create",
+      trd_id: "trd-agent-safe",
+      trd_session_id: "session-agent-legacy",
+    }),
+  );
+  await runHelper(
+    ["record-finalize", "--code", "DQ-AGENT1", "--response", legacyFinalizeResponsePath],
+    environment,
+  );
+  const legacyReceipt = JSON.parse(
+    readFileSync(
+      join(testRoot, ".doable", "requests", "DQ-AGENT1", "finalize-receipt.json"),
+      "utf8",
+    ),
+  );
+  assert.equal(legacyReceipt.testSpecId, "trd-agent-safe");
+  assert.equal(legacyReceipt.testSpecSessionId, "session-agent-legacy");
 
   const postCreateResponsePath = join(testRoot, "mcp-post-create-round-response.json");
   writeFileSync(
