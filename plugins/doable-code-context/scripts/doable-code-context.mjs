@@ -18,7 +18,7 @@ import {
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { execFileSync } from "node:child_process";
 
-const CLIENT = Object.freeze({ name: "doable-code-context", version: "0.2.9" });
+const CLIENT = Object.freeze({ name: "doable-code-context", version: "0.2.10" });
 const STATE_SCHEMA_VERSION = "1";
 const SUBMISSION_SCHEMA_VERSION = "1";
 
@@ -926,7 +926,7 @@ function normalizeRound(data, state, requestedCode) {
       assert(baseCount <= 1, "follow-up round contains multiple base feature context requests");
     }
   }
-  // The server decides whether a connection continues: only it can see the TRD a
+  // The server decides whether a connection continues: only it can see the test spec a
   // pre-create Round was consumed into and the follow-up Rounds that code now reaches.
   // Recomputing that here drifted from the server once already, so its answer wins.
   // The local rule is the fallback for a server that sends none.
@@ -1487,16 +1487,17 @@ function recordFinalize(options) {
     roundId,
     roundCode: code,
     mode: string(response.mode, "finalize mode", { max: 40 }),
-    trdId: string(response.trd_id, "TRD id", { max: 160 }),
-    trdSessionId: string(response.trd_session_id, "TRD session id", { max: 160 }),
+    // `trd_id` / `trd_session_id` are the pre-rename keys an older Doable MCP server returns.
+    testSpecId: string(response.test_spec_id ?? response.trd_id, "test spec id", { max: 160 }),
+    testSpecSessionId: string(response.test_spec_session_id ?? response.trd_session_id, "test spec session id", { max: 160 }),
     finalizedAt: new Date().toISOString(),
   };
   atomicWriteJson(join(requestDirectory, "finalize-receipt.json"), receipt);
   console.log(`Round finalized: ${code}`);
-  console.log(`TRD mode: ${receipt.mode}`);
-  console.log(`TRD: ${receipt.trdId}`);
-  console.log(`TRD session: ${receipt.trdSessionId}`);
-  console.log("Next step: monitor the TRD in Doable, then review or approve generated test cases.");
+  console.log(`Test spec mode: ${receipt.mode}`);
+  console.log(`Test spec: ${receipt.testSpecId}`);
+  console.log(`Test spec session: ${receipt.testSpecSessionId}`);
+  console.log("Next step: monitor the test spec in Doable, then review or approve generated test cases.");
 }
 
 function submissionReceiptPath(requestDirectory, revision, payloadDigest) {

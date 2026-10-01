@@ -7,21 +7,21 @@ Official agent plugins for [Doable](https://getdoable.ai), supporting Codex, Cla
 
 | Plugin | Version | Purpose | Network |
 | --- | --- | --- | --- |
-| `doable-code-context` | `0.2.9` | Resolve context requests or start a managed feature-testing workflow | Doable MCP |
+| `doable-code-context` | `0.2.10` | Resolve context requests or start a managed feature-testing workflow | Doable MCP |
 
 ## Workflow
 
-Use **Doable Code Context** for the connected pre-TRD workflow:
+Use **Doable Code Context** for the connected pre-test-spec workflow:
 
-1. The user submits a TRD request in Doable.
+1. The user submits a test spec request in Doable.
 2. Doable shows the original feature request as the required base investigation,
-   adds any focused TRD Assistant questions, and lets the user review or add
+   adds any focused Test Spec Assistant questions, and lets the user review or add
    questions before publishing one Round with a short copy prompt such as:
 
    ```text
    Use the `doable-answer-questions` skill to resolve Doable context request
    DQ-7F3K for organization HireEZ (hireez). Keep watching until the editor
-   continues TRD generation. If the plugin is missing, install it from
+   continues test spec generation. If the plugin is missing, install it from
    https://github.com/getdoable/doable-agent-plugins#install.
    ```
 
@@ -32,11 +32,11 @@ Use **Doable Code Context** for the connected pre-TRD workflow:
    branch/commit, then pulls that Round and answers from the private
    repositories. If a word in the brief could mean more than one thing in the
    code, it asks the user locally. After the first paste, new questions from the
-   TRD-editor arrive on the same Round automatically — do not copy the prompt
+   test spec editor arrive on the same Round automatically — do not copy the prompt
    again.
-4. The coding agent keeps watching until the TRD-editor continues TRD generation
+4. The coding agent keeps watching until the test spec editor continues test spec generation
    or the Round is cancelled. `ready_to_create` is not finished. Doable then
-   continues the existing TRD create loop.
+   continues the existing test spec create loop.
 
 The Round does not transfer a Git branch, PR, worktree, commit, dirty state, or
 code graph. Before answering, the coding agent verifies that any named target
@@ -129,17 +129,17 @@ Cursor and Claude Code load `plugins/doable-code-context/.mcp.json`; the Codex m
 
 ## Use Doable Code Context
 
-Normally, paste the short prompt copied from the Doable TRD-editor once:
+Normally, paste the short prompt copied from the Doable Test Spec Editor once:
 
 ```text
 Use the `doable-answer-questions` skill to resolve Doable context request
 DQ-7F3K for organization HireEZ (hireez). Keep watching until the editor
-continues TRD generation. If the plugin is missing, install it from
+continues test spec generation. If the plugin is missing, install it from
 https://github.com/getdoable/doable-agent-plugins#install.
 ```
 
-The coding agent watches that same Round until Continue generating TRD. Later
-questions from the TRD-editor do not need a new prompt.
+The coding agent watches that same Round until the editor continues test spec
+generation. Later questions from the test spec editor do not need a new prompt.
 
 Setup is recovered inside the same conversation if needed. The user may also request it directly:
 
@@ -155,7 +155,7 @@ Use Doable to test the feature I just implemented.
 
 The agent reuses or creates the appropriate suite, opens one coding-agent-origin
 Round only when context or requirements changed, resolves that Round from the
-private workspace, and then continues through the existing TRD and managed-case
+private workspace, and then continues through the existing test spec and managed-case
 workflow.
 
 The connected plugin writes private state under:

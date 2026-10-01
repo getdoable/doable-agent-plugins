@@ -49,4 +49,4 @@ The remote profile may contain only opaque `repoRef` values, product roles, surf
 
 ## Completion
 
-Report that the workspace is connected, name the shared product surfaces, and continue the pending Doable request when one exists. Do not claim that a TRD or test case was created.
+Report that the workspace is connected, name the shared product surfaces, and continue the pending Doable request when one exists. Do not claim that a test spec or test case was created.
