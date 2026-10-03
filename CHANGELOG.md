@@ -2,6 +2,13 @@
 
 All notable changes to Doable Agent Plugins are documented here.
 
+## GitHub workflow distribution [1.0.0] - 2026-10-03
+
+- Publish the self-contained Code Context workflow with a SHA-256 release manifest.
+- Add customer-agent installation, provider setup, connection, and upgrade instructions.
+- Verify template integrity and syntax in CI. Local plugin version remains 0.2.10.
+- Clarify the GitHub integration's repository metadata and model-provider boundary.
+
 ## [0.2.10] - 2026-09-30
 
 ### Changed

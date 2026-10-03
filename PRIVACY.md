@@ -19,8 +19,25 @@ Code evidence is always bound to an opaque repository reference and kept inside 
 
 The first profile upload and material role/surface/description changes require user approval. A specific round copy prompt authorizes pulling that frozen round and submitting its validated answers; idempotent retries do not create additional submissions.
 
-## Excluded data
+## Excluded data for the local MCP plugin
 
 No remote payload may contain source code or snippets, real repository or file identities, branches or commits, secrets or environment values, raw logs or attachments, private URLs, internal infrastructure topology, or real customer/business data.
+
+## Optional GitHub runner
+
+The separately installed GitHub workflow is not the local MCP plugin. The customer
+authorizes the getdoable GitHub App for selected repositories and explicitly saves
+a repository connection in Doable. Doable stores repository/installation identities
+and run metadata needed to authorize and dispatch that connection. These metadata
+are exceptions to the local plugin's opaque-repository policy above, not permission
+to submit source code, secret values, raw model output, or private source locators.
+
+The selected provider processes relevant repository source: OpenAI for Codex or
+Anthropic for Claude. The workflow sends sanitized findings or bounded diagnostics
+to Doable. Provider credentials stay in GitHub Actions secrets and are subject to
+GitHub access controls. The GitHub App private key stays on Doable's backend.
+Claude's restricted tools are not an operating-system sandbox. Customers must use
+trusted, reviewed workflows and repositories. See the
+[installation and security guide](docs/github-code-context-install.md).
 
 See the [Doable Privacy Policy](https://qa.getdoable.ai/privacy-policy) for platform data handling. Questions may be sent to support@getdoable.ai.

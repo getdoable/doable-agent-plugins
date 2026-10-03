@@ -259,7 +259,7 @@ const textExtensions = new Set([".json", ".md", ".mjs", ".py", ".yaml", ".yml", 
 const secretPatterns = [
   [/(?:^|[^A-Za-z0-9])sk-[A-Za-z0-9_-]{20,}/, "secret-looking sk- token"],
   [/gh[opusr]_[A-Za-z0-9]{20,}/, "GitHub token"],
-  [/Authorization:\s*Bearer\s+(?!\$\{(?:env:)?[A-Z][A-Z0-9_]*\})\S+/i, "literal Bearer credential"],
+  [/Authorization:\s*Bearer\s+(?!\$\{(?:env:)?[A-Z][A-Z0-9_]*\}|\$[A-Za-z_][A-Za-z0-9_]*(?=[\s"'\\]|$))\S+/i, "literal Bearer credential"],
   [/(?:^|[\s"'`])\/Users\//m, "absolute macOS user path"],
   [/(?:^|[\s"'`])\/tmp\//m, "absolute temporary path"],
   [/C:\\Users\\/i, "absolute Windows user path"],
