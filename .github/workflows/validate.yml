@@ -18,6 +18,12 @@ jobs:
         with:
           node-version: 22
       - run: npm test
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+          cache: false
+      - name: Validate distributed GitHub workflow syntax
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7 -shellcheck= templates/github/doable-code-context.yml
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"

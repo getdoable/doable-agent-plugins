@@ -1,0 +1,37 @@
+id: github-context-public-distribution-v1
+version: 1
+scope: Publish the existing self-contained GitHub runner; no execution contract changes.
+repositories:
+  - name: getdoable/doable-agent-plugins
+    branch: codex/publish-github-code-context
+    pr: pending
+    changes: Public template, integrity manifest, agent installation guide, release verification.
+  - name: getdoable/trd
+    branch: codex/github-context-public-release
+    pr: pending
+    source_commit: 2bb669b5
+    changes: Link public distribution and document source-to-release maintenance.
+migrations: []
+contracts:
+  changed: false
+  dispatch_inputs: [doable_job_id, doable_api_base_url, doable_oidc_audience]
+  callback: Existing task, submission, and failure routes; no validation endpoint dependency.
+minimum_compatible_versions:
+  backend: Existing best-effort runner from TRD main including PR 526.
+  plugin: No local plugin upgrade required; GitHub execution is a separate path.
+  workflow: Public release 1.0.0 matches the existing TRD template.
+deployment_order:
+  - Merge public distribution PR and companion internal runbook PR.
+  - Customer installs a verified copy on their repository default branch.
+  - Customer configures the chosen provider and connects the approved repository in Doable.
+feature_flags:
+  backend: GITHUB_CODE_CONTEXT_ENABLED (unchanged)
+  organization: code_context_enabled (unchanged)
+defaults: Missing provider variable selects Codex; existing customer copies do not auto-update.
+rollback: Restore the customer's previous reviewed workflow copy; no database rollback or deployment required.
+verification:
+  - Public workflow SHA-256 matches the release manifest and TRD source byte-for-byte.
+  - Embedded Python and shell parse; workflow passes actionlint.
+  - Plugin release checks and helper regression tests pass unchanged.
+  - Check agent installation instructions distinguish secrets, variables, and Doable binding.
+  - No production rerun or customer configuration mutation as part of publication.

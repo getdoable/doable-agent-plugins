@@ -16,7 +16,8 @@
     "node": ">=20"
   },
   "scripts": {
-    "test": "node scripts/verify-release.mjs && node --test tests/doable-code-context-helper.test.mjs",
+    "test": "node scripts/verify-release.mjs && node scripts/verify-github-workflow.mjs && node --test tests/doable-code-context-helper.test.mjs tests/github-workflow-release.test.mjs",
+    "verify:github-workflow": "node scripts/verify-github-workflow.mjs",
     "verify": "node scripts/verify-release.mjs"
   }
 }

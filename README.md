@@ -46,7 +46,16 @@ instead of answering from a neighboring revision.
 
 All remote operations use the Doable MCP connection. Codex, Claude Code, and Cursor load its official remote endpoint from the plugin package. The bundled helper is not a service or standalone CLI: it deterministically maps local repositories, keeps exact provenance private, builds safe payloads, and validates MCP responses.
 
-## Requirements
+## Optional: run Code Context in GitHub Actions
+
+For **Run in GitHub**, install the [public workflow template](templates/github/doable-code-context.yml)
+in the customer's repository at `.github/workflows/doable-code-context.yml`.
+Follow the [agent-executable installation guide](docs/github-code-context-install.md).
+It covers Codex API billing, Claude subscription setup tokens, GitHub App access,
+Doable connection, verification, and upgrades. This is a separate execution path
+from the local plugin; installing one does not configure the other.
+
+## Local plugin requirements
 
 - Codex, Claude Code, or Cursor with Agent Skills or plugin support;
 - Node.js 20 or newer;
