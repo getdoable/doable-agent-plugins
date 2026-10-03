@@ -4,11 +4,11 @@ scope: Publish the existing self-contained GitHub runner; no execution contract 
 repositories:
   - name: getdoable/doable-agent-plugins
     branch: codex/publish-github-code-context
-    pr: pending
+    pr: 29
     changes: Public template, integrity manifest, agent installation guide, release verification.
   - name: getdoable/trd
     branch: codex/github-context-public-release
-    pr: pending
+    pr: 539
     source_commit: 2bb669b5
     changes: Link public distribution and document source-to-release maintenance.
 migrations: []

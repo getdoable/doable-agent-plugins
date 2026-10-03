@@ -25,6 +25,11 @@ do not claim installation is complete when these prerequisites are missing.
 
 ## Agent installation procedure
 
+Prerequisites: Git, authenticated `gh` access to the target repository, and
+Node.js 20 or newer for release verification. Secrets/App changes need the
+corresponding repository or organization permissions. Do not request broader
+permissions when the existing access is sufficient.
+
 1. Confirm the customer's exact product repository from its Git remote and
    `gh repo view --json nameWithOwner,defaultBranchRef`. Inspect the working tree
    and existing `.github/workflows/doable-code-context.yml`. Do not use a sample
