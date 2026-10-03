@@ -10,7 +10,9 @@ repositories:
     branch: codex/github-context-public-release
     pr: 539
     source_commit: 2bb669b5
-    changes: Link public distribution and document source-to-release maintenance.
+    changes: Link public distribution, document maintenance, refresh stale foundation pin required by CI.
+    foundation_pin: b3242f9feebb037f8c9f61e8c1246f73589a6510
+    foundation_scope: Existing merged QA eval replay tooling only; no GitHub runner runtime changes.
 migrations: []
 contracts:
   changed: false
