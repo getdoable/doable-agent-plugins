@@ -18,7 +18,7 @@ import {
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { execFileSync } from "node:child_process";
 
-const CLIENT = Object.freeze({ name: "doable-code-context", version: "0.2.10" });
+const CLIENT = Object.freeze({ name: "doable-code-context", version: "0.2.11" });
 const STATE_SCHEMA_VERSION = "1";
 const SUBMISSION_SCHEMA_VERSION = "1";
 
@@ -46,6 +46,9 @@ const JOURNEY_ROLES = new Set(["entry", "precondition", "action", "outcome", "fa
 const CONFLICT_SOURCE_TYPES = new Set(["code", "human_clarification", "artifact", "runtime"]);
 const INTERNAL_SNAKE_IDENTIFIER_RE = /^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$/;
 const CALLABLE_ANCHOR_RE = /\(\s*\)|=>|::/;
+// A browser storage key is observable in the tester's browser (DevTools, cookies), so it may
+// anchor a finding about persisted client state when written as "<store>:<key>".
+const BROWSER_STORAGE_ANCHOR_RE = /^(?:localStorage|sessionStorage|cookie|indexedDB):[A-Za-z0-9_.\-@/:]{1,120}$/;
 
 function fail(message) {
   throw new Error(message);
@@ -291,6 +294,9 @@ function assertSafeText(value, label, state, { max = 2_000 } = {}) {
 
 function assertObservableAnchor(value, label, state, evidenceSymbols) {
   const anchor = assertSafeText(value, label, state, { max: 300 });
+  if (BROWSER_STORAGE_ANCHOR_RE.test(anchor)) {
+    return anchor;
+  }
   assert(
     !CALLABLE_ANCHOR_RE.test(anchor),
     `${label} "${anchor}" is shaped like an internal callable. Replace it with an externally observable UI label, route, API name, or protocol value, or move the fact to the local ledger.`,

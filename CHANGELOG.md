@@ -9,6 +9,23 @@ All notable changes to Doable Agent Plugins are documented here.
 - Verify template integrity and syntax in CI. Local plugin version remains 0.2.10.
 - Clarify the GitHub integration's repository metadata and model-provider boundary.
 
+## [0.2.11] - 2026-10-07
+
+### Changed
+
+- Base investigations now run a test-state sweep. The agent lists, in its local ledger:
+  - browser storage keys the feature uses;
+  - operations that change persistent state;
+  - role, plan, permission and quota gates;
+  - one-time states;
+  - external services.
+
+  Every included item is closed with a grounded finding or an `unknown` that says why the workspace cannot establish
+  it. "Not inspected yet" does not close an item in a mapped repository. Items are named by product purpose.
+- Observable anchors may name a browser storage key as `localStorage:<key>`, `sessionStorage:<key>`, `cookie:<name>`
+  or `indexedDB:<database>`, and may use URL paths. The helper accepts these even when the key equals a local
+  evidence symbol. Server-side fields and code identifiers remain rejected. PRIVACY.md lists the new remote data.
+
 ## [0.2.10] - 2026-09-30
 
 ### Changed

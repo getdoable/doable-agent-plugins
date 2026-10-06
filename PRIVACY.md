@@ -13,6 +13,7 @@ The helper validates every workspace profile and answer payload before the codin
 - opaque workspace, repository, evidence, round, and question identifiers;
 - a sanitized workspace display name, product roles, surfaces, descriptions, feature scope, and externally observable findings;
 - truth planes, source types, observable anchors, exact user-authorized clarifications, explicit finding-to-finding conflicts, explicit unknowns, and nonblocking same-scope observations;
+- as observable anchors, user-visible routes and URL paths, and the names of browser storage keys (`localStorage`, `sessionStorage`, cookies, IndexedDB databases) that the feature reads or writes. A tester can see these in their own browser. Storage values, server-side field names, and code identifiers are never sent;
 - keyed fingerprints that cannot be reversed into a branch, commit, local path, or source span.
 
 Code evidence is always bound to an opaque repository reference and kept inside its mapped repository. A user-supplied PRD, screenshot, Figma export, or runtime capture outside Git is accepted only from an explicitly declared private artifact root; its remote evidence reference uses `repo_ref: null`, while its root, file name, path, and content remain local.

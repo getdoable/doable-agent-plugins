@@ -527,6 +527,29 @@ test("connected helper preserves the local/private boundary and retries idempote
     /shaped like an internal callable/i,
   );
 
+  const storageKeyAnchor = structuredClone(submission);
+  storageKeyAnchor.answers[0].findings[0].observableAnchors = ["localStorage:has_onboarding_shown"];
+  storageKeyAnchor.evidence[0].symbol = "has_onboarding_shown";
+  writeFileSync(submissionPath, `${JSON.stringify(storageKeyAnchor, null, 2)}\n`);
+  await runHelper(["validate-submission", "--state", statePath, "--candidate", submissionPath], environment);
+
+  const bareStorageKeyAnchor = structuredClone(storageKeyAnchor);
+  bareStorageKeyAnchor.answers[0].findings[0].observableAnchors = ["has_onboarding_shown"];
+  writeFileSync(submissionPath, `${JSON.stringify(bareStorageKeyAnchor, null, 2)}\n`);
+  await assert.rejects(
+    runHelper(["validate-submission", "--state", statePath, "--candidate", submissionPath], environment),
+    /local evidence symbol, not an externally observable anchor/i,
+  );
+
+  const unknownStoreAnchor = structuredClone(submission);
+  unknownStoreAnchor.answers[0].findings[0].observableAnchors = ["redis:session_cache()"];
+  writeFileSync(submissionPath, `${JSON.stringify(unknownStoreAnchor, null, 2)}\n`);
+  await assert.rejects(
+    runHelper(["validate-submission", "--state", statePath, "--candidate", submissionPath], environment),
+    /shaped like an internal callable/i,
+  );
+  writeFileSync(submissionPath, `${JSON.stringify(submission, null, 2)}\n`);
+
   const externalSnakeCaseAnchor = structuredClone(submission);
   externalSnakeCaseAnchor.answers[0].findings[0].observableAnchors = ["external_status_code"];
   writeFileSync(submissionPath, `${JSON.stringify(externalSnakeCaseAnchor, null, 2)}\n`);
