@@ -9,6 +9,20 @@ All notable changes to Doable Agent Plugins are documented here.
 - Verify template integrity and syntax in CI. Local plugin version remains 0.2.10.
 - Clarify the GitHub integration's repository metadata and model-provider boundary.
 
+## [0.2.12] - 2026-10-07
+
+### Changed
+
+- **The test-state sweep now asks what each state-changing operation leaves behind for the next test.** For each
+  operation it asks:
+  - what is newly true, or no longer true, afterwards;
+  - whose state it is;
+  - how a tester sees it after a reload;
+  - what reverses it, or that it is one-way.
+
+  A toast or a request name does not count. In a live Round, effects were the weakest part (17 of 44): findings
+  described what a journey shows, not the state it leaves.
+
 ## [0.2.11] - 2026-10-07
 
 ### Changed
