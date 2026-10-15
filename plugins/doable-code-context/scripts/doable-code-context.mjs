@@ -18,7 +18,7 @@ import {
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { execFileSync } from "node:child_process";
 
-const CLIENT = Object.freeze({ name: "doable-code-context", version: "0.2.11" });
+const CLIENT = Object.freeze({ name: "doable-code-context", version: "0.2.12" });
 const STATE_SCHEMA_VERSION = "1";
 const SUBMISSION_SCHEMA_VERSION = "1";
 
@@ -941,6 +941,11 @@ function normalizeRound(data, state, requestedCode) {
     ? serverAction
     : watchAction(roundUse, status, questions);
   const journeyMap = round.journey_map ?? round.journeyMap;
+  // A quick investigation is a first, smoke-level pass that the person waits on; older servers send no tier.
+  const investigation = round.investigation === "quick" ? "quick" : "full";
+  const rawBudget = Number(round.time_budget_minutes ?? round.timeBudgetMinutes);
+  const timeBudgetMinutes =
+    investigation === "quick" && Number.isInteger(rawBudget) && rawBudget > 0 && rawBudget <= 60 ? rawBudget : null;
   return {
     id,
     code,
@@ -953,6 +958,8 @@ function normalizeRound(data, state, requestedCode) {
     action,
     // Carried into the frozen snapshot so the submission can be gated on it.
     journeyMapRequested: journeyMap?.requested === true,
+    investigation,
+    timeBudgetMinutes,
     featureScope,
     questions,
     establishedContext,
@@ -1023,6 +1030,11 @@ function recordRound(options) {
   console.log(`Status: ${round.status}`);
   console.log(`Next action: ${round.action}`);
   console.log(`Scope: ${round.featureScope}`);
+  console.log(
+    round.investigation === "quick"
+      ? `Investigation: quick${round.timeBudgetMinutes ? ` (submit within about ${round.timeBudgetMinutes} minutes)` : ""}`
+      : "Investigation: full",
+  );
   console.log(`Open questions: ${round.questions.length}`);
   console.log(`Established context: ${round.establishedContext.length}`);
   console.log(`Round file: ${roundPath}`);
