@@ -9,6 +9,21 @@ All notable changes to Doable Agent Plugins are documented here.
 - Verify template integrity and syntax in CI. Local plugin version remains 0.2.10.
 - Clarify the GitHub integration's repository metadata and model-provider boundary.
 
+## [0.2.12] - 2026-10-15
+
+### Added
+
+- Quick investigations. A Round may carry `investigation: quick` and a `time_budget_minutes`; `record-round` prints
+  them. A quick base item maps only the feature's main user journeys and the preconditions that block running them,
+  and skips the sibling enumeration, family sweep, test-state sweep and base coverage check. The agent submits within
+  the budget and names what it did not reach as `unknown`. A Round without the field stays a full investigation.
+
+### Changed
+
+- A copied prompt may carry a fresh API key every time. When the preflight already succeeds for the prompt
+  organization, the agent keeps its working connection and does not save, swap or test the supplied key, so a
+  connected agent no longer spends minutes reconnecting before it reads the questions.
+
 ## [0.2.11] - 2026-10-07
 
 ### Changed

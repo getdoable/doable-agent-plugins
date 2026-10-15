@@ -199,7 +199,12 @@ test("connected helper preserves the local/private boundary and retries idempote
       ],
     }),
   );
-  await runHelper(["record-round", "--code", "DQ-7F3K", "--response", roundResponsePath, "--state", statePath], environment);
+  const fullRoundOutput = await runHelper(
+    ["record-round", "--code", "DQ-7F3K", "--response", roundResponsePath, "--state", statePath],
+    environment,
+  );
+  // A Round from a server that sends no tier stays a full investigation.
+  assert.match(fullRoundOutput, /Investigation: full/);
   const submissionPath = join(testRoot, ".doable", "requests", "DQ-7F3K", "submission-r1.json");
   const submission = JSON.parse(readFileSync(submissionPath, "utf8"));
   submission.answers[0] = {
@@ -742,6 +747,8 @@ test("agent-origin helper records the exact MCP round and finalize result", asyn
       status: "open_for_agent",
       revision: 1,
       feature_scope: "Account recovery",
+      investigation: "quick",
+      time_budget_minutes: 4,
       questions: [
         {
           id: "question-base",
@@ -762,6 +769,12 @@ test("agent-origin helper records the exact MCP round and finalize result", asyn
   assert.match(roundOutput, /Round: DQ-AGENT1 revision 1/);
   assert.match(roundOutput, /Status: open_for_agent/);
   assert.match(roundOutput, /Next action: answer/);
+  assert.match(roundOutput, /Investigation: quick \(submit within about 4 minutes\)/);
+  const quickRound = JSON.parse(
+    readFileSync(join(testRoot, ".doable", "requests", "DQ-AGENT1", "round-r1.json"), "utf8"),
+  );
+  assert.equal(quickRound.investigation, "quick");
+  assert.equal(quickRound.timeBudgetMinutes, 4);
   const originPath = join(testRoot, ".doable", "requests", "DQ-AGENT1", "agent-origin.json");
   assert.equal(statSync(originPath).mode & 0o777, 0o600);
 
