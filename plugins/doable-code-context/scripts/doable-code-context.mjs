@@ -18,7 +18,7 @@ import {
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { execFileSync } from "node:child_process";
 
-const CLIENT = Object.freeze({ name: "doable-code-context", version: "0.2.12" });
+const CLIENT = Object.freeze({ name: "doable-code-context", version: "0.2.13" });
 const STATE_SCHEMA_VERSION = "1";
 const SUBMISSION_SCHEMA_VERSION = "1";
 
@@ -839,6 +839,17 @@ function reconcileCandidateAnswers(existingAnswers, openQuestions) {
   return [...kept, ...added];
 }
 
+function normalizeTargetApp(value) {
+  if (value === null) return null;
+  assert(typeof value === "object" && !Array.isArray(value), "round target app must be an object or null");
+  const rawName = value.name ?? null;
+  const name = rawName === null ? null : string(rawName, "round target app name", { min: 0, max: 200 });
+  return {
+    name: name || null,
+    entryUrl: string(value.entry_url ?? value.entryUrl, "round target app entry URL", { max: 2_048 }),
+  };
+}
+
 function normalizeRound(data, state, requestedCode) {
   const round = data.round || data;
   const id = string(round.round_id || round.id, "round id", { max: 160 });
@@ -946,6 +957,9 @@ function normalizeRound(data, state, requestedCode) {
   const rawBudget = Number(round.time_budget_minutes ?? round.timeBudgetMinutes);
   const timeBudgetMinutes =
     investigation === "quick" && Number.isInteger(rawBudget) && rawBudget > 0 && rawBudget <= 60 ? rawBudget : null;
+  // The app under test names the product to route to; the organization is only the Doable account.
+  // Older servers, and suites without an entry URL, send none.
+  const targetApp = normalizeTargetApp(round.target_app ?? round.targetApp ?? null);
   return {
     id,
     code,
@@ -960,6 +974,7 @@ function normalizeRound(data, state, requestedCode) {
     journeyMapRequested: journeyMap?.requested === true,
     investigation,
     timeBudgetMinutes,
+    targetApp,
     featureScope,
     questions,
     establishedContext,
@@ -1030,6 +1045,10 @@ function recordRound(options) {
   console.log(`Status: ${round.status}`);
   console.log(`Next action: ${round.action}`);
   console.log(`Scope: ${round.featureScope}`);
+  if (round.targetApp) {
+    const { name, entryUrl } = round.targetApp;
+    console.log(`App under test: ${name ? `${name} (${entryUrl})` : entryUrl}`);
+  }
   console.log(
     round.investigation === "quick"
       ? `Investigation: quick${round.timeBudgetMinutes ? ` (submit within about ${round.timeBudgetMinutes} minutes)` : ""}`
