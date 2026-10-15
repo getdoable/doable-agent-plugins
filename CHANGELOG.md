@@ -9,6 +9,15 @@ All notable changes to Doable Agent Plugins are documented here.
 - Verify template integrity and syntax in CI. Local plugin version remains 0.2.10.
 - Clarify the GitHub integration's repository metadata and model-provider boundary.
 
+## [0.2.13] - 2026-10-15
+
+### Changed
+
+- The agent routes the investigation by the app under test, not by the organization. A Round may carry `target_app`
+  (the environment name and entry URL); `record-round` keeps it and prints `App under test: <name> (<entry URL>)`. The
+  copy prompt may also name the app before the organization. The agent routes to the repositories that serve that app.
+  The organization name and slug are used only for the connection check. A Round without the field records as before.
+
 ## [0.2.12] - 2026-10-15
 
 ### Added

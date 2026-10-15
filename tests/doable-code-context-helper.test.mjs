@@ -1039,3 +1039,59 @@ test("a pre-create successor requires the original connection and matching works
   writeFileSync(responsePath, JSON.stringify({ ...round, workspace_id: "workspace-other" }));
   await assert.rejects(runHelper(args, environment), /different workspace/);
 });
+
+test("record-round keeps the Round's app under test and accepts a Round without one", async (t) => {
+  const testRoot = mkdtempSync(join(tmpdir(), "doable-target-app-"));
+  t.after(() => rmSync(testRoot, { recursive: true, force: true }));
+  mkdirSync(join(testRoot, ".doable"));
+  const statePath = join(testRoot, ".doable", "workspace-private.json");
+  writeFileSync(statePath, JSON.stringify({
+    schemaVersion: "1", workspace: { localId: "local-fixture", serverId: "workspace-safe" },
+    organization: { id: "org-safe" }, repositories: [],
+    privateFingerprintKey: "local-test-only",
+    sync: { profileFingerprint: "fixture" }, profile: { profileFingerprint: "fixture" },
+  }));
+  const responsePath = join(testRoot, "target-app-round.json");
+  const roundPath = join(testRoot, ".doable", "requests", "DQ-APP1", "round-r1.json");
+  const round = {
+    round_id: "app-round", round_code: "DQ-APP1", round_use: "pre_create", workspace_id: "workspace-safe",
+    status: "open_for_agent", revision: 1, feature_scope: "Team scheduling",
+    questions: [{ id: "base-question", purpose: "base_context", question: "Ground team scheduling.", why: "" }],
+  };
+  const environment = { TEST_WORKSPACE: testRoot };
+  const args = ["record-round", "--code", "DQ-APP1", "--response", responsePath, "--state", statePath];
+  const record = async (changes) => {
+    writeFileSync(responsePath, JSON.stringify({ ...round, ...changes }));
+    const output = await runHelper(args, environment);
+    return { output, recorded: JSON.parse(readFileSync(roundPath, "utf8")) };
+  };
+
+  let { output, recorded } = await record({
+    target_app: { name: "teamspire", entry_url: "https://teamspire.example.invalid/login" },
+  });
+  assert.match(output, /^App under test: teamspire \(https:\/\/teamspire\.example\.invalid\/login\)$/m);
+  assert.deepEqual(recorded.targetApp, { name: "teamspire", entryUrl: "https://teamspire.example.invalid/login" });
+
+  ({ output, recorded } = await record({ targetApp: { name: null, entryUrl: "https://app.example.invalid" } }));
+  assert.match(output, /^App under test: https:\/\/app\.example\.invalid$/m);
+  assert.deepEqual(recorded.targetApp, { name: null, entryUrl: "https://app.example.invalid" });
+
+  // Older servers send no app, and a suite without an entry URL sends null.
+  for (const changes of [{}, { target_app: null }]) {
+    ({ output, recorded } = await record(changes));
+    assert.doesNotMatch(output, /App under test/);
+    assert.match(output, /Next action: answer/);
+    assert.equal(recorded.targetApp, null);
+  }
+
+  for (const target_app of [
+    "https://teamspire.example.invalid",
+    ["https://teamspire.example.invalid"],
+    { name: "teamspire" },
+    { name: 7, entry_url: "https://teamspire.example.invalid" },
+    { name: "teamspire", entry_url: `https://teamspire.example.invalid/${"a".repeat(2_048)}` },
+  ]) {
+    writeFileSync(responsePath, JSON.stringify({ ...round, target_app }));
+    await assert.rejects(runHelper(args, environment), /round target app/);
+  }
+});
