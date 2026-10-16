@@ -9,6 +9,17 @@ All notable changes to Doable Agent Plugins are documented here.
 - Verify template integrity and syntax in CI. Local plugin version remains 0.2.10.
 - Clarify the GitHub integration's repository metadata and model-provider boundary.
 
+## [0.2.16] - 2026-10-16
+
+### Added
+
+- The answer skill reports a blocked Round back to Doable with the Doable MCP tool `report_code_context_blocked`
+  instead of leaving the editor silent. It reports `feature_not_in_workspace` before it stops because no mapped
+  product repository contains the requested feature, and `waiting_for_person` before it asks the user for a
+  clarification or a named checkout target. Only the reason is sent; the next `report_code_context_activity`
+  clears the block. An unknown inside an otherwise answerable Round is still answered as `unknown` or `skipped`.
+  Against an MCP server without the tool, the agent skips the report and behaves as in 0.2.15.
+
 ## [0.2.15] - 2026-10-16
 
 ### Added
