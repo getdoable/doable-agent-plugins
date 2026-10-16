@@ -1067,6 +1067,8 @@ function normalizeRound(data, state, requestedCode) {
     journeyMapRequested: journeyMap?.requested === true,
     // Kept verbatim so the agent reads the server's journey-map instructions from the Round file.
     journeyMap: normalizeJourneyMapRequest(journeyMap),
+    // What Doable already has and is about to write; the agent judges scope by it. Informational, never rejected.
+    situation: typeof round.situation === "string" ? round.situation.trim() : "",
     targetApp,
     directSubmission,
     directSubmissionUnavailable,
@@ -1171,6 +1173,9 @@ function recordRound(options) {
   console.log(`Status: ${round.status}`);
   console.log(`Next action: ${round.action}`);
   console.log(`Scope: ${round.featureScope}`);
+  if (round.situation) {
+    console.log(`Situation: ${round.situation}`);
+  }
   if (round.targetApp) {
     const { name, entryUrl } = round.targetApp;
     console.log(`App under test: ${name ? `${name} (${entryUrl})` : entryUrl}`);

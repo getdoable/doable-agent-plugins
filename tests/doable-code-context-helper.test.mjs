@@ -184,6 +184,7 @@ test("connected helper preserves the local/private boundary and retries idempote
       status: "open_for_agent",
       feature_scope: "Staff promotion creation",
       journey_map: { requested: true, how: "Declare one journey per leaf with nav_path, the same path as a list from area to leaf; order, its position within its parent.", may_skip: "" },
+      situation: "No test spec exists yet: the request is all Doable knows.",
       questions: [
         {
           id: "question-save-label",
@@ -207,6 +208,8 @@ test("connected helper preserves the local/private boundary and retries idempote
   // The investigation tier no longer changes behaviour, so it is not printed as guidance.
   assert.doesNotMatch(fullRoundOutput, /Investigation:/);
   assert.match(fullRoundOutput, /Journey map: requested/);
+  // The Round's situation is printed and kept for the agent.
+  assert.match(fullRoundOutput, /Situation: No test spec exists yet: the request is all Doable knows\./);
   // The server's journey-map instructions are part of the contract, so the Round file keeps them.
   const recordedRound = JSON.parse(
     readFileSync(join(testRoot, ".doable", "requests", "DQ-7F3K", "round-r1.json"), "utf8"),
