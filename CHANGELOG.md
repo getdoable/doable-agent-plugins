@@ -15,8 +15,11 @@ All notable changes to Doable Agent Plugins are documented here.
 
 - A journey declaration may carry `navPath` (1-6 navigation labels from product area to leaf, each up to 120
   characters) and `order` (the leaf's position within its parent, an integer from 1). The helper checks each label
-  for local provenance and sends `nav_path` and `order` only when present, so a candidate without them produces the
-  same payload as 0.2.14. `validate-submission` warns, without failing, when a journey's `name` does not end with its
+  for local provenance and sends `nav_path` and `order` only when present and only when the Round's journey-map
+  instructions mention `nav_path`. A server that predates them rejects a journey carrying them (422), so for any
+  other Round the helper still validates them but leaves them out, and `validate-submission` prints
+  `Journey navPath/order not sent: this Doable server does not ask for them`; `name` is sent unchanged. A candidate
+  without them produces the same payload as 0.2.14. `validate-submission` warns, without failing, when a journey's `name` does not end with its
   last `navPath` label.
 - The Round file keeps the server's journey-map instructions (`journeyMap.how`, `journeyMap.maySkip`) so the agent
   reads them where it reads the questions. `record-round` prints `Journey map: requested` when the Round asks for one.

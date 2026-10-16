@@ -183,7 +183,7 @@ test("connected helper preserves the local/private boundary and retries idempote
       revision: 1,
       status: "open_for_agent",
       feature_scope: "Staff promotion creation",
-      journey_map: { requested: true, how: "Declare one journey per leaf.", may_skip: "" },
+      journey_map: { requested: true, how: "Declare one journey per leaf with nav_path, the same path as a list from area to leaf; order, its position within its parent.", may_skip: "" },
       questions: [
         {
           id: "question-save-label",
@@ -211,7 +211,7 @@ test("connected helper preserves the local/private boundary and retries idempote
   const recordedRound = JSON.parse(
     readFileSync(join(testRoot, ".doable", "requests", "DQ-7F3K", "round-r1.json"), "utf8"),
   );
-  assert.deepEqual(recordedRound.journeyMap, { requested: true, how: "Declare one journey per leaf.", maySkip: "" });
+  assert.deepEqual(recordedRound.journeyMap, { requested: true, how: "Declare one journey per leaf with nav_path, the same path as a list from area to leaf; order, its position within its parent.", maySkip: "" });
   const submissionPath = join(testRoot, ".doable", "requests", "DQ-7F3K", "context-local-r1.json");
   const submission = JSON.parse(readFileSync(submissionPath, "utf8"));
   submission.answers[0] = {
@@ -409,7 +409,7 @@ test("connected helper preserves the local/private boundary and retries idempote
     ["validate-submission", "--state", statePath, "--candidate", submissionPath],
     environment,
   );
-  assert.doesNotMatch(navOutput, /Warning:/);
+  assert.doesNotMatch(navOutput, /Warning:|not sent/);
   const navPayload = await buildJourneyPayload(navJourney);
   assert.deepEqual(navPayload.journeys[0].nav_path, ["Promotions", "Create", "Submit"]);
   assert.equal(navPayload.journeys[0].order, 2);
@@ -430,6 +430,47 @@ test("connected helper preserves the local/private boundary and retries idempote
     environment,
   );
   assert.match(mismatchOutput, /Warning: journeys\[0\]\.name does not end with its navPath leaf "Create"/);
+
+  // A server that predates nav_path/order rejects a journey carrying them, so the helper
+  // sends them only when the Round's journey-map instructions ask for them.
+  const legacyMapRoundPath = join(testRoot, "mcp-round-legacy-map-response.json");
+  writeFileSync(
+    legacyMapRoundPath,
+    JSON.stringify({
+      ...JSON.parse(readFileSync(roundResponsePath, "utf8")),
+      journey_map: { requested: true, how: "Order the findings, then declare each journey once.", may_skip: "" },
+    }),
+  );
+  await runHelper(["record-round", "--code", "DQ-7F3K", "--response", legacyMapRoundPath, "--state", statePath], environment);
+  writeFileSync(submissionPath, `${JSON.stringify(navJourney, null, 2)}\n`);
+  const legacyMapOutput = await runHelper(
+    ["validate-submission", "--state", statePath, "--candidate", submissionPath],
+    environment,
+  );
+  assert.match(legacyMapOutput, /^Journey navPath\/order not sent: this Doable server does not ask for them$/m);
+  const legacyMapPayload = await buildJourneyPayload(navJourney);
+  assert.equal(legacyMapPayload.journeys[0].nav_path, undefined);
+  assert.equal(legacyMapPayload.journeys[0].order, undefined);
+  // Only the two fields are dropped; the name, and everything else, is sent unchanged.
+  assert.deepEqual(legacyMapPayload, {
+    ...olderStylePayload,
+    journeys: [{ ...olderStylePayload.journeys[0], name: "Promotions › Create › Submit" }],
+  });
+  // The fields are still validated locally, so the candidate stays well-formed.
+  const legacyInvalid = structuredClone(navJourney);
+  legacyInvalid.journeys[0].order = 0;
+  writeFileSync(submissionPath, `${JSON.stringify(legacyInvalid, null, 2)}\n`);
+  await assert.rejects(
+    runHelper(["validate-submission", "--state", statePath, "--candidate", submissionPath], environment),
+    /journeys\[0\]\.order must be a positive integer/,
+  );
+  // A candidate without them prints no drop notice.
+  writeFileSync(submissionPath, `${JSON.stringify(declaredJourneys, null, 2)}\n`);
+  assert.doesNotMatch(
+    await runHelper(["validate-submission", "--state", statePath, "--candidate", submissionPath], environment),
+    /not sent/,
+  );
+  await runHelper(["record-round", "--code", "DQ-7F3K", "--response", roundResponsePath, "--state", statePath], environment);
 
   const invalidNavPaths = [
     [["A", "B", "C", "D", "E", "F", "G"], /navPath must contain 1-6 labels/],
