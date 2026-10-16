@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
+import { createServer } from "node:http";
 import {
   chmodSync,
   existsSync,
@@ -205,7 +206,7 @@ test("connected helper preserves the local/private boundary and retries idempote
   );
   // A Round from a server that sends no tier stays a full investigation.
   assert.match(fullRoundOutput, /Investigation: full/);
-  const submissionPath = join(testRoot, ".doable", "requests", "DQ-7F3K", "submission-r1.json");
+  const submissionPath = join(testRoot, ".doable", "requests", "DQ-7F3K", "context-local-r1.json");
   const submission = JSON.parse(readFileSync(submissionPath, "utf8"));
   submission.answers[0] = {
     questionId: "question-save-label",
@@ -562,7 +563,7 @@ test("connected helper preserves the local/private boundary and retries idempote
   writeFileSync(submissionPath, `${JSON.stringify(submission, null, 2)}\n`);
 
   await runHelper(["validate-submission", "--state", statePath, "--candidate", submissionPath], environment);
-  const submissionPayloadPath = join(testRoot, ".doable", "requests", "DQ-7F3K", "safe-submission-r1.json");
+  const submissionPayloadPath = join(testRoot, ".doable", "requests", "DQ-7F3K", "context-r1.json");
   await runHelper(
     ["build-submission", "--state", statePath, "--candidate", submissionPath, "--output", submissionPayloadPath],
     environment,
@@ -584,7 +585,7 @@ test("connected helper preserves the local/private boundary and retries idempote
   followUp.agentObservations = [];
   followUp.conflicts = submission.conflicts;
   writeFileSync(submissionPath, `${JSON.stringify(followUp, null, 2)}\n`);
-  const followUpPayloadPath = join(testRoot, ".doable", "requests", "DQ-7F3K", "safe-submission-r1-batch2.json");
+  const followUpPayloadPath = join(testRoot, ".doable", "requests", "DQ-7F3K", "context-r1-batch2.json");
   await runHelper(
     ["build-submission", "--state", statePath, "--candidate", submissionPath, "--output", followUpPayloadPath],
     environment,
@@ -644,7 +645,7 @@ test("connected helper preserves the local/private boundary and retries idempote
   writeFileSync(submissionPath, `${JSON.stringify(submission, null, 2)}\n`);
   await assert.rejects(
     runHelper(["record-submission", "--state", statePath, "--candidate", submissionPath, "--payload", submissionPayloadPath, "--response", submissionResponsePath], environment),
-    /safe submission payload changed after validation/i,
+    /context file changed after validation/i,
   );
 
   const originalRepoRef = privateState.repositories[0].repoRef;
@@ -855,7 +856,7 @@ test("agent-origin helper records the exact MCP round and finalize result", asyn
   assert.equal(followUpSnapshot.action, "answer");
   assert.equal(followUpSnapshot.establishedContext[0].id, "question-base");
   const followUpCandidate = JSON.parse(
-    readFileSync(join(testRoot, ".doable", "requests", "DQ-AGENT1", "submission-r1.json"), "utf8"),
+    readFileSync(join(testRoot, ".doable", "requests", "DQ-AGENT1", "context-local-r1.json"), "utf8"),
   );
   assert.deepEqual(
     followUpCandidate.answers.map((answer) => answer.questionId),
@@ -1028,7 +1029,7 @@ test("a pre-create successor requires the original connection and matching works
   const args = ["record-round", "--code", "DQ-ORIGIN1", "--response", responsePath, "--state", statePath];
   writeFileSync(responsePath, JSON.stringify(round));
   assert.match(await runHelper(args, environment), /Next action: answer/);
-  const candidate = JSON.parse(readFileSync(join(testRoot, ".doable", "requests", "DQ-RESUME1", "submission-r1.json"), "utf8"));
+  const candidate = JSON.parse(readFileSync(join(testRoot, ".doable", "requests", "DQ-RESUME1", "context-local-r1.json"), "utf8"));
   assert.equal(candidate.round.id, "resume-round");
   assert.deepEqual(candidate.answers.map(answer => answer.questionId), ["base-question"]);
 
@@ -1094,4 +1095,204 @@ test("record-round keeps the Round's app under test and accepts a Round without 
     writeFileSync(responsePath, JSON.stringify({ ...round, target_app }));
     await assert.rejects(runHelper(args, environment), /round target app/);
   }
+});
+
+function runHelperResult(args, env) {
+  return new Promise((resolvePromise, reject) => {
+    const child = spawn(process.execPath, [helper, ...args], {
+      cwd: env.TEST_WORKSPACE,
+      env: { ...process.env, ...env },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.on("error", reject);
+    child.on("close", (code) => resolvePromise({ code, stdout, stderr }));
+  });
+}
+
+test("submit sends the context file with the Round's one-time token and falls back to MCP without one", async (t) => {
+  const testRoot = mkdtempSync(join(tmpdir(), "doable-direct-submit-"));
+  t.after(() => rmSync(testRoot, { recursive: true, force: true }));
+  mkdirSync(join(testRoot, ".doable"));
+  const statePath = join(testRoot, ".doable", "workspace-private.json");
+  writeFileSync(statePath, JSON.stringify({
+    schemaVersion: "1", workspace: { localId: "local-fixture", serverId: "workspace-safe" },
+    organization: { id: "org-safe" }, repositories: [],
+    privateFingerprintKey: "local-test-only",
+    sync: { profileFingerprint: "fixture" }, profile: { profileFingerprint: "fixture" },
+  }));
+
+  const requests = [];
+  let reply = { status: 200, body: { round: { id: "direct-round", status: "ready_to_create" } } };
+  const server = createServer((request, response) => {
+    let body = "";
+    request.on("data", (chunk) => {
+      body += chunk;
+    });
+    request.on("end", () => {
+      requests.push({ method: request.method, url: request.url, headers: request.headers, body });
+      response.writeHead(reply.status, { "Content-Type": "application/json" });
+      response.end(JSON.stringify(reply.body));
+    });
+  });
+  await new Promise((resolvePromise) => server.listen(0, "127.0.0.1", resolvePromise));
+  t.after(() => server.close());
+  const submitPath = "/be/code-context/rounds/direct-round/direct-submissions";
+  const submitUrl = `http://127.0.0.1:${server.address().port}${submitPath}`;
+  const token = `dcs1.${"opaque-test-token-".repeat(3)}`;
+  const future = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+
+  const requestDirectory = join(testRoot, ".doable", "requests", "DQ-DIRECT1");
+  const responsePath = join(testRoot, "direct-round.json");
+  const candidatePath = join(requestDirectory, "context-local-r1.json");
+  const contextPath = join(requestDirectory, "context-r1.json");
+  const roundPath = join(requestDirectory, "round-r1.json");
+  const round = {
+    round_id: "direct-round", round_code: "DQ-DIRECT1", round_use: "pre_create", workspace_id: "workspace-safe",
+    status: "open_for_agent", next_action: "answer", revision: 1, feature_scope: "Team scheduling",
+    questions: [{ id: "base-question", purpose: "base_context", question: "Ground team scheduling.", why: "" }],
+  };
+  const environment = { TEST_WORKSPACE: testRoot };
+  const recordArgs = ["record-round", "--code", "DQ-DIRECT1", "--response", responsePath, "--state", statePath];
+  const submitArgs = ["submit", "--candidate", candidatePath, "--state", statePath];
+  const record = async (changes) => {
+    writeFileSync(responsePath, JSON.stringify({ ...round, ...changes }));
+    const output = await runHelper(recordArgs, environment);
+    return { output, recorded: JSON.parse(readFileSync(roundPath, "utf8")) };
+  };
+  const answerCandidate = (reason) => {
+    const candidate = JSON.parse(readFileSync(candidatePath, "utf8"));
+    candidate.answers = [{ questionId: "base-question", status: "skipped", unknownReason: reason, findings: [], humanClarifications: [] }];
+    writeFileSync(candidatePath, `${JSON.stringify(candidate, null, 2)}\n`);
+  };
+
+  // An in-progress candidate under the pre-0.2.14 name is renamed, not lost.
+  mkdirSync(requestDirectory, { recursive: true });
+  writeFileSync(join(requestDirectory, "submission-r1.json"), JSON.stringify({
+    schemaVersion: "1",
+    round: { id: "direct-round", code: "DQ-DIRECT1", revision: 1, workspaceId: "workspace-safe" },
+    answers: [{ questionId: "base-question", status: "skipped", unknownReason: "Legacy draft reason.", findings: [], humanClarifications: [] }],
+    agentObservations: [], conflicts: [], evidence: [],
+  }));
+  let { output, recorded } = await record({});
+  assert.equal(existsSync(join(requestDirectory, "submission-r1.json")), false);
+  assert.equal(JSON.parse(readFileSync(candidatePath, "utf8")).answers[0].unknownReason, "Legacy draft reason.");
+  assert.equal(statSync(candidatePath).mode & 0o777, 0o600);
+  assert.match(output, /^Context file: .*context-local-r1\.json$/m);
+  assert.match(output, /^Direct submission: unavailable \(not offered by this Round\); submit through Doable MCP$/m);
+  assert.equal(recorded.directSubmission, null);
+
+  // No offer: submit still writes the outgoing context file, then asks for the MCP path with exit code 3.
+  answerCandidate("The workspace has no scheduling code.");
+  let result = await runHelperResult(submitArgs, environment);
+  assert.equal(result.code, 3, result.stderr);
+  assert.match(result.stdout, /^Direct submission: unavailable \(not offered by this Round\)\. Submit .*context-r1\.json with Doable MCP submit_code_context_round, then run record-submission\.$/m);
+  const fallbackEnvelope = JSON.parse(readFileSync(contextPath, "utf8"));
+  assert.equal(fallbackEnvelope.round_id, "direct-round");
+  assert.equal(fallbackEnvelope.submission.answers[0].unknown_reason, "The workspace has no scheduling code.");
+  assert.match(fallbackEnvelope.payload_digest, /^[a-f0-9]{64}$/);
+  assert.equal(statSync(contextPath).mode & 0o777, 0o600);
+  assert.equal(requests.length, 0);
+
+  // During rollout the server may send an offer without a url; an invalid offer also only disables direct submission.
+  for (const offer of [
+    { path: submitPath, token, expires_at: future },
+    { url: submitUrl.replace("http://127.0.0.1", "http://qa.example.invalid"), token, expires_at: future },
+    { url: submitUrl, token: "not-a-submit-token", expires_at: future },
+    { url: submitUrl, token, expires_at: "not a time" },
+    { url: submitUrl.replace("direct-round", "other-round"), token, expires_at: future },
+  ]) {
+    ({ output, recorded } = await record({ direct_submission: offer }));
+    assert.equal(recorded.directSubmission, null);
+    assert.match(output, /^Direct submission: unavailable \(round direct submission .+\); submit through Doable MCP$/m);
+    assert.equal(output.includes(token), false);
+    result = await runHelperResult(submitArgs, environment);
+    assert.equal(result.code, 3, result.stderr);
+    assert.match(result.stdout, /Direct submission: unavailable \(round direct submission .+\)\. Submit .*context-r1\.json with Doable MCP/);
+  }
+  assert.equal(requests.length, 0);
+
+  // An expired token asks for a fresh pull before falling back.
+  await record({ direct_submission: { url: submitUrl, token, expires_at: "2020-01-01T00:00:00+00:00" } });
+  result = await runHelperResult(submitArgs, environment);
+  assert.equal(result.code, 3, result.stderr);
+  assert.match(result.stdout, /Direct submission: unavailable \(submit token expired\)\. Pull the round again/);
+  assert.equal(requests.length, 0);
+
+  // A valid offer is kept privately and never printed.
+  ({ output, recorded } = await record({ direct_submission: { path: submitPath, url: submitUrl, token, expires_at: future } }));
+  assert.deepEqual(recorded.directSubmission, { url: submitUrl, token, expiresAt: future });
+  assert.equal(statSync(roundPath).mode & 0o777, 0o600);
+  assert.match(output, new RegExp(`^Direct submission: available until ${future.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "m"));
+  assert.equal(output.includes(token), false);
+  assert.match(readFileSync(join(testRoot, ".doable", ".gitignore"), "utf8"), /^requests\/$/m);
+
+  result = await runHelperResult(submitArgs, environment);
+  assert.equal(result.code, 0, result.stderr);
+  assert.match(result.stdout, /^Round submitted: DQ-DIRECT1 revision 1$/m);
+  assert.match(result.stdout, /^Answers: 0 answered, 1 skipped$/m);
+  assert.match(result.stdout, /^Nonblocking observations: 0$/m);
+  assert.match(result.stdout, /^Next action: wait$/m);
+  assert.equal(`${result.stdout}${result.stderr}`.includes(token), false);
+  assert.equal(requests.length, 1);
+  const envelope = JSON.parse(readFileSync(contextPath, "utf8"));
+  assert.equal(requests[0].method, "POST");
+  assert.equal(requests[0].url, submitPath);
+  assert.equal(requests[0].headers["content-type"], "application/json");
+  assert.equal(requests[0].headers["x-doable-submit-token"], token);
+  assert.equal(requests[0].headers["idempotency-key"], `direct:round:direct-round:${envelope.payload_digest}`);
+  assert.equal(requests[0].headers.authorization, undefined);
+  assert.deepEqual(JSON.parse(requests[0].body), envelope.submission);
+  const receiptPath = join(requestDirectory, `receipt-r1-${envelope.payload_digest}.json`);
+  const receipt = JSON.parse(readFileSync(receiptPath, "utf8"));
+  assert.equal(receipt.roundId, "direct-round");
+  assert.equal(receipt.payloadDigest, envelope.payload_digest);
+
+  // The same digest is not sent twice.
+  result = await runHelperResult(submitArgs, environment);
+  assert.equal(result.code, 0, result.stderr);
+  assert.match(result.stdout, /^Round already submitted: DQ-DIRECT1 revision 1$/m);
+  assert.match(result.stdout, /^Next action: wait$/m);
+  assert.equal(requests.length, 1);
+
+  // A rejected token asks for a fresh pull and never echoes the token, even when the server does.
+  answerCandidate("The workspace has no scheduling surface.");
+  reply = { status: 401, body: { detail: `Submit token ${token} is invalid or expired` } };
+  result = await runHelperResult(submitArgs, environment);
+  assert.equal(result.code, 1);
+  assert.match(result.stderr, /^Submit token rejected or expired: pull the round again \(get_code_context_round \+ record-round\), then run submit again\.$/m);
+  assert.equal(`${result.stdout}${result.stderr}`.includes(token), false);
+  assert.equal(requests.length, 2);
+  assert.equal(readdirSync(requestDirectory).filter((name) => name.startsWith("receipt-r1-")).length, 1);
+
+  // A validation error shows the sanitized server detail.
+  reply = { status: 422, body: { detail: [{ loc: ["body", "answers", 0], msg: "unknown question", type: "value_error" }, { msg: `echo ${token}` }] } };
+  result = await runHelperResult(submitArgs, environment);
+  assert.equal(result.code, 1);
+  assert.match(result.stderr, /Submission rejected \(HTTP 422\): body\.answers\.0: unknown question; echo \[credential redacted\]\. Repair/);
+  assert.equal(`${result.stdout}${result.stderr}`.includes(token), false);
+
+  reply = { status: 409, body: { detail: "Round revision changed" } };
+  result = await runHelperResult(submitArgs, environment);
+  assert.equal(result.code, 1);
+  assert.match(result.stderr, /Submission conflict \(HTTP 409\): Round revision changed\. Pull the round again/);
+  assert.equal(readdirSync(requestDirectory).filter((name) => name.startsWith("receipt-r1-")).length, 1);
+
+  // The MCP fallback still records the submission from the default context file.
+  const mcpResponsePath = join(testRoot, "mcp-submission-response.json");
+  writeFileSync(mcpResponsePath, JSON.stringify({ round: { id: "direct-round", state: "ready_to_create" } }));
+  await runHelper(["build-submission", "--candidate", candidatePath, "--state", statePath], environment);
+  const recordOutput = await runHelper(
+    ["record-submission", "--candidate", candidatePath, "--response", mcpResponsePath, "--state", statePath],
+    environment,
+  );
+  assert.match(recordOutput, /^Round submitted: DQ-DIRECT1 revision 1$/m);
+  assert.equal(readdirSync(requestDirectory).filter((name) => name.startsWith("receipt-r1-")).length, 2);
 });

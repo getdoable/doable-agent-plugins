@@ -11,7 +11,7 @@ const semver = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:
 const plugins = [
   {
     name: "doable-code-context",
-    version: "0.2.13",
+    version: "0.2.14",
     skillNames: ["doable-connect", "doable-answer-questions", "doable-test-feature"],
     network: "bundled-doable-mcp-config",
   },
@@ -311,20 +311,31 @@ assert(
 );
 
 // The helper is a deterministic local boundary. All remote work belongs to
-// the host-loaded Doable MCP connection declared by the plugin where supported.
+// the host-loaded Doable MCP connection declared by the plugin where supported,
+// with one exception: `submit` POSTs the privacy-checked context file to the URL
+// the Round handed out, authorized only by that Round's one-time submit token.
+// It never reads an API key, builds a Doable URL, or follows a redirect.
 const connectedHelperPath = join(root, "plugins", "doable-code-context", "scripts", "doable-code-context.mjs");
 assert(existsSync(connectedHelperPath), "connected plugin is missing its deterministic helper");
 const connectedHelper = readFileSync(connectedHelperPath, "utf8");
 for (const remotePrimitive of [
   "DOABLE_API_KEY",
   "DOABLE_API_BASE_URL",
-  "fetch(",
+  "Authorization",
   "axios",
   "undici",
   "WebSocket",
+  "node:http",
+  "node:https",
+  "node:net",
   "/code-context/",
 ]) {
   assert(!connectedHelper.includes(remotePrimitive), `connected helper must not contain remote primitive ${remotePrimitive}`);
+}
+const fetchCalls = connectedHelper.match(/\bfetch\(/g) ?? [];
+assert(fetchCalls.length === 1, `connected helper must make exactly one fetch call (direct submission); found ${fetchCalls.length}`);
+for (const directSubmitRule of ['redirect: "error"', '"X-Doable-Submit-Token"', 'method: "POST"']) {
+  assert(connectedHelper.includes(directSubmitRule), `connected helper direct submission is missing ${directSubmitRule}`);
 }
 for (const localCommand of [
   "prepare-workspace",
@@ -332,6 +343,7 @@ for (const localCommand of [
   "record-workspace-sync",
   "record-round",
   "validate-submission",
+  "submit",
   "build-submission",
   "record-submission",
   "record-finalize",
