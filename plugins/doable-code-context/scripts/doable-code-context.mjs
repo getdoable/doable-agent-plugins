@@ -1404,7 +1404,7 @@ function validateFindingJourneys(findings) {
   }
 }
 
-function normalizeJourneys(value, label, state, findings, warnings = null, { sendNavigation = true, dropped = null } = {}) {
+function normalizeJourneys(value, label, state, findings) {
   assert(Array.isArray(value), `${label} must be an array`);
   const ordered = new Set(findings.filter((finding) => finding.journey_ref).map((finding) => finding.journey_ref));
   const seen = new Set();
@@ -1430,42 +1430,12 @@ function normalizeJourneys(value, label, state, findings, warnings = null, { sen
       assertNoLocalProvenance(text, `${label}[${index}].alternatePaths[${pathIndex}]`, state);
       return text;
     });
-    // The product's navigation labels from area to leaf, e.g. ["Create", "Video", "Edit style"].
-    let navPath;
-    if (journey.navPath !== undefined && journey.navPath !== null) {
-      assert(Array.isArray(journey.navPath), `${label}[${index}].navPath must be an array`);
-      assert(
-        journey.navPath.length >= 1 && journey.navPath.length <= 6,
-        `${label}[${index}].navPath must contain 1-6 labels`,
-      );
-      navPath = journey.navPath.map((item, itemIndex) => {
-        const text = string(item, `${label}[${index}].navPath[${itemIndex}]`, { max: 120 });
-        assertNoLocalProvenance(text, `${label}[${index}].navPath[${itemIndex}]`, state);
-        return text;
-      });
-      const leaf = navPath[navPath.length - 1];
-      if (warnings && !name.toLowerCase().endsWith(leaf.toLowerCase())) {
-        warnings.push(`${label}[${index}].name does not end with its navPath leaf "${leaf}"`);
-      }
-    }
-    // The leaf's position in the product's order within its parent.
-    let order;
-    if (!sendNavigation && dropped && (journey.navPath != null || journey.order != null)) dropped.count += 1;
-    if (journey.order !== undefined && journey.order !== null) {
-      assert(
-        Number.isSafeInteger(journey.order) && journey.order >= 1,
-        `${label}[${index}].order must be a positive integer`,
-      );
-      order = journey.order;
-    }
     return {
       journey_ref: journeyRef,
       name,
       goal,
       ...(actor ? { actor } : {}),
       alternate_paths: alternatePaths,
-      ...(sendNavigation && navPath ? { nav_path: navPath } : {}),
-      ...(sendNavigation && order !== undefined ? { order } : {}),
     };
   });
 }
@@ -1622,17 +1592,8 @@ function buildSubmission(statePath, candidatePath) {
   // predates the field rejects any submission carrying it, and a gap-only follow-up
   // never requests one, so the helper enforces this rather than trusting the prose.
   const journeyMapRequested = frozenRound.journeyMapRequested === true;
-  const warnings = [];
-  // A Doable server that predates nav_path/order rejects a journey carrying them, so send
-  // them only when this Round's journey-map instructions ask for them. They are still
-  // validated locally, so the candidate stays well-formed either way.
-  const sendNavigation = /\bnav_path\b/.test(frozenRound.journeyMap?.how || "");
-  const droppedNavigation = { count: 0 };
   const journeys = journeyMapRequested
-    ? normalizeJourneys(candidate.journeys || [], "journeys", privacyState, allFindings, warnings, {
-        sendNavigation,
-        dropped: droppedNavigation,
-      })
+    ? normalizeJourneys(candidate.journeys || [], "journeys", privacyState, allFindings)
     : [];
   const journeyMapSkipReason = journeyMapRequested && candidate.journeyMapSkipReason
     ? string(candidate.journeyMapSkipReason, "journeyMapSkipReason", { max: 500 })
@@ -1649,22 +1610,13 @@ function buildSubmission(statePath, candidatePath) {
     ...(journeyMapSkipReason ? { journey_map_skip_reason: journeyMapSkipReason } : {}),
   };
   assertRemotePayloadSafe(payload, privacyState);
-  return {
-    state,
-    frozenRound,
-    payload,
-    payloadDigest: sha256(stableJson(payload)),
-    omittedJourneyCount,
-    warnings,
-    navigationDropped: droppedNavigation.count > 0,
-  };
+  return { state, frozenRound, payload, payloadDigest: sha256(stableJson(payload)), omittedJourneyCount };
 }
 
 function validateSubmission(options) {
   const statePath = resolve(options.state || ".doable/workspace-private.json");
   const candidatePath = resolve(requiredOption(options, "candidate"));
-  const { frozenRound, payload, payloadDigest, omittedJourneyCount, warnings, navigationDropped } =
-    buildSubmission(statePath, candidatePath);
+  const { frozenRound, payload, payloadDigest, omittedJourneyCount } = buildSubmission(statePath, candidatePath);
   const answered = payload.answers.filter((answer) => answer.status === "answered").length;
   const skipped = payload.answers.length - answered;
   console.log(`Round: ${frozenRound.code} revision ${frozenRound.revision}`);
@@ -1672,12 +1624,6 @@ function validateSubmission(options) {
   console.log(`Nonblocking observations: ${payload.agent_observations.length}`);
   if (omittedJourneyCount > 0) {
     console.log(`Journey map not requested by this Round; omitted ${omittedJourneyCount} declaration(s)`);
-  }
-  if (navigationDropped) {
-    console.log("Journey navPath/order not sent: this Doable server does not ask for them");
-  }
-  for (const warning of warnings) {
-    console.log(`Warning: ${warning}`);
   }
   console.log(`Payload digest: ${payloadDigest}`);
 }

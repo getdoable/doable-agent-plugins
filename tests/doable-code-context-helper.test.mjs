@@ -183,7 +183,7 @@ test("connected helper preserves the local/private boundary and retries idempote
       revision: 1,
       status: "open_for_agent",
       feature_scope: "Staff promotion creation",
-      journey_map: { requested: true, how: "Declare one journey per leaf with nav_path, the same path as a list from area to leaf; order, its position within its parent.", may_skip: "" },
+      journey_map: { requested: true, how: "Declare each journey once in `journeys`, in the product's order; name is its navigation path joined with \" › \".", may_skip: "" },
       situation: "No test spec exists yet: the request is all Doable knows.",
       questions: [
         {
@@ -214,7 +214,7 @@ test("connected helper preserves the local/private boundary and retries idempote
   const recordedRound = JSON.parse(
     readFileSync(join(testRoot, ".doable", "requests", "DQ-7F3K", "round-r1.json"), "utf8"),
   );
-  assert.deepEqual(recordedRound.journeyMap, { requested: true, how: "Declare one journey per leaf with nav_path, the same path as a list from area to leaf; order, its position within its parent.", maySkip: "" });
+  assert.deepEqual(recordedRound.journeyMap, { requested: true, how: "Declare each journey once in `journeys`, in the product's order; name is its navigation path joined with \" › \".", maySkip: "" });
   const submissionPath = join(testRoot, ".doable", "requests", "DQ-7F3K", "context-local-r1.json");
   const submission = JSON.parse(readFileSync(submissionPath, "utf8"));
   submission.answers[0] = {
@@ -381,127 +381,28 @@ test("connected helper preserves the local/private boundary and retries idempote
   writeFileSync(submissionPath, `${JSON.stringify(declaredJourneys, null, 2)}\n`);
   await runHelper(["validate-submission", "--state", statePath, "--candidate", submissionPath], environment);
 
-  // A declaration without navPath or order is sent exactly as before 0.2.15.
+  // The path rides in the name and the order in the list: a journey is sent with the keys every
+  // Doable server stores, and keys an agent adds from older guidance (navPath, order) are not sent.
   const journeyPayloadPath = join(testRoot, "journey-payload.json");
-  const buildJourneyPayload = async (candidate) => {
-    writeFileSync(submissionPath, `${JSON.stringify(candidate, null, 2)}\n`);
-    await runHelper(
-      ["build-submission", "--state", statePath, "--candidate", submissionPath, "--output", journeyPayloadPath],
-      environment,
-    );
-    return JSON.parse(readFileSync(journeyPayloadPath, "utf8")).submission;
-  };
-  const olderStylePayload = await buildJourneyPayload(declaredJourneys);
-  assert.deepEqual(olderStylePayload.journeys, [
+  const pathJourney = structuredClone(declaredJourneys);
+  pathJourney.journeys[0].name = "Promotions › Create › Submit";
+  pathJourney.journeys[0].navPath = ["Promotions", "Create", "Submit"];
+  pathJourney.journeys[0].order = 2;
+  writeFileSync(submissionPath, `${JSON.stringify(pathJourney, null, 2)}\n`);
+  await runHelper(
+    ["build-submission", "--state", statePath, "--candidate", submissionPath, "--output", journeyPayloadPath],
+    environment,
+  );
+  assert.deepEqual(JSON.parse(readFileSync(journeyPayloadPath, "utf8")).submission.journeys, [
     {
       journey_ref: "j_submit_promotion",
-      name: "Submit a promotion",
+      name: "Promotions › Create › Submit",
       goal: "Turn a drafted promotion into one buyers can redeem.",
       actor: "Store staff",
       alternate_paths: ["Submitting an expired date range is rejected"],
     },
   ]);
-
-  // A leaf journey carries its navigation path and its position within its parent.
-  const navJourney = structuredClone(declaredJourneys);
-  navJourney.journeys[0].name = "Promotions › Create › Submit";
-  navJourney.journeys[0].navPath = ["Promotions", " Create ", "Submit"];
-  navJourney.journeys[0].order = 2;
-  writeFileSync(submissionPath, `${JSON.stringify(navJourney, null, 2)}\n`);
-  const navOutput = await runHelper(
-    ["validate-submission", "--state", statePath, "--candidate", submissionPath],
-    environment,
-  );
-  assert.doesNotMatch(navOutput, /Warning:|not sent/);
-  const navPayload = await buildJourneyPayload(navJourney);
-  assert.deepEqual(navPayload.journeys[0].nav_path, ["Promotions", "Create", "Submit"]);
-  assert.equal(navPayload.journeys[0].order, 2);
-  assert.equal(navPayload.journeys[0].navPath, undefined);
-  assert.deepEqual(
-    { ...navPayload, journeys: undefined },
-    { ...olderStylePayload, journeys: undefined },
-  );
-
-  // A name that does not end with the leaf is allowed (older helpers only carry the
-  // name) but called out, since the name is meant to be the joined path.
-  const mismatchedName = structuredClone(navJourney);
-  mismatchedName.journeys[0].name = "Submit a promotion";
-  mismatchedName.journeys[0].navPath = ["Promotions", "Create"];
-  writeFileSync(submissionPath, `${JSON.stringify(mismatchedName, null, 2)}\n`);
-  const mismatchOutput = await runHelper(
-    ["validate-submission", "--state", statePath, "--candidate", submissionPath],
-    environment,
-  );
-  assert.match(mismatchOutput, /Warning: journeys\[0\]\.name does not end with its navPath leaf "Create"/);
-
-  // A server that predates nav_path/order rejects a journey carrying them, so the helper
-  // sends them only when the Round's journey-map instructions ask for them.
-  const legacyMapRoundPath = join(testRoot, "mcp-round-legacy-map-response.json");
-  writeFileSync(
-    legacyMapRoundPath,
-    JSON.stringify({
-      ...JSON.parse(readFileSync(roundResponsePath, "utf8")),
-      journey_map: { requested: true, how: "Order the findings, then declare each journey once.", may_skip: "" },
-    }),
-  );
-  await runHelper(["record-round", "--code", "DQ-7F3K", "--response", legacyMapRoundPath, "--state", statePath], environment);
-  writeFileSync(submissionPath, `${JSON.stringify(navJourney, null, 2)}\n`);
-  const legacyMapOutput = await runHelper(
-    ["validate-submission", "--state", statePath, "--candidate", submissionPath],
-    environment,
-  );
-  assert.match(legacyMapOutput, /^Journey navPath\/order not sent: this Doable server does not ask for them$/m);
-  const legacyMapPayload = await buildJourneyPayload(navJourney);
-  assert.equal(legacyMapPayload.journeys[0].nav_path, undefined);
-  assert.equal(legacyMapPayload.journeys[0].order, undefined);
-  // Only the two fields are dropped; the name, and everything else, is sent unchanged.
-  assert.deepEqual(legacyMapPayload, {
-    ...olderStylePayload,
-    journeys: [{ ...olderStylePayload.journeys[0], name: "Promotions › Create › Submit" }],
-  });
-  // The fields are still validated locally, so the candidate stays well-formed.
-  const legacyInvalid = structuredClone(navJourney);
-  legacyInvalid.journeys[0].order = 0;
-  writeFileSync(submissionPath, `${JSON.stringify(legacyInvalid, null, 2)}\n`);
-  await assert.rejects(
-    runHelper(["validate-submission", "--state", statePath, "--candidate", submissionPath], environment),
-    /journeys\[0\]\.order must be a positive integer/,
-  );
-  // A candidate without them prints no drop notice.
   writeFileSync(submissionPath, `${JSON.stringify(declaredJourneys, null, 2)}\n`);
-  assert.doesNotMatch(
-    await runHelper(["validate-submission", "--state", statePath, "--candidate", submissionPath], environment),
-    /not sent/,
-  );
-  await runHelper(["record-round", "--code", "DQ-7F3K", "--response", roundResponsePath, "--state", statePath], environment);
-
-  const invalidNavPaths = [
-    [["A", "B", "C", "D", "E", "F", "G"], /navPath must contain 1-6 labels/],
-    [[], /navPath must contain 1-6 labels/],
-    [["Promotions", "  "], /navPath\[1\] must be 1-120 characters/],
-    [["Promotions", "x".repeat(121)], /navPath\[1\] must be 1-120 characters/],
-    ["Promotions › Create", /navPath must be an array/],
-    [["Promotions", 7], /navPath\[1\] must be a string/],
-    [["private-admin-repository", "Submit"], /navPath\[0\] exposes local repository provenance/],
-  ];
-  for (const [navPath, message] of invalidNavPaths) {
-    const invalid = structuredClone(navJourney);
-    invalid.journeys[0].navPath = navPath;
-    writeFileSync(submissionPath, `${JSON.stringify(invalid, null, 2)}\n`);
-    await assert.rejects(
-      runHelper(["validate-submission", "--state", statePath, "--candidate", submissionPath], environment),
-      message,
-    );
-  }
-  for (const order of [0, -1, 1.5, "2"]) {
-    const invalid = structuredClone(navJourney);
-    invalid.journeys[0].order = order;
-    writeFileSync(submissionPath, `${JSON.stringify(invalid, null, 2)}\n`);
-    await assert.rejects(
-      runHelper(["validate-submission", "--state", statePath, "--candidate", submissionPath], environment),
-      /journeys\[0\]\.order must be a positive integer/,
-    );
-  }
 
   const unbackedJourney = structuredClone(declaredJourneys);
   unbackedJourney.journeys[0].journeyRef = "j_nothing_orders_this";
