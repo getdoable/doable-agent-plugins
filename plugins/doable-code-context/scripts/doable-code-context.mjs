@@ -18,7 +18,7 @@ import {
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { execFileSync } from "node:child_process";
 
-const CLIENT = Object.freeze({ name: "doable-code-context", version: "0.2.14" });
+const CLIENT = Object.freeze({ name: "doable-code-context", version: "0.2.15" });
 const STATE_SCHEMA_VERSION = "1";
 const SUBMISSION_SCHEMA_VERSION = "1";
 
@@ -1035,11 +1035,9 @@ function normalizeRound(data, state, requestedCode) {
     ? serverAction
     : watchAction(roundUse, status, questions);
   const journeyMap = round.journey_map ?? round.journeyMap;
-  // A quick investigation is a first, smoke-level pass that the person waits on; older servers send no tier.
-  const investigation = round.investigation === "quick" ? "quick" : "full";
-  const rawBudget = Number(round.time_budget_minutes ?? round.timeBudgetMinutes);
-  const timeBudgetMinutes =
-    investigation === "quick" && Number.isInteger(rawBudget) && rawBudget > 0 && rawBudget <= 60 ? rawBudget : null;
+  // The Round's questions and its journey-map instructions are the contract for what to
+  // return and how deep to go. The packet may still carry an investigation tier for older
+  // plugins; this helper deliberately ignores it so the agent does not branch on it.
   // The app under test names the product to route to; the organization is only the Doable account.
   // Older servers, and suites without an entry URL, send none.
   const targetApp = normalizeTargetApp(round.target_app ?? round.targetApp ?? null);
@@ -1067,14 +1065,25 @@ function normalizeRound(data, state, requestedCode) {
     action,
     // Carried into the frozen snapshot so the submission can be gated on it.
     journeyMapRequested: journeyMap?.requested === true,
-    investigation,
-    timeBudgetMinutes,
+    // Kept verbatim so the agent reads the server's journey-map instructions from the Round file.
+    journeyMap: normalizeJourneyMapRequest(journeyMap),
     targetApp,
     directSubmission,
     directSubmissionUnavailable,
     featureScope,
     questions,
     establishedContext,
+  };
+}
+
+function normalizeJourneyMapRequest(journeyMap) {
+  if (!journeyMap || typeof journeyMap !== "object" || Array.isArray(journeyMap)) return null;
+  // Informational text for the agent: never reject a Round over its wording.
+  const text = (value) => (typeof value === "string" ? value.trim() : "");
+  return {
+    requested: journeyMap.requested === true,
+    how: text(journeyMap.how),
+    maySkip: text(journeyMap.may_skip ?? journeyMap.maySkip),
   };
 }
 
@@ -1166,11 +1175,9 @@ function recordRound(options) {
     const { name, entryUrl } = round.targetApp;
     console.log(`App under test: ${name ? `${name} (${entryUrl})` : entryUrl}`);
   }
-  console.log(
-    round.investigation === "quick"
-      ? `Investigation: quick${round.timeBudgetMinutes ? ` (submit within about ${round.timeBudgetMinutes} minutes)` : ""}`
-      : "Investigation: full",
-  );
+  if (round.journeyMapRequested) {
+    console.log("Journey map: requested (instructions in the Round file's journeyMap)");
+  }
   console.log(`Open questions: ${round.questions.length}`);
   console.log(`Established context: ${round.establishedContext.length}`);
   if (round.action === "answer") {
@@ -1392,7 +1399,7 @@ function validateFindingJourneys(findings) {
   }
 }
 
-function normalizeJourneys(value, label, state, findings) {
+function normalizeJourneys(value, label, state, findings, warnings = null) {
   assert(Array.isArray(value), `${label} must be an array`);
   const ordered = new Set(findings.filter((finding) => finding.journey_ref).map((finding) => finding.journey_ref));
   const seen = new Set();
@@ -1418,12 +1425,41 @@ function normalizeJourneys(value, label, state, findings) {
       assertNoLocalProvenance(text, `${label}[${index}].alternatePaths[${pathIndex}]`, state);
       return text;
     });
+    // The product's navigation labels from area to leaf, e.g. ["Create", "Video", "Edit style"].
+    let navPath;
+    if (journey.navPath !== undefined && journey.navPath !== null) {
+      assert(Array.isArray(journey.navPath), `${label}[${index}].navPath must be an array`);
+      assert(
+        journey.navPath.length >= 1 && journey.navPath.length <= 6,
+        `${label}[${index}].navPath must contain 1-6 labels`,
+      );
+      navPath = journey.navPath.map((item, itemIndex) => {
+        const text = string(item, `${label}[${index}].navPath[${itemIndex}]`, { max: 120 });
+        assertNoLocalProvenance(text, `${label}[${index}].navPath[${itemIndex}]`, state);
+        return text;
+      });
+      const leaf = navPath[navPath.length - 1];
+      if (warnings && !name.toLowerCase().endsWith(leaf.toLowerCase())) {
+        warnings.push(`${label}[${index}].name does not end with its navPath leaf "${leaf}"`);
+      }
+    }
+    // The leaf's position in the product's order within its parent.
+    let order;
+    if (journey.order !== undefined && journey.order !== null) {
+      assert(
+        Number.isSafeInteger(journey.order) && journey.order >= 1,
+        `${label}[${index}].order must be a positive integer`,
+      );
+      order = journey.order;
+    }
     return {
       journey_ref: journeyRef,
       name,
       goal,
       ...(actor ? { actor } : {}),
       alternate_paths: alternatePaths,
+      ...(navPath ? { nav_path: navPath } : {}),
+      ...(order !== undefined ? { order } : {}),
     };
   });
 }
@@ -1580,8 +1616,9 @@ function buildSubmission(statePath, candidatePath) {
   // predates the field rejects any submission carrying it, and a gap-only follow-up
   // never requests one, so the helper enforces this rather than trusting the prose.
   const journeyMapRequested = frozenRound.journeyMapRequested === true;
+  const warnings = [];
   const journeys = journeyMapRequested
-    ? normalizeJourneys(candidate.journeys || [], "journeys", privacyState, allFindings)
+    ? normalizeJourneys(candidate.journeys || [], "journeys", privacyState, allFindings, warnings)
     : [];
   const journeyMapSkipReason = journeyMapRequested && candidate.journeyMapSkipReason
     ? string(candidate.journeyMapSkipReason, "journeyMapSkipReason", { max: 500 })
@@ -1598,13 +1635,13 @@ function buildSubmission(statePath, candidatePath) {
     ...(journeyMapSkipReason ? { journey_map_skip_reason: journeyMapSkipReason } : {}),
   };
   assertRemotePayloadSafe(payload, privacyState);
-  return { state, frozenRound, payload, payloadDigest: sha256(stableJson(payload)), omittedJourneyCount };
+  return { state, frozenRound, payload, payloadDigest: sha256(stableJson(payload)), omittedJourneyCount, warnings };
 }
 
 function validateSubmission(options) {
   const statePath = resolve(options.state || ".doable/workspace-private.json");
   const candidatePath = resolve(requiredOption(options, "candidate"));
-  const { frozenRound, payload, payloadDigest, omittedJourneyCount } = buildSubmission(statePath, candidatePath);
+  const { frozenRound, payload, payloadDigest, omittedJourneyCount, warnings } = buildSubmission(statePath, candidatePath);
   const answered = payload.answers.filter((answer) => answer.status === "answered").length;
   const skipped = payload.answers.length - answered;
   console.log(`Round: ${frozenRound.code} revision ${frozenRound.revision}`);
@@ -1612,6 +1649,9 @@ function validateSubmission(options) {
   console.log(`Nonblocking observations: ${payload.agent_observations.length}`);
   if (omittedJourneyCount > 0) {
     console.log(`Journey map not requested by this Round; omitted ${omittedJourneyCount} declaration(s)`);
+  }
+  for (const warning of warnings) {
+    console.log(`Warning: ${warning}`);
   }
   console.log(`Payload digest: ${payloadDigest}`);
 }
