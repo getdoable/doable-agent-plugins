@@ -8,7 +8,7 @@ Repository inspection happens inside the coding agent selected by the customer a
 
 Its local `.doable/workspace-candidate.json`, `.doable/workspace-private.json`, and `.doable/requests/` records may contain real repository identities, explicitly user-supplied artifact roots, local paths, Git provenance, exact evidence locators, and frozen Doable questions. They are written with private permissions and ignored by Git. Artifact roots are never serialized into the remote workspace profile.
 
-The helper validates every workspace profile and answer payload before the coding agent passes it to Doable MCP. Doable may receive only:
+The helper validates every workspace profile and answer payload before it is sent. An answer batch goes to Doable either directly from the helper, using the one-time submit token of that Round, or through Doable MCP; both send the same validated payload. Doable may receive only:
 
 - opaque workspace, repository, evidence, round, and question identifiers;
 - a sanitized workspace display name, product roles, surfaces, descriptions, feature scope, and externally observable findings;

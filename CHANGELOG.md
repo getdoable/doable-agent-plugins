@@ -9,6 +9,30 @@ All notable changes to Doable Agent Plugins are documented here.
 - Verify template integrity and syntax in CI. Local plugin version remains 0.2.10.
 - Clarify the GitHub integration's repository metadata and model-provider boundary.
 
+## [0.2.14] - 2026-10-16
+
+### Added
+
+- Direct submission. A Round in the answer state may carry `direct_submission` (a URL and a one-time submit token).
+  `record-round` keeps it in the private frozen Round file and prints only `Direct submission: available until <time>`,
+  never the token. The new `submit --candidate <context-local-r<revision>.json>` command runs every privacy check,
+  writes the outgoing `context-r<revision>.json`, and POSTs it to that URL with the token and an
+  `Idempotency-Key`, then writes the usual receipt. The agent no longer re-types the whole payload into the MCP
+  submit tool, which took minutes per answer batch.
+- When the Round offers no direct submission (an older server or MCP, an offer without a URL, an invalid offer, an
+  expired token) or the host has no network access, `submit` prints `Direct submission: unavailable` and exits with
+  code 3; the agent then submits `context-r<revision>.json` through MCP `submit_code_context_round` and runs
+  `record-submission` as before. A rejected token (HTTP 401) tells the agent to pull the Round again and retry once.
+
+### Changed
+
+- Local file names: the candidate with local evidence is `context-local-r<revision>.json` (an existing
+  `submission-r<revision>.json` is renamed on the next `record-round`), and the outgoing file is
+  `context-r<revision>.json` next to the Round file. `build-submission --output` and `record-submission --payload`
+  are now optional and default to that file. `record-round` prints `Context file:`.
+- The release verifier allows the helper exactly one network call, the direct submission POST, which refuses
+  redirects; it still rejects API-key, Authorization, raw HTTP module and Doable URL primitives.
+
 ## [0.2.13] - 2026-10-15
 
 ### Changed
