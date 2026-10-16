@@ -1190,13 +1190,20 @@ test("submit sends the context file with the Round's one-time token and falls ba
   assert.equal(recorded.directSubmission, null);
 
   // No offer: submit still writes the outgoing context file, then asks for the MCP path with exit code 3.
-  answerCandidate("The workspace has no scheduling code.");
+  // Non-ASCII, a quote and a backslash exercise the Python json.dumps escaping behind the Idempotency-Key.
+  const unicodeReason = 'The workspace has no 排班 "scheduling" code \\ 😀.';
+  // Computed with Python for exactly this submission:
+  // {"agent_observations":[],"answers":[{"findings":[],"human_clarifications":[],"question_id":"base-question",
+  //  "status":"skipped","unknown_reason":"The workspace has no \u6392\u73ed \"scheduling\" code \\ \ud83d\ude00."}],
+  //  "conflicts":[],"evidence_references":[],"round_revision":1,"workspace_id":"workspace-safe"}
+  const EXPECTED_MCP_DIGEST = "4c4674515978949116be9405e3e0eeb1efd9f4fafb80d2019fbec5a95e03e0b1";
+  answerCandidate(unicodeReason);
   let result = await runHelperResult(submitArgs, environment);
   assert.equal(result.code, 3, result.stderr);
   assert.match(result.stdout, /^Direct submission: unavailable \(not offered by this Round\)\. Submit .*context-r1\.json with Doable MCP submit_code_context_round, then run record-submission\.$/m);
   const fallbackEnvelope = JSON.parse(readFileSync(contextPath, "utf8"));
   assert.equal(fallbackEnvelope.round_id, "direct-round");
-  assert.equal(fallbackEnvelope.submission.answers[0].unknown_reason, "The workspace has no scheduling code.");
+  assert.equal(fallbackEnvelope.submission.answers[0].unknown_reason, unicodeReason);
   assert.match(fallbackEnvelope.payload_digest, /^[a-f0-9]{64}$/);
   assert.equal(statSync(contextPath).mode & 0o777, 0o600);
   assert.equal(requests.length, 0);
@@ -1247,9 +1254,19 @@ test("submit sends the context file with the Round's one-time token and falls ba
   assert.equal(requests[0].url, submitPath);
   assert.equal(requests[0].headers["content-type"], "application/json");
   assert.equal(requests[0].headers["x-doable-submit-token"], token);
-  assert.equal(requests[0].headers["idempotency-key"], `direct:round:direct-round:${envelope.payload_digest}`);
+  // Python: hashlib.sha256(json.dumps(submission, sort_keys=True, separators=(",", ":")).encode()).hexdigest(),
+  // the key Doable MCP sends for submit_code_context_round.
+  assert.equal(requests[0].headers["idempotency-key"], `round:direct-round:${EXPECTED_MCP_DIGEST}`);
   assert.equal(requests[0].headers.authorization, undefined);
   assert.deepEqual(JSON.parse(requests[0].body), envelope.submission);
+  assert.deepEqual(envelope.submission, {
+    round_revision: 1,
+    workspace_id: "workspace-safe",
+    answers: [{ question_id: "base-question", status: "skipped", findings: [], human_clarifications: [], unknown_reason: unicodeReason }],
+    agent_observations: [],
+    conflicts: [],
+    evidence_references: [],
+  });
   const receiptPath = join(requestDirectory, `receipt-r1-${envelope.payload_digest}.json`);
   const receipt = JSON.parse(readFileSync(receiptPath, "utf8"));
   assert.equal(receipt.roundId, "direct-round");

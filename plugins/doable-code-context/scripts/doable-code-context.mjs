@@ -145,6 +145,51 @@ function stableJson(value) {
   return JSON.stringify(stableClone(value));
 }
 
+// Byte-for-byte Python json.dumps(value, sort_keys=True, separators=(",", ":")) with the
+// default ensure_ascii=True. Doable MCP derives submit_code_context_round's Idempotency-Key
+// from it, so a direct submission and its MCP fallback dedupe to the same server request.
+function pythonJsonString(value) {
+  let out = '"';
+  for (let index = 0; index < value.length; index += 1) {
+    const unit = value.charCodeAt(index);
+    if (unit === 0x22) out += '\\"';
+    else if (unit === 0x5c) out += "\\\\";
+    else if (unit === 0x0a) out += "\\n";
+    else if (unit === 0x0d) out += "\\r";
+    else if (unit === 0x09) out += "\\t";
+    else if (unit === 0x08) out += "\\b";
+    else if (unit === 0x0c) out += "\\f";
+    else if (unit < 0x20 || unit > 0x7e) out += `\\u${unit.toString(16).padStart(4, "0")}`;
+    else out += value[index];
+  }
+  return `${out}"`;
+}
+
+function compareCodePoints(left, right) {
+  const a = Array.from(left, (character) => character.codePointAt(0));
+  const b = Array.from(right, (character) => character.codePointAt(0));
+  for (let index = 0; index < Math.min(a.length, b.length); index += 1) {
+    if (a[index] !== b[index]) return a[index] - b[index];
+  }
+  return a.length - b.length;
+}
+
+function pythonJsonDumps(value) {
+  if (value === null) return "null";
+  if (value === true) return "true";
+  if (value === false) return "false";
+  if (typeof value === "string") return pythonJsonString(value);
+  if (typeof value === "number") {
+    // Python prints floats differently from JavaScript; the payload holds integers only.
+    assert(Number.isSafeInteger(value), "submission payload numbers must be integers");
+    return String(value);
+  }
+  if (Array.isArray(value)) return `[${value.map(pythonJsonDumps).join(",")}]`;
+  assert(typeof value === "object", "submission payload holds an unsupported value");
+  const keys = Object.keys(value).filter((key) => value[key] !== undefined).sort(compareCodePoints);
+  return `{${keys.map((key) => `${pythonJsonString(key)}:${pythonJsonDumps(value[key])}`).join(",")}}`;
+}
+
 function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
 }
@@ -1778,7 +1823,9 @@ async function submitContext(options) {
     process.exitCode = DIRECT_SUBMIT_UNAVAILABLE_EXIT;
     return;
   }
-  const result = await postDirectSubmission(direct, `direct:round:${frozenRound.id}:${payloadDigest}`, payload);
+  // The same key Doable MCP computes for submit_code_context_round, so the MCP fallback replays this request.
+  const idempotencyKey = `round:${frozenRound.id}:${sha256(pythonJsonDumps(payload))}`;
+  const result = await postDirectSubmission(direct, idempotencyKey, payload);
   if (result.status === 0) {
     // No HTTP answer at all, for example a sandbox without network access: the MCP path still works.
     console.log(`Direct submission: unavailable (${result.transportError}). ${mcpFallback}`);

@@ -17,7 +17,9 @@ All notable changes to Doable Agent Plugins are documented here.
   `record-round` keeps it in the private frozen Round file and prints only `Direct submission: available until <time>`,
   never the token. The new `submit --candidate <context-local-r<revision>.json>` command runs every privacy check,
   writes the outgoing `context-r<revision>.json`, and POSTs it to that URL with the token and an
-  `Idempotency-Key`, then writes the usual receipt. The agent no longer re-types the whole payload into the MCP
+  `Idempotency-Key` equal to the one Doable MCP computes for `submit_code_context_round`
+  (`round:<round_id>:<sha256 of Python json.dumps(payload, sort_keys=True, separators=(",", ":"))>`), so a direct
+  POST whose response was lost and its MCP fallback dedupe to one server submission. It then writes the usual receipt. The agent no longer re-types the whole payload into the MCP
   submit tool, which took minutes per answer batch.
 - When the Round offers no direct submission (an older server or MCP, an offer without a URL, an invalid offer, an
   expired token) or the host has no network access, `submit` prints `Direct submission: unavailable` and exits with
