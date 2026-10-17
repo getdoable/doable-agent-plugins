@@ -1,6 +1,6 @@
 {
   "name": "doable-agent-plugins",
-  "version": "0.2.13",
+  "version": "0.2.14",
   "private": true,
   "description": "Official installable agent plugins for Doable.",
   "license": "MIT",

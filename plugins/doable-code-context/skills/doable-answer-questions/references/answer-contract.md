@@ -1,6 +1,6 @@
 # Private answer candidate contract
 
-`record-round` creates the candidate from the exact MCP response for the current open questions. Preserve its round identity and question IDs. Fill only those open `answers`, plus `agentObservations`, `conflicts`, and `evidence`. Do not re-answer IDs in `established_context`.
+`record-round` creates the local candidate `.doable/requests/<round-code>/context-local-r<revision>.json` from the exact MCP response for the current open questions (an older `submission-r<revision>.json` is renamed to it). Preserve its round identity and question IDs. Fill only those open `answers`, plus `agentObservations`, `conflicts`, and `evidence`. Do not re-answer IDs in `established_context`.
 
 ```json
 {
@@ -176,18 +176,23 @@ node <plugin-directory>/scripts/doable-code-context.mjs record-round \
 
 node <plugin-directory>/scripts/doable-code-context.mjs validate-submission \
   --state .doable/workspace-private.json \
-  --candidate .doable/requests/DQ-7F3K/submission-r1.json
+  --candidate .doable/requests/DQ-7F3K/context-local-r1.json
 
+# Writes context-r1.json (the privacy-checked outgoing file) and sends it with the
+# Round's one-time submit token. Exit code 3 means direct submission is unavailable.
+node <plugin-directory>/scripts/doable-code-context.mjs submit \
+  --state .doable/workspace-private.json \
+  --candidate .doable/requests/DQ-7F3K/context-local-r1.json
+
+# Fallback only after exit code 3: build the context file, call MCP
+# submit_code_context_round with its exact `submission`, save the result, then
+# record it without exposing the local evidence ledger.
 node <plugin-directory>/scripts/doable-code-context.mjs build-submission \
   --state .doable/workspace-private.json \
-  --candidate .doable/requests/DQ-7F3K/submission-r1.json \
-  --output .doable/requests/DQ-7F3K/safe-submission-r1.json
+  --candidate .doable/requests/DQ-7F3K/context-local-r1.json
 
-# Call MCP submit_code_context_round with the exact generated submission, save
-# its result, then record it without exposing the local evidence ledger.
 node <plugin-directory>/scripts/doable-code-context.mjs record-submission \
   --state .doable/workspace-private.json \
-  --candidate .doable/requests/DQ-7F3K/submission-r1.json \
-  --payload .doable/requests/DQ-7F3K/safe-submission-r1.json \
+  --candidate .doable/requests/DQ-7F3K/context-local-r1.json \
   --response .doable/requests/DQ-7F3K/mcp-submission-response.json
 ```

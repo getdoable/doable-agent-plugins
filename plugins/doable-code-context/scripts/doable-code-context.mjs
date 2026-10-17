@@ -18,7 +18,7 @@ import {
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { execFileSync } from "node:child_process";
 
-const CLIENT = Object.freeze({ name: "doable-code-context", version: "0.2.13" });
+const CLIENT = Object.freeze({ name: "doable-code-context", version: "0.2.14" });
 const STATE_SCHEMA_VERSION = "1";
 const SUBMISSION_SCHEMA_VERSION = "1";
 
@@ -145,6 +145,51 @@ function stableJson(value) {
   return JSON.stringify(stableClone(value));
 }
 
+// Byte-for-byte Python json.dumps(value, sort_keys=True, separators=(",", ":")) with the
+// default ensure_ascii=True. Doable MCP derives submit_code_context_round's Idempotency-Key
+// from it, so a direct submission and its MCP fallback dedupe to the same server request.
+function pythonJsonString(value) {
+  let out = '"';
+  for (let index = 0; index < value.length; index += 1) {
+    const unit = value.charCodeAt(index);
+    if (unit === 0x22) out += '\\"';
+    else if (unit === 0x5c) out += "\\\\";
+    else if (unit === 0x0a) out += "\\n";
+    else if (unit === 0x0d) out += "\\r";
+    else if (unit === 0x09) out += "\\t";
+    else if (unit === 0x08) out += "\\b";
+    else if (unit === 0x0c) out += "\\f";
+    else if (unit < 0x20 || unit > 0x7e) out += `\\u${unit.toString(16).padStart(4, "0")}`;
+    else out += value[index];
+  }
+  return `${out}"`;
+}
+
+function compareCodePoints(left, right) {
+  const a = Array.from(left, (character) => character.codePointAt(0));
+  const b = Array.from(right, (character) => character.codePointAt(0));
+  for (let index = 0; index < Math.min(a.length, b.length); index += 1) {
+    if (a[index] !== b[index]) return a[index] - b[index];
+  }
+  return a.length - b.length;
+}
+
+function pythonJsonDumps(value) {
+  if (value === null) return "null";
+  if (value === true) return "true";
+  if (value === false) return "false";
+  if (typeof value === "string") return pythonJsonString(value);
+  if (typeof value === "number") {
+    // Python prints floats differently from JavaScript; the payload holds integers only.
+    assert(Number.isSafeInteger(value), "submission payload numbers must be integers");
+    return String(value);
+  }
+  if (Array.isArray(value)) return `[${value.map(pythonJsonDumps).join(",")}]`;
+  assert(typeof value === "object", "submission payload holds an unsupported value");
+  const keys = Object.keys(value).filter((key) => value[key] !== undefined).sort(compareCodePoints);
+  return `{${keys.map((key) => `${pythonJsonString(key)}:${pythonJsonDumps(value[key])}`).join(",")}}`;
+}
+
 function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
 }
@@ -211,6 +256,7 @@ function sanitizedServerDetail(value) {
   return value
     .replace(/(?:Bearer|Token)\s+\S+/gi, "[credential redacted]")
     .replace(/sk-[A-Za-z0-9_-]{12,}/g, "[credential redacted]")
+    .replace(/dcs1\.\S*/g, "[credential redacted]")
     .replace(/[\r\n]+/g, " ")
     .slice(0, 240)
     .trim();
@@ -850,6 +896,43 @@ function normalizeTargetApp(value) {
   };
 }
 
+// A Round in the answer state may carry a one-time submit token, so the helper can send the
+// context file itself instead of the model re-typing it into the MCP submit tool. The token
+// lives only in the private frozen Round file; it is never printed.
+const DIRECT_SUBMIT_TOKEN_PREFIX = "dcs1.";
+const LOCAL_DEVELOPMENT_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]"]);
+
+function normalizeDirectSubmission(value, roundId) {
+  if (value === undefined || value === null) return null;
+  assert(typeof value === "object" && !Array.isArray(value), "round direct submission must be an object or null");
+  const rawUrl = string(value.url, "round direct submission URL", { max: 2_048 });
+  let url;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    fail("round direct submission URL is not a valid URL");
+  }
+  assert(
+    url.protocol === "https:" || (url.protocol === "http:" && LOCAL_DEVELOPMENT_HOSTS.has(url.hostname)),
+    "round direct submission URL must use https (http only for localhost)",
+  );
+  assert(!url.username && !url.password, "round direct submission URL must not carry credentials");
+  assert(
+    url.pathname.endsWith(`/rounds/${encodeURIComponent(roundId)}/direct-submissions`),
+    "round direct submission URL belongs to a different round",
+  );
+  const token = value.token;
+  assert(
+    typeof token === "string" && token.length > DIRECT_SUBMIT_TOKEN_PREFIX.length && token.length <= 2_000,
+    "round direct submission token must be a non-empty string of at most 2000 characters",
+  );
+  assert(token.startsWith(DIRECT_SUBMIT_TOKEN_PREFIX), "round direct submission token has an unknown format");
+  assert(!/[\s\u0000-\u001f\u007f]/.test(token), "round direct submission token has an unknown format");
+  const expiresAt = string(value.expires_at ?? value.expiresAt, "round direct submission expiry", { max: 64 });
+  assert(Number.isFinite(Date.parse(expiresAt)), "round direct submission expiry is not a valid timestamp");
+  return { url: url.href, token, expiresAt };
+}
+
 function normalizeRound(data, state, requestedCode) {
   const round = data.round || data;
   const id = string(round.round_id || round.id, "round id", { max: 160 });
@@ -960,6 +1043,18 @@ function normalizeRound(data, state, requestedCode) {
   // The app under test names the product to route to; the organization is only the Doable account.
   // Older servers, and suites without an entry URL, send none.
   const targetApp = normalizeTargetApp(round.target_app ?? round.targetApp ?? null);
+  // Older servers and older MCP versions send no token; the MCP submit tool stays the path then.
+  // An incomplete offer (for example no url during rollout) or an invalid one only disables
+  // direct submission: the Round itself is still answerable through MCP.
+  let directSubmission = null;
+  let directSubmissionUnavailable = null;
+  if (action === "answer") {
+    try {
+      directSubmission = normalizeDirectSubmission(round.direct_submission ?? round.directSubmission, id);
+    } catch (error) {
+      directSubmissionUnavailable = error.message;
+    }
+  }
   return {
     id,
     code,
@@ -975,10 +1070,32 @@ function normalizeRound(data, state, requestedCode) {
     investigation,
     timeBudgetMinutes,
     targetApp,
+    directSubmission,
+    directSubmissionUnavailable,
     featureScope,
     questions,
     establishedContext,
   };
+}
+
+function candidateFilePath(requestDirectory, revision) {
+  return join(requestDirectory, `context-local-r${revision}.json`);
+}
+
+function contextFilePath(requestDirectory, revision) {
+  return join(requestDirectory, `context-r${revision}.json`);
+}
+
+// Before 0.2.14 the local candidate was named submission-r<revision>.json. Keep an
+// in-progress answer by moving it to the new name the first time it is seen.
+function migrateLegacyCandidate(requestDirectory, revision) {
+  const candidatePath = candidateFilePath(requestDirectory, revision);
+  const legacyPath = join(requestDirectory, `submission-r${revision}.json`);
+  if (!existsSync(candidatePath) && existsSync(legacyPath)) {
+    renameSync(legacyPath, candidatePath);
+    chmodSync(candidatePath, 0o600);
+  }
+  return candidatePath;
 }
 
 function recordRound(options) {
@@ -1000,9 +1117,9 @@ function recordRound(options) {
   );
   const requestDirectory = join(dirname(statePath), "requests", round.code);
   const roundPath = join(requestDirectory, `round-r${round.revision}.json`);
-  const candidatePath = join(requestDirectory, `submission-r${round.revision}.json`);
   ensurePrivateIgnore(statePath);
   atomicWriteJson(roundPath, round);
+  const candidatePath = migrateLegacyCandidate(requestDirectory, round.revision);
   if (round.action === "answer") {
     if (!existsSync(candidatePath)) {
       atomicWriteJson(candidatePath, {
@@ -1019,7 +1136,7 @@ function recordRound(options) {
         evidence: [],
       });
     } else {
-      const candidate = readJson(candidatePath, "submission candidate");
+      const candidate = readJson(candidatePath, "local context candidate");
       candidate.answers = reconcileCandidateAnswers(candidate.answers, round.questions);
       atomicWriteJson(candidatePath, candidate);
     }
@@ -1056,8 +1173,15 @@ function recordRound(options) {
   );
   console.log(`Open questions: ${round.questions.length}`);
   console.log(`Established context: ${round.establishedContext.length}`);
+  if (round.action === "answer") {
+    console.log(
+      round.directSubmission
+        ? `Direct submission: available until ${round.directSubmission.expiresAt}`
+        : `Direct submission: unavailable (${round.directSubmissionUnavailable || "not offered by this Round"}); submit through Doable MCP`,
+    );
+  }
   console.log(`Round file: ${roundPath}`);
-  console.log(`Submission file: ${candidatePath}`);
+  console.log(`Context file: ${candidatePath}`);
 }
 
 function remoteEvidenceReference(evidence, state) {
@@ -1489,22 +1613,28 @@ function validateSubmission(options) {
   if (omittedJourneyCount > 0) {
     console.log(`Journey map not requested by this Round; omitted ${omittedJourneyCount} declaration(s)`);
   }
-  console.log(`Safe payload digest: ${payloadDigest}`);
+  console.log(`Payload digest: ${payloadDigest}`);
 }
 
-function writeSubmissionPayload(options) {
-  const statePath = resolve(options.state || ".doable/workspace-private.json");
-  const candidatePath = resolve(requiredOption(options, "candidate"));
-  const outputPath = resolve(requiredOption(options, "output"));
-  const { frozenRound, payload, payloadDigest } = buildSubmission(statePath, candidatePath);
+function writeContextFile(frozenRound, payload, payloadDigest, outputPath) {
   atomicWriteJson(outputPath, {
     round_id: frozenRound.id,
     submission: payload,
     payload_digest: payloadDigest,
   });
-  console.log(`Safe Round submission ready: ${outputPath}`);
+}
+
+function writeSubmissionPayload(options) {
+  const statePath = resolve(options.state || ".doable/workspace-private.json");
+  const candidatePath = resolve(requiredOption(options, "candidate"));
+  const { frozenRound, payload, payloadDigest } = buildSubmission(statePath, candidatePath);
+  const outputPath = options.output
+    ? resolve(requiredOption(options, "output"))
+    : contextFilePath(dirname(candidatePath), frozenRound.revision);
+  writeContextFile(frozenRound, payload, payloadDigest, outputPath);
+  console.log(`Context file ready: ${outputPath}`);
   console.log(`Round: ${frozenRound.code} revision ${frozenRound.revision}`);
-  console.log(`Safe payload digest: ${payloadDigest}`);
+  console.log(`Payload digest: ${payloadDigest}`);
 }
 
 function recordFinalize(options) {
@@ -1550,22 +1680,7 @@ function existingSubmissionReceiptPath(requestDirectory, revision, payloadDigest
   return receipt.payloadDigest === payloadDigest ? legacyPath : null;
 }
 
-function recordSubmission(options) {
-  const statePath = resolve(options.state || ".doable/workspace-private.json");
-  const candidatePath = resolve(requiredOption(options, "candidate"));
-  const payloadPath = resolve(requiredOption(options, "payload"));
-  const responsePath = resolve(requiredOption(options, "response"));
-  const { frozenRound, payload, payloadDigest } = buildSubmission(statePath, candidatePath);
-  const envelope = readJson(payloadPath, "safe Round submission payload");
-  assert(envelope.round_id === frozenRound.id, "safe submission payload belongs to a different round");
-  assert(envelope.payload_digest === payloadDigest, "safe submission payload changed after validation");
-  assert(stableJson(envelope.submission) === stableJson(payload), "safe submission payload does not match the local candidate");
-  readMcpResponse(responsePath, "MCP Round submission");
-  const requestDirectory = dirname(candidatePath);
-  if (existingSubmissionReceiptPath(requestDirectory, frozenRound.revision, payloadDigest)) {
-    console.log(`Round already submitted: ${frozenRound.code} revision ${frozenRound.revision}`);
-    return;
-  }
+function writeSubmissionReceipt(requestDirectory, frozenRound, payloadDigest) {
   atomicWriteJson(submissionReceiptPath(requestDirectory, frozenRound.revision, payloadDigest), {
     schemaVersion: "1",
     roundId: frozenRound.id,
@@ -1574,6 +1689,9 @@ function recordSubmission(options) {
     payloadDigest,
     submittedAt: new Date().toISOString(),
   });
+}
+
+function printSubmitted(frozenRound, payload) {
   const answered = payload.answers.filter((answer) => answer.status === "answered").length;
   const skipped = payload.answers.length - answered;
   console.log(`Round submitted: ${frozenRound.code} revision ${frozenRound.revision}`);
@@ -1582,8 +1700,163 @@ function recordSubmission(options) {
   console.log("Next action: wait");
 }
 
+function printAlreadySubmitted(frozenRound) {
+  console.log(`Round already submitted: ${frozenRound.code} revision ${frozenRound.revision}`);
+  console.log("Next action: wait");
+}
+
+function recordSubmission(options) {
+  const statePath = resolve(options.state || ".doable/workspace-private.json");
+  const candidatePath = resolve(requiredOption(options, "candidate"));
+  const responsePath = resolve(requiredOption(options, "response"));
+  const { frozenRound, payload, payloadDigest } = buildSubmission(statePath, candidatePath);
+  const payloadPath = options.payload
+    ? resolve(requiredOption(options, "payload"))
+    : contextFilePath(dirname(candidatePath), frozenRound.revision);
+  const envelope = readJson(payloadPath, "context file");
+  assert(envelope.round_id === frozenRound.id, "context file belongs to a different round");
+  assert(envelope.payload_digest === payloadDigest, "context file changed after validation");
+  assert(stableJson(envelope.submission) === stableJson(payload), "context file does not match the local candidate");
+  readMcpResponse(responsePath, "MCP Round submission");
+  const requestDirectory = dirname(candidatePath);
+  if (existingSubmissionReceiptPath(requestDirectory, frozenRound.revision, payloadDigest)) {
+    printAlreadySubmitted(frozenRound);
+    return;
+  }
+  writeSubmissionReceipt(requestDirectory, frozenRound, payloadDigest);
+  printSubmitted(frozenRound, payload);
+}
+
+const DIRECT_SUBMIT_TIMEOUT_MS = 120_000;
+const DIRECT_SUBMIT_UNAVAILABLE_EXIT = 3;
+
+function usableDirectSubmission(frozenRound) {
+  const direct = frozenRound.directSubmission;
+  if (!direct) {
+    return { direct: null, reason: frozenRound.directSubmissionUnavailable || "not offered by this Round" };
+  }
+  let normalized;
+  try {
+    normalized = normalizeDirectSubmission(
+      { url: direct.url, token: direct.token, expires_at: direct.expiresAt },
+      frozenRound.id,
+    );
+  } catch (error) {
+    return { direct: null, reason: error.message };
+  }
+  if (Date.parse(normalized.expiresAt) <= Date.now()) return { direct: null, reason: "submit token expired" };
+  return { direct: normalized, reason: "" };
+}
+
+function serverErrorDetail(body, token) {
+  const detail = body && typeof body === "object" && "detail" in body ? body.detail : body;
+  let text;
+  if (typeof detail === "string") text = detail;
+  else if (Array.isArray(detail)) {
+    text = detail
+      .map((item) => {
+        if (!item || typeof item !== "object") return String(item);
+        const location = Array.isArray(item.loc) ? item.loc.join(".") : "";
+        return `${location ? `${location}: ` : ""}${item.msg ?? JSON.stringify(item)}`;
+      })
+      .join("; ");
+  } else if (detail === undefined || detail === null) text = "";
+  else text = JSON.stringify(detail);
+  return sanitizedServerDetail(token ? text.split(token).join("[credential redacted]") : text);
+}
+
+async function postDirectSubmission(direct, idempotencyKey, payload) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), DIRECT_SUBMIT_TIMEOUT_MS);
+  try {
+    const response = await fetch(direct.url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Doable-Submit-Token": direct.token,
+        "Idempotency-Key": idempotencyKey,
+      },
+      body: JSON.stringify(payload),
+      // A redirect would forward the submit token to a URL the server did not hand out.
+      redirect: "error",
+      signal: controller.signal,
+    });
+    const text = await response.text();
+    let body = null;
+    try {
+      body = text ? JSON.parse(text) : null;
+    } catch {
+      body = text;
+    }
+    return { status: response.status, body };
+  } catch (error) {
+    const cause = error?.name === "AbortError"
+      ? `no response within ${DIRECT_SUBMIT_TIMEOUT_MS / 1000} seconds`
+      : error?.cause?.code || error?.cause?.message || error?.message || "network error";
+    return { status: 0, transportError: sanitizedServerDetail(String(cause)) };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function submitContext(options) {
+  const statePath = resolve(options.state || ".doable/workspace-private.json");
+  const candidatePath = resolve(requiredOption(options, "candidate"));
+  const { frozenRound, payload, payloadDigest } = buildSubmission(statePath, candidatePath);
+  const requestDirectory = dirname(candidatePath);
+  const contextPath = contextFilePath(requestDirectory, frozenRound.revision);
+  writeContextFile(frozenRound, payload, payloadDigest, contextPath);
+  console.log(`Round: ${frozenRound.code} revision ${frozenRound.revision}`);
+  console.log(`Context file: ${contextPath}`);
+  if (existingSubmissionReceiptPath(requestDirectory, frozenRound.revision, payloadDigest)) {
+    printAlreadySubmitted(frozenRound);
+    return;
+  }
+  const mcpFallback = `Submit ${contextPath} with Doable MCP submit_code_context_round, then run record-submission.`;
+  const { direct, reason } = usableDirectSubmission(frozenRound);
+  if (!direct) {
+    console.log(
+      reason === "submit token expired"
+        ? `Direct submission: unavailable (${reason}). Pull the round again (get_code_context_round + record-round) and run submit again. If it stays unavailable: ${mcpFallback}`
+        : `Direct submission: unavailable (${reason}). ${mcpFallback}`,
+    );
+    process.exitCode = DIRECT_SUBMIT_UNAVAILABLE_EXIT;
+    return;
+  }
+  // The same key Doable MCP computes for submit_code_context_round, so the MCP fallback replays this request.
+  const idempotencyKey = `round:${frozenRound.id}:${sha256(pythonJsonDumps(payload))}`;
+  const result = await postDirectSubmission(direct, idempotencyKey, payload);
+  if (result.status === 0) {
+    // No HTTP answer at all, for example a sandbox without network access: the MCP path still works.
+    console.log(`Direct submission: unavailable (${result.transportError}). ${mcpFallback}`);
+    process.exitCode = DIRECT_SUBMIT_UNAVAILABLE_EXIT;
+    return;
+  }
+  if (result.status >= 200 && result.status < 300) {
+    writeSubmissionReceipt(requestDirectory, frozenRound, payloadDigest);
+    printSubmitted(frozenRound, payload);
+    return;
+  }
+  const detail = serverErrorDetail(result.body, direct.token);
+  const suffix = detail ? `: ${detail}` : "";
+  if (result.status === 401) {
+    console.error(
+      "Submit token rejected or expired: pull the round again (get_code_context_round + record-round), then run submit again.",
+    );
+  } else if (result.status === 404) {
+    console.error(`Round not found (HTTP 404)${suffix}`);
+  } else if (result.status === 409) {
+    console.error(`Submission conflict (HTTP 409)${suffix}. Pull the round again (get_code_context_round + record-round) and follow Next action.`);
+  } else if (result.status === 422) {
+    console.error(`Submission rejected (HTTP 422)${suffix}. Repair the local context file, then run submit again.`);
+  } else {
+    console.error(`Direct submission failed (HTTP ${result.status})${suffix}`);
+  }
+  process.exitCode = 1;
+}
+
 function usage() {
-  console.error("Internal helper commands: prepare-workspace, build-workspace-profile, record-workspace-sync, record-round, validate-submission, build-submission, record-submission, record-finalize");
+  console.error("Internal helper commands: prepare-workspace, build-workspace-profile, record-workspace-sync, record-round, validate-submission, submit, build-submission, record-submission, record-finalize");
   process.exit(2);
 }
 
@@ -1594,6 +1867,12 @@ async function main() {
   if (command === "record-workspace-sync") return recordWorkspaceSync(options);
   if (command === "record-round") return recordRound(options);
   if (command === "validate-submission") return validateSubmission(options);
+  if (command === "submit") {
+    await submitContext(options);
+    // fetch keeps the idle connection open for seconds; exit as soon as the output is flushed.
+    await Promise.all([process.stdout, process.stderr].map((stream) => new Promise((done) => stream.write("", done))));
+    process.exit(process.exitCode ?? 0);
+  }
   if (command === "build-submission") return writeSubmissionPayload(options);
   if (command === "record-submission") return recordSubmission(options);
   if (command === "record-finalize") return recordFinalize(options);

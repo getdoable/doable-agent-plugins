@@ -7,7 +7,7 @@ Official agent plugins for [Doable](https://getdoable.ai), supporting Codex, Cla
 
 | Plugin | Version | Purpose | Network |
 | --- | --- | --- | --- |
-| `doable-code-context` | `0.2.13` | Resolve context requests or start a managed feature-testing workflow | Doable MCP |
+| `doable-code-context` | `0.2.14` | Resolve context requests or start a managed feature-testing workflow | Doable MCP |
 
 ## Workflow
 
@@ -44,7 +44,7 @@ change is present in the connected repositories. If that target is missing or
 ambiguous, it stops and asks the user to fetch, check out, or identify it
 instead of answering from a neighboring revision.
 
-All remote operations use the Doable MCP connection. Codex, Claude Code, and Cursor load its official remote endpoint from the plugin package. The bundled helper is not a service or standalone CLI: it deterministically maps local repositories, keeps exact provenance private, builds safe payloads, and validates MCP responses.
+All remote operations use the Doable MCP connection, except that the helper sends a validated answer batch itself. Codex, Claude Code, and Cursor load the official remote endpoint from the plugin package. The bundled helper is not a service or standalone CLI: it deterministically maps local repositories, keeps exact provenance private, builds privacy-checked payloads, and validates MCP responses. When a Round offers direct submission, the helper POSTs the privacy-checked context file to the URL that Round handed out, authorized only by the Round's one-time submit token, so the agent does not re-type the payload into MCP. Without that offer, the agent submits through MCP as before.
 
 ## Optional: run Code Context in GitHub Actions
 
@@ -215,7 +215,7 @@ npm test
 claude plugin validate ./plugins/doable-code-context
 ```
 
-The release verifier requires exactly three Skills and one dependency-free, local-only helper with no network or credential primitives.
+The release verifier requires exactly three Skills and one dependency-free helper with no API-key or credential primitives. Its only network call is the direct submission of a privacy-checked context file, without redirects.
 
 Use [TESTING.md](TESTING.md) for the fresh-session acceptance matrix.
 
