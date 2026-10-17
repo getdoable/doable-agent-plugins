@@ -9,6 +9,22 @@ All notable changes to Doable Agent Plugins are documented here.
 - Verify template integrity and syntax in CI. Local plugin version remains 0.2.10.
 - Clarify the GitHub integration's repository metadata and model-provider boundary.
 
+## [0.2.15] - 2026-10-16
+
+### Added
+
+- The Round file keeps the server's journey-map instructions (`journeyMap.how`, `journeyMap.maySkip`) so the agent
+  reads them where it reads the questions. `record-round` prints `Journey map: requested` when the Round asks for one.
+
+### Changed
+
+- The Round defines what to return. Its open questions (text and answer expectation) and its journey-map
+  instructions set what the agent collects and how deep it goes; the plugin keeps only how to investigate, privacy,
+  progress and submission. The skill no longer branches on `investigation: quick|full` or a time budget: the
+  sibling enumeration, family sweep, test-state sweep and coverage check run when a question asks for them.
+  `record-round` no longer prints `Investigation: ...` and the Round file no longer keeps the tier or budget; a
+  server may still send them for older plugins.
+
 ## [0.2.14] - 2026-10-16
 
 ### Added

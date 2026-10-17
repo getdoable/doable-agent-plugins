@@ -18,7 +18,7 @@ import {
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { execFileSync } from "node:child_process";
 
-const CLIENT = Object.freeze({ name: "doable-code-context", version: "0.2.14" });
+const CLIENT = Object.freeze({ name: "doable-code-context", version: "0.2.15" });
 const STATE_SCHEMA_VERSION = "1";
 const SUBMISSION_SCHEMA_VERSION = "1";
 
@@ -1035,11 +1035,9 @@ function normalizeRound(data, state, requestedCode) {
     ? serverAction
     : watchAction(roundUse, status, questions);
   const journeyMap = round.journey_map ?? round.journeyMap;
-  // A quick investigation is a first, smoke-level pass that the person waits on; older servers send no tier.
-  const investigation = round.investigation === "quick" ? "quick" : "full";
-  const rawBudget = Number(round.time_budget_minutes ?? round.timeBudgetMinutes);
-  const timeBudgetMinutes =
-    investigation === "quick" && Number.isInteger(rawBudget) && rawBudget > 0 && rawBudget <= 60 ? rawBudget : null;
+  // The Round's questions and its journey-map instructions are the contract for what to
+  // return and how deep to go. The packet may still carry an investigation tier for older
+  // plugins; this helper deliberately ignores it so the agent does not branch on it.
   // The app under test names the product to route to; the organization is only the Doable account.
   // Older servers, and suites without an entry URL, send none.
   const targetApp = normalizeTargetApp(round.target_app ?? round.targetApp ?? null);
@@ -1067,14 +1065,27 @@ function normalizeRound(data, state, requestedCode) {
     action,
     // Carried into the frozen snapshot so the submission can be gated on it.
     journeyMapRequested: journeyMap?.requested === true,
-    investigation,
-    timeBudgetMinutes,
+    // Kept verbatim so the agent reads the server's journey-map instructions from the Round file.
+    journeyMap: normalizeJourneyMapRequest(journeyMap),
+    // What Doable already has and is about to write; the agent judges scope by it. Informational, never rejected.
+    situation: typeof round.situation === "string" ? round.situation.trim() : "",
     targetApp,
     directSubmission,
     directSubmissionUnavailable,
     featureScope,
     questions,
     establishedContext,
+  };
+}
+
+function normalizeJourneyMapRequest(journeyMap) {
+  if (!journeyMap || typeof journeyMap !== "object" || Array.isArray(journeyMap)) return null;
+  // Informational text for the agent: never reject a Round over its wording.
+  const text = (value) => (typeof value === "string" ? value.trim() : "");
+  return {
+    requested: journeyMap.requested === true,
+    how: text(journeyMap.how),
+    maySkip: text(journeyMap.may_skip ?? journeyMap.maySkip),
   };
 }
 
@@ -1162,15 +1173,16 @@ function recordRound(options) {
   console.log(`Status: ${round.status}`);
   console.log(`Next action: ${round.action}`);
   console.log(`Scope: ${round.featureScope}`);
+  if (round.situation) {
+    console.log(`Situation: ${round.situation}`);
+  }
   if (round.targetApp) {
     const { name, entryUrl } = round.targetApp;
     console.log(`App under test: ${name ? `${name} (${entryUrl})` : entryUrl}`);
   }
-  console.log(
-    round.investigation === "quick"
-      ? `Investigation: quick${round.timeBudgetMinutes ? ` (submit within about ${round.timeBudgetMinutes} minutes)` : ""}`
-      : "Investigation: full",
-  );
+  if (round.journeyMapRequested) {
+    console.log("Journey map: requested (instructions in the Round file's journeyMap)");
+  }
   console.log(`Open questions: ${round.questions.length}`);
   console.log(`Established context: ${round.establishedContext.length}`);
   if (round.action === "answer") {
