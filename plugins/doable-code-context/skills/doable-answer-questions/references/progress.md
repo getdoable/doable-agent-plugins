@@ -29,3 +29,22 @@ and use the newly returned identity. If reporting is unavailable or otherwise
 fails, mention it once locally and continue the answer workflow; do not repeatedly
 retry progress in the watch loop. Reset question/stage state for every new Round
 or revision. Submitted, skipped, or established questions are no longer active.
+
+## Blocked
+
+When the current Round cannot be answered from this workspace at all, or you must
+wait for the user's answer to continue, call `report_code_context_blocked` once
+with the current returned Round ID, its revision as `round_revision`, and one
+`reason`:
+
+| When | reason |
+| --- | --- |
+| No mapped product repository contains the requested feature (wrong workspace) | feature_not_in_workspace |
+| Asking the user something you need to continue (a batched clarification, or a named checkout target to fetch or identify) | waiting_for_person |
+
+The reason is the whole report; send no text, paths, or code. Your next
+`report_code_context_activity` clears the block, so after the user answers,
+report the current stage as usual. An unknown inside an otherwise answerable
+Round is not a block: answer it with an `unknown` finding or `skipped` with a
+reason. If the server has no `report_code_context_blocked` tool, skip the report
+and continue as before.
