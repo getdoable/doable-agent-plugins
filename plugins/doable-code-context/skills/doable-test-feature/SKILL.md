@@ -17,12 +17,12 @@ node <plugin-directory>/scripts/doable-code-context.mjs <command> ...
 
 1. Resolve the feature scope locally from the request, selected change, ticket, PRD, or current conversation before calling any Doable tool. Inspect only enough local change context to name the feature and its user-visible boundary. Ask one short clarification only when that feature is genuinely ambiguous. Do not turn “test the feature I just built” into a whole-product scan, and do not create a remote Round while the user may be in the wrong workspace.
 2. Before inspecting `.doable` state or searching remote suites, preflight the live connection with `get_code_context_connection`. The tool response, not the presence of a local MCP entry or environment variable, proves that the active credential is valid. If the tool is unavailable or disconnected or returns `401`, follow [the connection recovery workflow](../doable-connect/references/authentication.md), retry the preflight, and resume this original feature-testing request automatically. Do not build or sync a workspace profile yet; an implementation catch-up or regression may be answerable from an existing test spec and cases without a new Round.
-3. Use Doable MCP to search accessible test suites by feature scope, flows, entry surface, and existing case coverage.
+3. Find accessible test suites with Doable MCP `list_test_suites` (its `query` matches a suite's name or entry URL), and judge them by feature scope, flows, entry surface, and existing test cases.
    - Reuse one clear match.
    - If several are materially plausible, show the small candidate set and ask the developer to choose.
-   - If none matches, create one suite for this feature with the configured entry URL. Do not create duplicate suites merely because wording changed.
-4. Inspect the selected suite's test spec and case coverage.
-   - If the request is only a regression or an implementation catch-up already required by the current test spec, skip a new Round and rerun the affected existing cases.
+   - If none matches, ask the developer to create one suite for this feature, with the configured entry URL, in the Doable web app (`/org/{slug}/testsuites`), then continue with it. Doable MCP does not create suites.
+4. Inspect the selected suite's test spec (`get_test_spec`) and test cases (`list_test_cases`).
+   - If the request is only a regression or an implementation catch-up already required by the current test spec, skip a new Round and run the affected existing test cases again (step 9).
    - If expected behavior, scope, fixtures, permissions, observable outcomes, or environment assumptions changed—or the suite has no test spec—continue with a new Round.
 5. When step 4 requires a new Round, follow `doable-connect` first if this workspace is missing or stale. This establishes the sanitized routing profile before Doable plans questions, so likely repository owners and product surfaces are available. Then call Doable MCP `start_code_context_round` with the selected suite, exact feature request, only the developer's explicit supplemental questions, and the connected workspace ID. The Doable question planner may add focused supplements; it must not replace the base feature investigation or widen the feature. Save the MCP response privately and run `record-round --response <response-path> --suite <suite-public-id>` so the exact Round revision and current server state are bound to local state.
 6. Continue from the returned state instead of assuming every retry needs another code scan.
@@ -34,8 +34,12 @@ node <plugin-directory>/scripts/doable-code-context.mjs <command> ...
    - A suite without a test spec enters the existing create flow.
    - A suite with a test spec enters the existing follow-up flow.
    - The exact frozen Round revision is consumed once; retries must be idempotent.
-8. Use Doable MCP to monitor the test spec. Present the resulting scope, flows, conflicts, and explicit unknowns for approval. Do not generate or execute cases before that approval.
-9. After approval, use Doable MCP to generate or update cases, inspect coverage, and run the selected cases in the configured environment. Report case IDs, results, and any environment or fixture blocker. A code change alone is not proof of deployed behavior.
+8. Monitor the test spec with `get_test_spec` (`wait=true`). Present the resulting scope, flows, conflicts, and explicit unknowns for approval. Do not run test cases before that approval.
+9. After approval, run the test cases in the configured environment.
+   - New or changed test cases come from the test spec in the Doable web app; Doable MCP does not generate them. Give the developer the suite's `web_url`, and wait with `list_test_cases` until the expected test cases appear.
+   - Run the selected test cases with `run_test_cases`, then call `get_run` with its `run_id` and `wait_seconds=60` until the run finishes.
+   - Read each test case that did not pass with `get_test_case`. `Fail` is a product bug or an outdated test case; `Need Review` needs a person; `Incomplete` means Doable could not finish the run and is not evidence about the code.
+   - A code change alone is not proof of deployed behavior.
 
 ## Safety and boundaries
 
@@ -47,4 +51,4 @@ node <plugin-directory>/scripts/doable-code-context.mjs <command> ...
 
 ## Completion
 
-Report the selected or created suite, Round code when one was needed, test spec create/follow-up status, approval state, generated or reused case IDs, execution result, and any remaining blocker. Keep local evidence details private.
+Report the selected suite, Round code when one was needed, test spec create/follow-up status, approval state, the test case IDs that ran with each one's result and reason, the run's `web_url`, and any remaining blocker (environment, fixture, or a step the developer must take in the Doable web app). Keep local evidence details private.

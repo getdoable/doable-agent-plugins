@@ -9,6 +9,16 @@ All notable changes to Doable Agent Plugins are documented here.
 - Verify template integrity and syntax in CI. Local plugin version remains 0.2.10.
 - Clarify the GitHub integration's repository metadata and model-provider boundary.
 
+## [0.2.17] - 2026-10-21
+
+### Changed
+
+- `doable-test-feature` uses the Doable MCP result tools by name: `list_test_suites` to find a suite,
+  `list_test_cases` and `get_test_spec` to inspect it, `run_test_cases` and `get_run` (`wait_seconds=60`) to run
+  test cases, and `get_test_case` to read why one did not pass. The MCP server no longer creates suites or
+  generates test cases, so the skill asks the developer to do those in the Doable web app and waits for them.
+  It reads `Incomplete` as no evidence about the code.
+
 ## [0.2.16] - 2026-10-16
 
 ### Added
