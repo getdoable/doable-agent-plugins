@@ -15,11 +15,11 @@ only if the existing provider configuration does not establish my choice.
 Use masked credential input, never chat, for any missing provider credential.
 Create a focused installation PR; do not merge without my approval.
 Report the exact repository, release commit, provider, checks, and remaining
-GitHub App or Doable connection actions. Do not start a paid analysis run.
+GitHub App or Doable authorization actions. Do not start a paid analysis run.
 ```
 
 The agent can finish repository changes with authorized GitHub access.
-Subscription login, secret input, App approval, and Doable connection require
+Subscription login, secret input, App approval, and Doable repository authorization require
 the customer's authenticated access. Report a specific missing permission;
 do not claim installation is complete when these prerequisites are missing.
 
@@ -63,11 +63,11 @@ permissions when the existing access is sufficient.
    approved template. Confirm Actions is enabled and **Doable Code Context**
    appears under the repository's **Actions** tab. Check organization Actions
    policies permit the referenced actions; do not weaken policies silently.
-9. Complete or request the GitHub App approval and Doable connection described
+9. Complete or request the GitHub App approval and Doable repository authorization described
    below. Report their status separately from the workflow installation.
 10. Return a checklist: repository/default branch, release version/commit/hash,
     file present on default branch, provider variable, secret name present,
-    App repository access, Doable organization connection, and tests performed.
+    App repository access, Doable repository authorization, and tests performed.
     Leave the first paid end-to-end run to the customer unless authorized.
 
 `OWNER/REPO` means the verified customer's repository, not this public plugin
@@ -121,23 +121,25 @@ No separate Claude GitHub App is required. See the official
 [Claude authentication guide](https://code.claude.com/docs/en/authentication#generate-a-long-lived-token)
 and [GitHub Actions guide](https://code.claude.com/docs/en/github-actions).
 
-## GitHub App and Doable connection
+## GitHub App and Doable authorization
 
 1. Open [Install getdoable](https://github.com/apps/getdoable/installations/new).
 2. Select the customer account or organization, then **Only select repositories**.
 3. Approve access to the verified product repository. If GitHub shows
    **Request**, a customer organization owner must approve it.
-4. In the intended Doable environment and organization, open the test spec's
-   Code Context round, then **Run in GitHub**.
-5. Enter the verified `owner/repository` under **Repository** or
-   **Connect another repository**, then choose **Connect**.
+4. In the intended Doable environment and organization, an organization admin
+   opens **Settings > Connections**, enters the verified `owner/repository`
+   under GitHub, and chooses **Authorize repository**.
+5. Sign in to GitHub with an account that has admin permission on that
+   repository and approve. Doable returns to Settings > Connections and lists
+   the repository.
 
 App installation does not automatically create the workflow, provider secrets,
-or Doable connection. The repository picker shows **saved connections** for
-that Doable organization, not all GitHub App installations. Staging and
-production require separate saved connections. One repository cannot be bound
-to multiple Doable organizations in the same database without administrative
-handling.
+or Doable authorization. Settings > Connections lists the repositories
+**authorized** for that Doable organization, not all GitHub App installations.
+Staging and production require separate authorizations. One repository cannot
+be bound to multiple Doable organizations in the same database without
+administrative handling.
 
 The customer's agent may perform these UI steps with authorized authenticated
 browser access. Otherwise report the exact remaining owner/user action.
@@ -147,7 +149,8 @@ Doable's backend deployment.
 ## First run and expected result
 
 1. Use a question about product code that actually exists in this repository.
-2. In Doable, select the connected repository and choose **Run in GitHub**.
+2. In the test spec's Code Context round, choose **Run in GitHub**, select the
+   authorized repository and run.
 3. Open the repository's Actions run. The selected provider step should execute;
    the other provider step should be skipped.
 4. Check result submission and the Code Context round in Doable separately.
