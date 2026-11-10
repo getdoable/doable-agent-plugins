@@ -127,15 +127,16 @@ and [GitHub Actions guide](https://code.claude.com/docs/en/github-actions).
 2. Select the customer account or organization, then **Only select repositories**.
 3. Approve access to the verified product repository. If GitHub shows
    **Request**, a customer organization owner must approve it.
-4. In the intended Doable environment and organization, an organization admin
-   opens **Settings > Connections**, enters the verified `owner/repository`
-   under GitHub, and chooses **Authorize repository**.
-5. Sign in to GitHub with an account that has admin permission on that
-   repository and approve. Doable returns to Settings > Connections and lists
-   the repository.
+4. In the intended Doable environment and organization, open **Settings >
+   Test Context > Code Context**. Under step 3, **Authorize the repository**,
+   enter the verified `owner/repository` in **GitHub repository** and choose
+   **Authorize**.
+5. Sign in to GitHub with an account that is an admin of that repository and
+   approve. Doable returns to the Code Context page and lists the repository
+   under **Repositories**.
 
 App installation does not automatically create the workflow, provider secrets,
-or Doable authorization. Settings > Connections lists the repositories
+or Doable authorization. The Code Context page lists the repositories
 **authorized** for that Doable organization, not all GitHub App installations.
 Staging and production require separate authorizations. One repository cannot
 be bound to multiple Doable organizations in the same database without
