@@ -9,6 +9,18 @@ All notable changes to Doable Agent Plugins are documented here.
 - Verify template integrity and syntax in CI. Local plugin version remains 0.2.10.
 - Clarify the GitHub integration's repository metadata and model-provider boundary.
 
+## [0.2.18] - 2026-11-10
+
+### Changed
+
+- `doable-answer-questions` no longer assumes the workspace's docs match its code. A README,
+  `docs/` page, spec, changelog or code comment only routes the search; implemented behavior
+  comes from inspected code alone. When a doc disagrees with the code, the agent reads the
+  history of both and says in the conflict which changed later and whether that change says it
+  was intended, in product words with no commit ids, branch names or dates. It submits both
+  findings and the conflict either way and does not decide which is wrong. Without this, a stale
+  README reached Doable as plain intent and became an expected result that fails a correct product.
+
 ## [0.2.17] - 2026-10-21
 
 ### Changed
