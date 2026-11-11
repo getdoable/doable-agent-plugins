@@ -1,0 +1,33 @@
+id: github-context-public-submodules-v1
+version: 1
+scope: Publish workflow release 1.1.0, which adds optional submodule checkout from getdoable/trd#643.
+repositories:
+  - name: getdoable/doable-agent-plugins
+    branch: claude/github-template-submodules
+    changes: Public template 1.1.0, release manifest, install guide section for DOABLE_CODE_CONTEXT_SUBMODULES.
+  - name: getdoable/trd
+    source: docs/examples/doable-code-context.yml on main, from PR 643 (7be0732b); already merged.
+migrations: []
+contracts:
+  changed: false
+  dispatch_inputs: [doable_job_id, doable_api_base_url, doable_oidc_audience]
+  new_repository_variable: DOABLE_CODE_CONTEXT_SUBMODULES (optional; true | recursive | false; default false)
+minimum_compatible_versions:
+  backend: Unchanged; the runner callbacks and submission shape are the same as 1.0.0.
+  plugin: No local plugin upgrade required.
+defaults: Missing or false DOABLE_CODE_CONTEXT_SUBMODULES keeps the 1.0.0 behavior (no submodule checkout).
+compatibility:
+  - condition: variable absent or false
+    positive: Checkout and file manifest are the same as 1.0.0.
+    counterexample: A repository whose source lives in submodules still sees only the submodule pointers.
+  - condition: variable true or recursive, public submodules
+    positive: Submodule files are checked out and included in the evidence manifest (git ls-files --recurse-submodules).
+    counterexample: Private submodules fail to fetch; the runner holds no credential for them.
+  - condition: existing customer copies
+    positive: Customer copies of 1.0.0 keep working; nothing updates automatically.
+    counterexample: Setting the variable on a 1.0.0 copy has no effect until the customer installs 1.1.0.
+rollback: Reinstall the 1.0.0 workflow copy, or delete the variable. No backend or database change.
+verification:
+  - Public workflow is byte-identical to getdoable/trd main docs/examples/doable-code-context.yml.
+  - SHA-256 in release.json matches the published bytes; npm test passes.
+  - trd render --check passes and tests/test_code_context_github_*.py pass on trd main.
