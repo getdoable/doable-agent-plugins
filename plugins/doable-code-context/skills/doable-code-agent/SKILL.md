@@ -60,13 +60,20 @@ Repeat:
    instead, and after every empty poll check each of them as "Check the requests that wait for a
    person" says.
 
-When a call fails:
+When a call fails (Doable MCP puts the status in the error text, for example
+`doable_not_found: Doable returned 404: ...`):
 
-- A timeout, a network error, `429`, or a `5xx` error: wait about 30 seconds and poll again. If it
-  goes on for more than 10 minutes, tell the person once, then keep polling.
+- A timeout, a network error, `429`, or a `5xx` error: wait about 30 seconds and call again. If it
+  goes on for more than 10 minutes, tell the person once, then keep calling.
 - `401`: follow the connection recovery workflow, then continue the loop.
 - `404` from `wait_for_code_agent_request`: the code agent was turned off. Tell the person and
   stop.
+- `404` from a call about one of your requests (`get_code_agent_request`,
+  `report_code_agent_progress`, `ask_person`, or `submit_code_agent_result`): after a restart,
+  Doable answers `404` for a request until that request's chat loads again. Keep the request. Make
+  the same call again every 30 seconds for up to 5 minutes, and keep working on the request
+  meanwhile. If it still answers `404` after 5 minutes, drop the request: stop its work, stop any
+  local server you started for it, and go back to the loop.
 
 Never end the turn yourself. Do not end with a status summary, and do not ask the person to say
 continue. If the host ends the turn and the person later says continue or resume, go to
@@ -141,7 +148,8 @@ holds a password.
    request has ended, or another machine has it), stop the same way. In both cases, stop any local
    server you started for it and go back to the loop.
 6. Send the result with `submit_code_agent_result` (see "Result format"). If the call fails with a
-   timeout or a network error, send the same result again: Doable keeps the first one.
+   timeout, a network error, or a `404` (see "When a call fails"), send the same result again:
+   Doable keeps the first one.
 7. Write one line to the person, such as `CA-7K2M9P (prepare): done, made one login and one
    pending time-off request.` Then go back to the loop.
 
@@ -342,6 +350,7 @@ for each request that you took and did not submit, call `get_code_agent_request`
 - status `working` and the same `machine` as when you took it: continue it, and report progress
   at once. If it has a `person_answer`, continue with that answer and do not ask again;
 - status `needs_person`: check it as "Check the requests that wait for a person" says;
+- a `404`: Doable may have restarted. Retry as "When a call fails" says;
 - any other status (`queued`, or an ended status): drop it. Doable gave it back to the queue or
   ended it.
 
