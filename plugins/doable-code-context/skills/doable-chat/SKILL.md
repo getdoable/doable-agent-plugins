@@ -107,8 +107,10 @@ asks for them.
 1. Read the run: `get_chat_run`, then `get_test_case` for its steps and screenshots. Find the step
    that failed, what it expected, and what it saw.
 2. Find the code for that step in this workspace.
-3. Reproduce the failure on a local copy of the app or in a test environment, with your own test
-   login. Never use production.
+3. Reproduce the failure on a local copy of the app or in a test environment, with your own new
+   test login made in the app. Do not register that login in Doable (no `add_test_account`): the
+   chat runs its tests on the logins registered in the environment, and a reproduction changes
+   the login's data. Never use production.
 4. Find the root cause: the first place where the code does something different from what the
    test expected. Check the test too: it can expect something the product does not do on purpose.
 5. Change code only when the person asks, and only locally. Never push.

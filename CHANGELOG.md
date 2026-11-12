@@ -22,8 +22,9 @@ All notable changes to Doable Agent Plugins are documented here.
   result with `submit_code_agent_result`, and asks a person with `ask_person` only when the work
   cannot go on without one. The machine's local policy file `.doable/code-agent.md` says which
   repositories, environments, commands and data sources it may use; the Skill copies a template
-  from its `references/` on the first start. It makes logins only through `add_test_account`,
-  never pushes, never touches production, and never puts a secret in a result.
+  from its `references/` on the first start. It registers only the logins a `prepare` request
+  asks for, and only through `add_test_account`; a login made only to reproduce a bug stays out
+  of Doable. It never pushes, never touches production, and never puts a secret in a result.
 - `doable-chat` drives a Doable chat through Doable MCP: `start_chat`, `send_chat_message`,
   `read_chat`, `answer_chat_questions`, `run_chat_proposal`, `get_chat_run` and `stop_chat`. It
   never answers a write card (a Jira ticket or a result correction), starts runs only when someone

@@ -224,7 +224,8 @@ To set up a machine:
 The watch lasts one agent turn and stays quiet while no request comes. Nothing restarts it after a
 reboot, a sleep, or a plan limit. The machine asks a person only when the work cannot go on
 without one: Doable then shows the question on the Chat v2 page and sends a Slack message.
-Logins it makes reach Doable only through the Doable MCP tool `add_test_account`. It never
+The logins a `prepare` request asks for reach Doable only through the Doable MCP tool
+`add_test_account`; a login made only to reproduce a bug is not registered in Doable. It never
 pushes, never touches production, and never puts a secret in a result.
 
 ## Drive a Doable chat

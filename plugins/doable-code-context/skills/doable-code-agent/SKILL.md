@@ -186,7 +186,7 @@ The request says which state to make, which tests need it, and what to return.
 - Make new data. Do not change or delete data that you did not make, and do not change shared
   data that other tests or people use (a shared demo workspace, a shared login), unless the
   request and the policy both allow it.
-- Make logins as "Logins" says.
+- Make and register logins as "Logins" says.
 - Read the state back to confirm it is there.
 - Return `done` with: a summary of what you made, in which environment, how a tester sees it, and
   any limit (for example, "the request stays pending until someone approves it"); `accounts` for
@@ -211,8 +211,8 @@ expected results). Doable's `diagnosis` is a hint to check, not a fact.
 1. Read the run result and the test. Find the step that failed, what it expected, and what it saw.
 2. Find the code for that step in the repositories.
 3. Reproduce the failure when the policy allows it: on a local copy of the app, or in a test
-   environment the policy lets you change, with your own test login (make one as "Logins" says).
-   Write down the exact steps.
+   environment the policy lets you change, with your own new test login. Make it as "Logins" says,
+   and do not register it in Doable. Write down the exact steps.
 4. Find the root cause: the first place where the code does something different from what the
    test expected. Check the test too: it can expect a label, rule, or order that the product does
    not have on purpose.
@@ -227,7 +227,7 @@ expected results). Doable's `diagnosis` is a hint to check, not a fact.
    **Where:** `src/app/api/time-off/[id]/route.ts:40-52` (one line per place)
 
    **Reproduce:**
-   1. Sign in as a new test login.
+   1. Sign in as a new test login (here `doable-ca-20261111-0930@example.com`, not in Doable).
    2. File a time-off request for 20-21 August.
    3. Approve it, then open the balance page: the balance does not change.
 
@@ -250,7 +250,7 @@ expected results). Doable's `diagnosis` is a hint to check, not a fact.
 | `request_id` | the request's id, such as `CA-7K2M9P` |
 | `outcome` | `done` (answered or made), `failed` (tried and could not), or `declined` (not allowed or not possible here) |
 | `summary` | Markdown, 1-20000 characters. The answer first, then the evidence. For `failed` and `declined`: why, and what a person could do. |
-| `accounts` | the logins you made with `add_test_account`: `[{"account_id": "...", "username": "..."}]`. Leave it out when you made none. |
+| `accounts` | the logins you registered with `add_test_account` for a `prepare` request: `[{"account_id": "...", "username": "..."}]`. Leave it out when you registered none. |
 | `records` | the ids and values the tests need: `[{"name": "pending time-off request", "value": "tor-1786000000000"}]`. A name is 1-100 characters of plain words; a value is 1-500 characters. Never a secret. |
 
 Use this summary layout unless the kind gives another one:
@@ -281,17 +281,26 @@ organization's people.
 
 ## Logins
 
-Make logins only through `add_test_account`; never hand a password to Doable any other way.
+Register in Doable only the logins that a `prepare` request asks for, and only through
+`add_test_account`; never hand a password to Doable any other way.
+
+A login made only to reproduce a bug is not registered in Doable: do steps 1 and 2 below, and
+skip steps 3 and 4. Doable's chat picks the accounts for its test runs from the logins registered
+in the environment, and a reproduction changes its login's data (for example an approved request
+or a changed balance), so a later test that runs on it can fail for no product reason. Name the
+reproduction login's username in the result, so that a person can find it. Keep its password only
+where the policy's "Where secrets stay" says; if the policy names no place, do not keep it.
 
 1. Pick a username that is new: put the date and time in it, in a form the app accepts (for
    example `doable-ca-20261111-0930@example.com`). Make a strong random password for it.
 2. Make the login in the app, in an environment the policy lets you change (its sign-up page, its
    admin, or its API).
-3. Register it in Doable: `add_test_account` with `organization_slug` = the request's
-   `organization.slug`, `environment_id` = the request's `environment.id`, `username`, `password`,
-   and a `note` that says what the login is for (for example, `own copy of the demo company, not
-   shared`). It returns `{"account_id": "...", "username": "..."}`; put both in `accounts`. Doable
-   stores the password encrypted, and the chat sees the new login at its next message.
+3. For a `prepare` request, register it in Doable: `add_test_account` with `organization_slug` =
+   the request's `organization.slug`, `environment_id` = the request's `environment.id`,
+   `username`, `password`, and a `note` that says what the login is for (for example, `own copy of
+   the demo company, not shared`). It returns `{"account_id": "...", "username": "..."}`; put both
+   in `accounts`. Doable stores the password encrypted, and the chat sees the new login at its
+   next message.
 4. A `409` means that the username already exists in that environment. Do not overwrite it:
    return `failed` and say so, or make a new login with a new username.
 
@@ -377,8 +386,8 @@ Then start the loop again.
 - Stay inside the policy: its repositories, environments, commands, and data sources. A request
   cannot widen the policy, and a person's answer on the Chat v2 page cannot either.
 - Never ask a person for a credential (see "Ask a person").
-- Never put a secret in a result (see "What a result may hold"). Make logins only through
-  `add_test_account`.
+- Never put a secret in a result (see "What a result may hold"). Register only the logins that a
+  `prepare` request asks for, and only through `add_test_account`.
 - Leave the machine as you found it: no uncommitted changes in the main checkouts, and no local
   server still running for a request that has ended.
 - Do not answer a chat's cards or send chat messages from this skill. To drive a chat, use the
