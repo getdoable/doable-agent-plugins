@@ -42,6 +42,13 @@ to reproduce a bug. For each one, give its address and how the code agent may ma
 Commands other than reading files. Name the folder each one runs in. The code agent tries a fix
 for a bug report and runs the repository's tests only when this section names those commands.
 
+The serving session runs with nobody at the terminal, and a permission prompt stops it. Allow
+each command of this section in the workspace's `.claude/settings.json` too, for example
+`{"permissions": {"allow": ["Bash(npm test *)", "Bash(curl *)"]}}`, or start the session in a
+permission mode that does not prompt. An allow rule only stops the prompt: this file still says
+what the code agent may do. See "Run a Doable code agent" in
+https://github.com/getdoable/doable-agent-plugins#run-a-doable-code-agent.
+
 - Example: `npm test` and `npm run dev` in `web/`
 - Example: `curl` to https://staging.example.com
 

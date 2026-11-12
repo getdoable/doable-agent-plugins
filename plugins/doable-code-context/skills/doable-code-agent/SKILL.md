@@ -1,6 +1,21 @@
 ---
 name: doable-code-agent
 description: Serve Doable code agent requests on this machine. A Doable chat (Chat v2) sends typed requests here - a question about the code, a data preparation in a test environment, a backend check, or a failed run to debug. This skill waits for them in one long turn, works each one from the local repositories within the machine's policy file `.doable/code-agent.md`, and sends the result back through Doable MCP. Use when the person says "serve Doable code agent requests", "start the Doable code agent", "watch for Doable requests", or asks to resume that watch. It never pushes, never touches production, and never puts a secret in a result.
+allowed-tools: >-
+  mcp__plugin_doable-code-context_doable__list_code_agent_machines
+  mcp__plugin_doable-code-context_doable__wait_for_code_agent_request
+  mcp__plugin_doable-code-context_doable__get_code_agent_request
+  mcp__plugin_doable-code-context_doable__report_code_agent_progress
+  mcp__plugin_doable-code-context_doable__ask_person
+  mcp__plugin_doable-code-context_doable__submit_code_agent_result
+  mcp__plugin_doable-code-context_doable__add_test_account
+  mcp__doable__list_code_agent_machines
+  mcp__doable__wait_for_code_agent_request
+  mcp__doable__get_code_agent_request
+  mcp__doable__report_code_agent_progress
+  mcp__doable__ask_person
+  mcp__doable__submit_code_agent_result
+  mcp__doable__add_test_account
 ---
 
 # Serve Doable Code Agent Requests
@@ -33,8 +48,11 @@ again.
 1. Read the policy file `.doable/code-agent.md`.
    - If it is missing, copy [the policy template](references/policy-template.md) to
      `.doable/code-agent.md`. Add the line `code-agent.md` to `.doable/.gitignore` (create the
-     file when it is missing). Show the person the file and ask them to fill it in. Start the loop
-     only after the person says the policy is ready.
+     file when it is missing). Show the person the file and ask them to fill it in. Also tell them
+     two things: allow each command the policy names in the workspace's `.claude/settings.json`
+     (the template says how), and stay at the terminal for the first request, because a
+     permission prompt stops the watch until someone answers it. Start the loop only after the
+     person says the policy is ready.
    - Read it again before each request: the person may change it while you serve.
 2. Check the connection: call Doable MCP `list_code_agent_machines`.
    - If the tool is missing, disconnected, or returns `401`, follow

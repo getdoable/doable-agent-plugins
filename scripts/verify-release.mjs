@@ -193,6 +193,38 @@ for (const plugin of plugins) {
     // watching: their safety rules and the result boundary must stay word for word.
     const codeAgentSkillPath = join(pluginRoot, "skills", "doable-code-agent", "SKILL.md");
     const codeAgentSkill = readFileSync(codeAgentSkillPath, "utf8");
+    // The serving session runs with nobody at the terminal, so a permission prompt for one of its
+    // own Doable tools stops the watch. Its frontmatter allows exactly those tools, under the
+    // plugin's server name and under a user-scoped `doable` server, and never a shell command: the
+    // operator allows the policy's commands in the workspace settings.
+    const codeAgentFrontmatter = codeAgentSkill.match(/^---\n([\s\S]*?)\n---/)?.[1] ?? "";
+    const allowedTools = (codeAgentFrontmatter.match(/^allowed-tools:(.*(?:\n[ \t]+.*)*)/m)?.[1] ?? "")
+      .replace(/^\s*>-?/, "")
+      .split(/\s+/)
+      .filter(Boolean);
+    const codeAgentToolPrefixes = ["mcp__plugin_doable-code-context_doable__", "mcp__doable__"];
+    for (const tool of [
+      "list_code_agent_machines",
+      "wait_for_code_agent_request",
+      "get_code_agent_request",
+      "report_code_agent_progress",
+      "ask_person",
+      "submit_code_agent_result",
+      "add_test_account",
+    ]) {
+      for (const prefix of codeAgentToolPrefixes) {
+        assert(
+          allowedTools.includes(`${prefix}${tool}`),
+          `${relative(root, codeAgentSkillPath)} allowed-tools must name ${prefix}${tool}`,
+        );
+      }
+    }
+    for (const tool of allowedTools) {
+      assert(
+        codeAgentToolPrefixes.some((prefix) => tool.startsWith(prefix)),
+        `${relative(root, codeAgentSkillPath)} allowed-tools may name only Doable MCP tools, not ${tool}`,
+      );
+    }
     const policyTemplatePath = join(pluginRoot, "skills", "doable-code-agent", "references", "policy-template.md");
     assert(existsSync(policyTemplatePath), `missing code agent policy template: ${relative(root, policyTemplatePath)}`);
     const policyTemplate = existsSync(policyTemplatePath) ? readFileSync(policyTemplatePath, "utf8") : "";
@@ -353,6 +385,15 @@ for (const requiredSetup of [
   "plugins/doable-code-context/.mcp.json",
 ]) {
   assert(readme.includes(requiredSetup), `README is missing public MCP setup: ${requiredSetup}`);
+}
+// A code agent machine serves requests with nobody at the terminal: its setup must say how to stop
+// permission prompts and to watch the first request.
+for (const requiredCodeAgentSetup of [
+  "`.claude/settings.json`",
+  "a permission mode that does not prompt",
+  "Send a first request from a Chat v2 chat",
+]) {
+  assert(readme.includes(requiredCodeAgentSetup), `README is missing code agent setup: ${requiredCodeAgentSetup}`);
 }
 
 const allowedMcpConfig = join(root, "plugins", "doable-code-context", ".mcp.json");

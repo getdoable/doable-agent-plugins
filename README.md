@@ -215,14 +215,37 @@ To set up a machine:
 4. Write the policy file `.doable/code-agent.md`: which repositories, environments, commands, and
    data sources the machine may use, what it must never touch, and whether code excerpts may
    leave the machine. The Skill copies its template there on the first start.
-5. Ask the agent:
+5. Let the session work with nobody at the terminal: a permission prompt stops the watch until
+   someone answers it. In Claude Code, the Skill allows the Doable MCP tools it calls while it
+   runs. Allow each command that the policy's "Commands it may run" names in the workspace's
+   `.claude/settings.json`, for example:
+
+   ```json
+   {
+     "permissions": {
+       "allow": ["Bash(npm test *)", "Bash(curl *)"]
+     }
+   }
+   ```
+
+   Or start the session in a permission mode that does not prompt, such as
+   `claude --permission-mode dontAsk`, which refuses a tool or command that is not allowed instead
+   of asking. An allow rule only stops the prompt: the policy file still says what the machine may
+   do. In Codex and Cursor, allow the Doable MCP tools and the same commands in that host's
+   settings.
+6. Ask the agent:
 
    ```text
    Serve Doable code agent requests on this machine.
    ```
 
-The watch lasts one agent turn and stays quiet while no request comes. Nothing restarts it after a
-reboot, a sleep, or a plan limit. The machine asks a person only when the work cannot go on
+7. Send a first request from a Chat v2 chat (a `question`, then a `prepare`) and watch the session
+   serve it. If a permission prompt appears, answer it and allow that tool or command as in step
+   5, so that later requests run with nobody at the terminal.
+
+The watch lasts one agent turn and writes nothing while no request comes. Nothing restarts it after
+a reboot, a sleep, or a plan limit. The machine serves one request at a time; requests that wait
+behind a busy machine do not expire. The machine asks a person only when the work cannot go on
 without one: Doable then shows the question on the Chat v2 page and sends a Slack message.
 The logins a `prepare` request asks for reach Doable only through the Doable MCP tool
 `add_test_account`; a login made only to reproduce a bug is not registered in Doable. It never
