@@ -38,11 +38,13 @@ All notable changes to Doable Agent Plugins are documented here.
   puts a secret in a result.
 - `doable-chat` drives a Doable chat through Doable MCP: `start_chat`, `send_chat_message`,
   `read_chat`, `answer_chat_questions`, `run_chat_proposal`, `get_chat_run` and `stop_chat`. It
-  never answers a write card (a Jira ticket or a result correction), starts runs only when someone
-  asked for them, and debugs a failed run in the local code. Its messages and card answers are the
-  code's reading, never the person's decision: it answers a question about what the product
-  should do only with the person's own words, and when a test looks wrong it asks the chat to put
-  the question to its person.
+  starts runs only when someone asked for them, and debugs a failed run in the local code. Doable
+  shows its messages and card answers as the machine's: they are the code's reading, never the
+  person's decision. It answers only a card that the code settles. It never answers a write card
+  (a Jira ticket or a result correction), a card that decides a conflict (Doable refuses a
+  machine's answer to both) or a question about what the product should do, and it never passes
+  on the person's decision in a message: it tells the person to answer on the Chat v2 page. When
+  a test looks wrong, it asks the chat to put the question to its person.
 - The bundled MCP connection sends the machine name as the `X-Doable-Machine` header
   (`DOABLE_MACHINE_NAME`, default `code-agent`) in Claude Code and Cursor. Doable admits an
   organization API key on the chat routes only with this header.

@@ -146,9 +146,9 @@ Keep the key in the host environment or user-scoped credential store. Never comm
 
 In Cursor and Claude Code, the connection also sends a machine name as the `X-Doable-Machine`
 header: the value of `DOABLE_MACHINE_NAME`, or `code-agent` when it is not set. Doable shows this
-name on the chat messages and the code agent requests of that machine. Give each machine its own
-name. The Codex manifest does not send this header, so Doable MCP uses its own default name for a
-Codex session.
+name on the chat messages, the card answers, and the code agent requests of that machine. Give
+each machine its own name. The Codex manifest does not send this header, so Doable MCP uses its
+own default name for a Codex session.
 
 ### Host credential loading
 
@@ -280,19 +280,21 @@ pushes, never touches production, and never puts a secret in a result.
 ## Drive a Doable chat
 
 The `doable-chat` Skill drives the Doable chat (Chat v2) of a test suite from the coding agent:
-it starts the chat, sends messages, reads replies and run results, answers question cards, starts
-the runs the chat proposes when you ask for runs, and debugs a failed run in the local code. For
-example:
+it starts the chat, sends messages, reads replies and run results, answers the question cards it
+can answer from the code, starts the runs the chat proposes when you ask for runs, and debugs a
+failed run in the local code. For example:
 
 ```text
 Ask Doable's chat to test the feature I just implemented, run the tests, and tell me why any test failed.
 ```
 
-It never answers a write card (a Jira ticket or a correction of a run result): a person answers
-those on the Chat v2 page. Its messages and card answers are the code's reading, never the
-person's decision about what the product should do: it answers a question about what the product
-should do only with the person's own words, and else leaves it open and tells the person. Runs it
-starts count toward the organization's quota.
+Doable shows its messages and card answers as the machine's, and they are the code's reading,
+never the person's decision about what the product should do. So it answers only the cards whose
+questions the code settles. It never answers a write card (a Jira ticket or a correction of a run
+result), a card that decides a conflict between a run and the test spec, or a question about what
+the product should do, and it never passes on the person's decision in a message: it tells you to
+answer those on the Chat v2 page. Doable refuses a machine's answer to a write card or a conflict
+card. Runs it starts count toward the organization's quota.
 
 ## Shared grounding and privacy boundary
 

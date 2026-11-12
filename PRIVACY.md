@@ -42,7 +42,7 @@ Doable shows results, progress texts, and questions to a person to the chat's ag
 
 ## Doable chat
 
-`doable-chat` reads a Doable chat and sends messages, card answers, and run starts to it through Doable MCP, as the organization API key with the machine name. Its messages follow the code agent's boundary above: they may hold file paths, line numbers, and code excerpts of 10 lines or fewer each, never a secret or a password. It never answers a write card (a Jira ticket or a result correction). Its messages and card answers are the code's reading, never the person's decision about what the product should do.
+`doable-chat` reads a Doable chat and sends messages, card answers, and run starts to it through Doable MCP, as the organization API key with the machine name. Its messages follow the code agent's boundary above: they may hold file paths, line numbers, and code excerpts of 10 lines or fewer each, never a secret or a password. It never answers a write card (a Jira ticket or a result correction) or a card that decides a conflict, and it never passes on a person's decision about what the product should do: the person answers those on the Chat v2 page. Doable shows its messages and card answers as the machine's, and they are the code's reading, never the person's decision.
 
 ## Optional GitHub runner
 
