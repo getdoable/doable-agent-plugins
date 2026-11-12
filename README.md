@@ -145,10 +145,11 @@ The plugin supplies Skills, a declarative connection to the hosted Doable MCP en
 Keep the key in the host environment or user-scoped credential store. Never commit it, add it to a project-level MCP file, save it under `.doable/`, or print it in agent output.
 
 In Cursor and Claude Code, the connection also sends a machine name as the `X-Doable-Machine`
-header: the value of `DOABLE_MACHINE_NAME`, or `code-agent` when it is not set. Doable shows this
-name on the chat messages, the card answers, and the code agent requests of that machine. Give
-each machine its own name. The Codex manifest does not send this header, so Doable MCP uses its
-own default name for a Codex session.
+header: the value of `DOABLE_MACHINE_NAME`, or `code-agent` when it is not set. A name is 1 to 64
+characters, each a letter, a digit, `.`, `_`, or `-`; Doable refuses any other name (`422`).
+Doable shows this name on the chat messages, the card answers, and the code agent requests of that
+machine. Give each machine its own name. The Codex manifest does not send this header, so Doable
+MCP uses its own default name for a Codex session.
 
 ### Host credential loading
 
@@ -210,8 +211,8 @@ To set up a machine:
 2. Run Claude Code on the Claude plan (`claude login`). Remove `ANTHROPIC_API_KEY` from the
    environment of that session, or its usage is billed to the API.
 3. Export `DOABLE_API_KEY` (an organization API key from Doable Settings) and
-   `DOABLE_MACHINE_NAME` (the name Doable shows for this machine), then install the plugin as
-   above.
+   `DOABLE_MACHINE_NAME` (the name Doable shows for this machine: 1 to 64 characters, each a
+   letter, a digit, `.`, `_`, or `-`, such as `mac-mini-1`), then install the plugin as above.
 4. Write the policy file `.doable/code-agent.md`: which repositories, environments, commands, and
    data sources the machine may use, what it must never touch, and whether code excerpts may
    leave the machine. On the first start (step 6), the Skill copies its template there and waits

@@ -47,7 +47,8 @@ All notable changes to Doable Agent Plugins are documented here.
   a test looks wrong, it asks the chat to put the question to its person.
 - The bundled MCP connection sends the machine name as the `X-Doable-Machine` header
   (`DOABLE_MACHINE_NAME`, default `code-agent`) in Claude Code and Cursor. Doable admits an
-  organization API key on the chat routes only with this header.
+  organization API key on the chat routes only with this header. A name is 1 to 64 letters,
+  digits, `.`, `_` or `-`; Doable refuses any other name.
 
 ### Removed
 

@@ -12,8 +12,10 @@ Chat v2 page, except a few things that only a person may do.
 Doable shows the messages and card answers you send as this machine's (a message from
 `<machine name> (code agent)`, and `<machine name>'s answers`), and the chat's agent knows that a
 machine sent them. The machine name comes from the `DOABLE_MACHINE_NAME` environment variable
-(`code-agent` when it is not set). Runs that you start are queued as the owner of the organization
-API key and count toward the organization's quota.
+(`code-agent` when it is not set). A name is 1 to 64 characters, each a letter, a digit, `.`, `_`,
+or `-`. If Doable refuses a call because of the machine name (`422`), tell the person this rule
+and stop. Runs that you start are queued as the owner of the organization API key and count
+toward the organization's quota.
 
 ## Words
 

@@ -38,7 +38,9 @@ again.
   the ones that wait for a person's answer (see "Ask a person").
 - **Machine name**: the name Doable shows for this machine. The plugin sends the
   `DOABLE_MACHINE_NAME` environment variable as the `X-Doable-Machine` header; without it the name
-  is `code-agent`. Give each machine its own name, and run one serving session per name.
+  is `code-agent`. A name is 1 to 64 characters, each a letter, a digit, `.`, `_`, or `-` (for
+  example `mac-mini-1`); Doable refuses any other name. Give each machine its own name, and run
+  one serving session per name.
 - **Policy file**: `.doable/code-agent.md` in the workspace root (the folder this session started
   in). It says what this machine may do. Lines still marked `Example:` are not part of the
   policy.
@@ -65,6 +67,9 @@ again.
      from the person"), then continue here.
    - If the tool exists but returns `404`, the Doable server has the code agent turned off. Tell
      the person and stop.
+   - If it fails because of the machine name (Doable answers `422` and names the machine), the
+     value of `DOABLE_MACHINE_NAME` breaks the name rule (see "Words"). Tell the person the rule
+     and stop.
 3. Tell the person one line, such as "Serving Doable code agent requests under
    .doable/code-agent.md; stop this session to end." After this line, write nothing to the person
    until a request ends or something needs them.
@@ -96,6 +101,8 @@ settings allow `sleep 20` (README setup step 5). Then act on the status:
   goes on for more than 10 minutes, tell the person once, then keep calling.
 - `401`: follow the connection recovery workflow. When it needed a message from the person, load
   this skill again (see "After a new message from the person"). Then continue the loop.
+- `422` that names the machine: the machine name breaks the name rule (see "Words"). Tell the
+  person the rule and stop.
 - `404` from `wait_for_code_agent_request`: the code agent was turned off. Tell the person and
   stop.
 - `404` from a call about one of your requests (`get_code_agent_request`,
