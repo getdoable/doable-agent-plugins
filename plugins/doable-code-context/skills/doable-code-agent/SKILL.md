@@ -54,7 +54,11 @@ Repeat:
    `{"request": <a request, or null>}`: at once when a request of your organization is queued,
    else `null` after about 50 seconds. A request it returns is now yours (status `working`).
 2. If `request` is `null`, call it again at once. An empty poll is normal: do not write anything
-   to the person, do not summarize, and do not sleep.
+   to the person, do not summarize, and do not sleep. While the queue is empty, write no text at
+   all between your calls, however long it stays empty (also after an hour): no "still watching"
+   or "the queue is empty" line, no count of the requests you served, and no reminder of how to
+   stop. Each text stays in this session's context for the whole watch and fills it. The person
+   sees that the watch runs from the calls themselves.
 3. If a request came, serve it (next section), then go back to step 1.
 4. If some of your requests wait for a person (see "Ask a person"), use `wait_seconds: 20`
    instead, and after every empty poll check each of them as "Check the requests that wait for a
@@ -390,5 +394,7 @@ Then start the loop again.
   `prepare` request asks for, and only through `add_test_account`.
 - Leave the machine as you found it: no uncommitted changes in the main checkouts, and no local
   server still running for a request that has ended.
+- Write no text while the queue is empty. Write to the person only when a request ends or
+  something needs them.
 - Do not answer a chat's cards or send chat messages from this skill. To drive a chat, use the
   `doable-chat` skill in another session.
