@@ -1,9 +1,12 @@
 {
-  "version": "1.0.0",
+  "version": "1.1.0",
   "workflow": "doable-code-context.yml",
-  "sha256": "957236fd6a39c13d4459653834afafc9f6cadd76a64024cd1376f6a95e73b30f",
+  "sha256": "5c6d2338b3e1a2bf18b6cda7dd6eb2e33b8af68b885cd8cea2d6aa4c14fb50a8",
   "customer_path": ".github/workflows/doable-code-context.yml",
-  "providers": ["codex", "claude"],
+  "providers": [
+    "codex",
+    "claude"
+  ],
   "default_provider": "codex",
   "automatic_updates": false
 }

@@ -121,6 +121,22 @@ No separate Claude GitHub App is required. See the official
 [Claude authentication guide](https://code.claude.com/docs/en/authentication#generate-a-long-lived-token)
 and [GitHub Actions guide](https://code.claude.com/docs/en/github-actions).
 
+## Optional: product source in Git submodules
+
+Release 1.1.0 and later can check out submodules. Create the repository
+variable `DOABLE_CODE_CONTEXT_SUBMODULES` with value `true` (top-level
+submodules) or `recursive` (nested submodules). Without the variable, or with
+`false`, the runner checks out the repository only, as release 1.0.0 did.
+
+```sh
+gh variable set DOABLE_CODE_CONTEXT_SUBMODULES --repo OWNER/REPO --body true
+```
+
+The runner fetches submodules without credentials, so this works only for
+submodules it can read anonymously (public ones). Private submodules are not
+supported. The runner then also hashes the files inside the submodules for
+evidence fingerprints.
+
 ## GitHub App and Doable authorization
 
 1. Open [Install getdoable](https://github.com/apps/getdoable/installations/new).
