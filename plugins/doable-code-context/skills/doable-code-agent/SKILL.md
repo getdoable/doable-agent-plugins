@@ -57,7 +57,9 @@ again.
 2. Check the connection: call Doable MCP `list_code_agent_machines`.
    - If the tool is missing, disconnected, or returns `401`, follow
      [the connection recovery workflow](../doable-connect/references/authentication.md) with this
-     call as the preflight, then continue here.
+     call as the preflight. When the recovery needed a message from the person (in Claude Code,
+     after they reconnected `doable` in `/mcp`), load this skill again (see "After a new message
+     from the person"), then continue here.
    - If the tool exists but returns `404`, the Doable server has the code agent turned off. Tell
      the person and stop.
 3. Tell the person one line, such as "Serving Doable code agent requests under
@@ -87,7 +89,8 @@ When a call fails (Doable MCP puts the status in the error text, for example
 
 - A timeout, a network error, `429`, or a `5xx` error: wait about 30 seconds and call again. If it
   goes on for more than 10 minutes, tell the person once, then keep calling.
-- `401`: follow the connection recovery workflow, then continue the loop.
+- `401`: follow the connection recovery workflow. When it needed a message from the person, load
+  this skill again (see "After a new message from the person"). Then continue the loop.
 - `404` from `wait_for_code_agent_request`: the code agent was turned off. Tell the person and
   stop.
 - `404` from a call about one of your requests (`get_code_agent_request`,
@@ -385,10 +388,21 @@ on the request you serve. Then act on its `status`:
   again, it still carries the answer (see "Serve one request" step 1).
 - `cancelled`, `timed_out`, or any other ended status: drop it.
 
+## After a new message from the person
+
+In Claude Code, the Doable MCP tools that this skill allows (its `allowed-tools`) stop being
+allowed at each new message from the person: for example "continue" after a plan limit, or "done"
+after they reconnected `doable` in `/mcp`. Without them, your next Doable call can stop at a
+permission prompt while nobody is at the terminal. So after any new message from the person, load
+this skill again before your next Doable call: in Claude Code, call the Skill tool with
+`doable-code-context:doable-code-agent`. In another host, read this skill again. Loading it does
+not start the watch again: go on from where you were.
+
 ## Resume after an interruption
 
-When the person asks you to continue or resume, check the connection again (Start step 2). Then,
-for each request that you took and did not submit, call `get_code_agent_request` with its id:
+When the person asks you to continue or resume, load this skill again first (see "After a new
+message from the person"), then check the connection again (Start step 2). Then, for each request
+that you took and did not submit, call `get_code_agent_request` with its id:
 
 - status `working` and the same `machine` as when you took it: continue it, and report progress
   at once. If it has a `person_answer`, continue with that answer and do not ask again;

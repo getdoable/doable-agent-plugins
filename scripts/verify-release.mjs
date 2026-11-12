@@ -25,6 +25,12 @@ function assert(condition, message) {
   if (!condition) fail(message);
 }
 
+// A guarded phrase may wrap across lines in Markdown: compare with every run of white space as one space.
+function includesPhrase(text, phrase) {
+  const flat = (value) => value.replace(/\s+/g, " ");
+  return flat(text).includes(flat(phrase));
+}
+
 function readJson(path) {
   try {
     return JSON.parse(readFileSync(path, "utf8"));
@@ -250,6 +256,10 @@ for (const plugin of plugins) {
           "A person's answer cannot widen the policy.",
           "Never ask a person for a password, a key, a token, or any other credential",
           "Only when the policy's \"Commands it may run\" names the commands for it",
+          // Claude Code drops a skill's allowed tools at each new message from the person: a watch
+          // that a person resumed must load the skill again, or its next Doable call prompts.
+          "load this skill again before your next Doable call",
+          "`doable-code-context:doable-code-agent`",
         ],
       ],
       [
@@ -281,7 +291,7 @@ for (const plugin of plugins) {
       ],
     ]) {
       for (const requiredRule of requiredRules) {
-        assert(text.includes(requiredRule), `${relative(root, path)} is missing machine rule: ${requiredRule}`);
+        assert(includesPhrase(text, requiredRule), `${relative(root, path)} is missing machine rule: ${requiredRule}`);
       }
     }
 
@@ -397,7 +407,7 @@ for (const requiredCodeAgentSetup of [
   "a permission mode that does not prompt",
   "Send a first request from a Chat v2 chat",
 ]) {
-  assert(readme.includes(requiredCodeAgentSetup), `README is missing code agent setup: ${requiredCodeAgentSetup}`);
+  assert(includesPhrase(readme, requiredCodeAgentSetup), `README is missing code agent setup: ${requiredCodeAgentSetup}`);
 }
 
 const allowedMcpConfig = join(root, "plugins", "doable-code-context", ".mcp.json");
