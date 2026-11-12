@@ -9,6 +9,45 @@ All notable changes to Doable Agent Plugins are documented here.
 - Verify template integrity and syntax in CI. Local plugin version remains 0.2.10.
 - Clarify the GitHub integration's repository metadata and model-provider boundary.
 
+## [0.3.0] - 2026-11-11
+
+### Added
+
+- `doable-code-agent` serves Doable code agent requests on a machine that holds the product's
+  repositories. A Doable chat (Chat v2) sends typed requests: `question` (answer from the code),
+  `prepare` (make state in a test environment and return the logins and ids), `check` (read
+  backend state) and `bug_report` (debug a failed run and report the cause with file paths, line
+  numbers and a suggested fix). The Skill waits for requests in one agent turn with
+  `wait_for_code_agent_request` and says nothing on an empty poll. It reports progress, sends each
+  result with `submit_code_agent_result`, and asks a person with `ask_person` only when the work
+  cannot go on without one. The machine's local policy file `.doable/code-agent.md` says which
+  repositories, environments, commands and data sources it may use; the Skill copies a template
+  from its `references/` on the first start. It makes logins only through `add_test_account`,
+  never pushes, never touches production, and never puts a secret in a result.
+- `doable-chat` drives a Doable chat through Doable MCP: `start_chat`, `send_chat_message`,
+  `read_chat`, `answer_chat_questions`, `run_chat_proposal`, `get_chat_run` and `stop_chat`. It
+  never answers a write card (a Jira ticket or a result correction), starts runs only when someone
+  asked for them, and debugs a failed run in the local code.
+- The bundled MCP connection sends the machine name as the `X-Doable-Machine` header
+  (`DOABLE_MACHINE_NAME`, default `code-agent`) in Claude Code and Cursor. Doable admits an
+  organization API key on the chat routes only with this header.
+
+### Removed
+
+- `doable-test-feature` and its Codex metadata. Doable MCP no longer starts or lists runs
+  (`run_test_cases`, `get_run` and `list_runs` are gone); ask Doable's chat to test a feature with
+  `doable-chat` instead. The release verifier refuses a Skill that names a removed run tool.
+
+### Changed
+
+- PRIVACY.md: a code agent result may hold file paths, line numbers and code excerpts of 10 lines
+  or fewer each, unless the machine's policy file forbids excerpts. It never holds a secret, a
+  password or customer personal data. Code Context answers keep their boundary.
+- The connection recovery workflow covers `doable-code-agent` and `doable-chat`, which use their
+  first Doable call as the preflight.
+- The new Skills need a Doable MCP server with the code agent and chat tools and a Doable server
+  with the code agent turned on.
+
 ## [0.2.18] - 2026-11-10
 
 ### Changed

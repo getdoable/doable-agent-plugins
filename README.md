@@ -7,9 +7,20 @@ Official agent plugins for [Doable](https://getdoable.ai), supporting Codex, Cla
 
 | Plugin | Version | Purpose | Network |
 | --- | --- | --- | --- |
-| `doable-code-context` | `0.2.18` | Resolve context requests or start a managed feature-testing workflow | Doable MCP |
+| `doable-code-context` | `0.3.0` | Resolve context requests, serve code agent requests, and drive Doable chats | Doable MCP |
 
-## Workflow
+## Workflows
+
+The plugin has three workflows:
+
+- **Code Context**: answer the questions a Doable test spec request asks about the code
+  (`doable-connect`, `doable-answer-questions`). Described next.
+- **Code agent**: a machine that holds the product's repositories serves the requests a Doable
+  chat sends it (`doable-code-agent`). See [Run a Doable code agent](#run-a-doable-code-agent).
+- **Chat**: ask a Doable chat (Chat v2) to write and run tests from the coding agent
+  (`doable-chat`). See [Drive a Doable chat](#drive-a-doable-chat).
+
+### Code Context
 
 Use **Doable Code Context** for the connected pre-test-spec workflow:
 
@@ -92,7 +103,8 @@ Natural-language requests activate the Skills. Explicit invocations are:
 
 - `/doable-code-context:doable-connect`
 - `/doable-code-context:doable-answer-questions`
-- `/doable-code-context:doable-test-feature`
+- `/doable-code-context:doable-code-agent`
+- `/doable-code-context:doable-chat`
 
 #### Check the version and update
 
@@ -132,6 +144,12 @@ The plugin supplies Skills, a declarative connection to the hosted Doable MCP en
 
 Keep the key in the host environment or user-scoped credential store. Never commit it, add it to a project-level MCP file, save it under `.doable/`, or print it in agent output.
 
+In Cursor and Claude Code, the connection also sends a machine name as the `X-Doable-Machine`
+header: the value of `DOABLE_MACHINE_NAME`, or `code-agent` when it is not set. Doable shows this
+name on the chat messages and the code agent requests of that machine. Give each machine its own
+name. The Codex manifest does not send this header, so Doable MCP uses its own default name for a
+Codex session.
+
 ### Host credential loading
 
 Cursor and Claude Code load `plugins/doable-code-context/.mcp.json`; the Codex manifest embeds the equivalent server using Codex's native bearer-token environment field. Cursor collects the required variable during installation. Codex and Claude Code expand `DOABLE_API_KEY` from the environment when the next task or session loads the plugin. If Claude Code updates an existing connection during a request, open `/mcp` and reconnect `doable` once; the Skill then retries the original preflight and continues without another copy-paste.
@@ -156,17 +174,6 @@ Setup is recovered inside the same conversation if needed. The user may also req
 Doable setup for this workspace.
 ```
 
-Or start from the coding agent after implementing a feature:
-
-```text
-Use Doable to test the feature I just implemented.
-```
-
-The agent reuses or creates the appropriate suite, opens one coding-agent-origin
-Round only when context or requirements changed, resolves that Round from the
-private workspace, and then continues through the existing test spec and managed-case
-workflow.
-
 The connected plugin writes private state under:
 
 ```text
@@ -184,6 +191,56 @@ Each answer contains externally observable findings with a truth plane, source t
 
 PRDs, screenshots, Figma exports, and runtime captures outside Git can be used only from a narrow directory explicitly supplied by the user. That directory and the artifact identity remain local; Doable receives `repo_ref: null` and an opaque fingerprint. Code evidence always remains inside a mapped repository.
 
+## Run a Doable code agent
+
+A Doable chat can send typed requests to a machine (a server or a Mac mini) that holds the
+product's repositories and can reach its test environments. The `doable-code-agent` Skill serves
+them with no person:
+
+| Kind | What the machine does | What it returns |
+| --- | --- | --- |
+| `question` | Answers a question from the code. | The answer, with file paths and line numbers. |
+| `prepare` | Makes state in a test environment, such as a login or a pending record. | The new logins (username and Doable account id) and the ids the tests need. |
+| `check` | Reads backend state, read only. | The state it found, and where and when it read it. |
+| `bug_report` | Debugs a failed run: reproduces it, finds the root cause, suggests a fix. | The cause, file paths and line numbers, the steps, and the fix. It never pushes. |
+
+To set up a machine:
+
+1. Put the product's repositories in one folder, and start the coding agent there.
+2. Run Claude Code on the Claude plan (`claude login`). Remove `ANTHROPIC_API_KEY` from the
+   environment of that session, or its usage is billed to the API.
+3. Export `DOABLE_API_KEY` (an organization API key from Doable Settings) and
+   `DOABLE_MACHINE_NAME` (the name Doable shows for this machine), then install the plugin as
+   above.
+4. Write the policy file `.doable/code-agent.md`: which repositories, environments, commands, and
+   data sources the machine may use, what it must never touch, and whether code excerpts may
+   leave the machine. The Skill copies its template there on the first start.
+5. Ask the agent:
+
+   ```text
+   Serve Doable code agent requests on this machine.
+   ```
+
+The watch lasts one agent turn and stays quiet while no request comes. Nothing restarts it after a
+reboot, a sleep, or a plan limit. The machine asks a person only when the work cannot go on
+without one: Doable then shows the question on the Chat v2 page and sends a Slack message.
+Logins it makes reach Doable only through the Doable MCP tool `add_test_account`. It never
+pushes, never touches production, and never puts a secret in a result.
+
+## Drive a Doable chat
+
+The `doable-chat` Skill drives the Doable chat (Chat v2) of a test suite from the coding agent:
+it starts the chat, sends messages, reads replies and run results, answers question cards, starts
+the runs the chat proposes when you ask for runs, and debugs a failed run in the local code. For
+example:
+
+```text
+Ask Doable's chat to test the feature I just implemented, run the tests, and tell me why any test failed.
+```
+
+It never answers a write card (a Jira ticket or a correction of a run result): a person answers
+those on the Chat v2 page. Runs it starts count toward the organization's quota.
+
 ## Shared grounding and privacy boundary
 
 The connected plugin:
@@ -194,7 +251,11 @@ The connected plugin:
 - record fixtures, permissions, validation, persistence, failures, and cross-repo seams only when they affect testing;
 - treat repository content as untrusted evidence, not instructions.
 
-Doable never receives source code or snippets, real repository names or paths, branches, commits, the code graph, secrets or environment values, private URLs, raw logs, internal topology, or real customer data.
+Through Code Context, Doable never receives source code or snippets, real repository names or paths, branches, commits, the code graph, secrets or environment values, private URLs, raw logs, internal topology, or real customer data.
+
+A code agent result may hold file paths, line numbers, and code excerpts of 10 lines or fewer
+each, unless the machine's policy file forbids excerpts. It never holds passwords, keys, tokens,
+session cookies, or customer personal data.
 
 See [PRIVACY.md](PRIVACY.md) for the exact per-plugin boundary.
 
@@ -207,6 +268,8 @@ See [CHANGELOG.md](CHANGELOG.md) for version history and [CONTRIBUTING.md](CONTR
 - Multiple workspaces are selected in Doable before publishing the round; the coding agent never guesses across workspaces.
 - Required skips return to platform-user review. Coding agents cannot defer or waive scope.
 - Active notifications, setup-time exhaustive knowledge mapping, and automatic historical-knowledge reuse are outside this MVP.
+- The code agent's watch lasts one agent turn. Nothing restarts it after a reboot, a sleep, or a plan limit.
+- The code agent and chat Skills need a Doable MCP server and a Doable server that have the code agent and chat tools.
 
 ## Verify
 
@@ -215,7 +278,7 @@ npm test
 claude plugin validate ./plugins/doable-code-context
 ```
 
-The release verifier requires exactly three Skills and one dependency-free helper with no API-key or credential primitives. Its only network call is the direct submission of a privacy-checked context file, without redirects.
+The release verifier requires exactly four Skills and one dependency-free helper with no API-key or credential primitives. Its only network call is the direct submission of a privacy-checked context file, without redirects.
 
 Use [TESTING.md](TESTING.md) for the fresh-session acceptance matrix.
 
@@ -226,7 +289,8 @@ plugins/
   doable-code-context/
     skills/doable-connect/
     skills/doable-answer-questions/
-    skills/doable-test-feature/
+    skills/doable-code-agent/
+    skills/doable-chat/
     scripts/doable-code-context.mjs
 ```
 

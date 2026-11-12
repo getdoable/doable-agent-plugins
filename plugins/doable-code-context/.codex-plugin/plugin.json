@@ -1,7 +1,7 @@
 {
   "name": "doable-code-context",
-  "version": "0.2.18",
-  "description": "Connect private code to Doable through MCP, resolve grounded context requests, and start managed feature-testing workflows.",
+  "version": "0.3.0",
+  "description": "Connect private code to Doable through MCP: resolve grounded context requests, serve Doable code agent requests from a machine, and drive Doable chats.",
   "author": {
     "name": "Doable AI",
     "email": "support@getdoable.ai",
@@ -16,7 +16,9 @@
     "trd",
     "testing",
     "code-context",
-    "coding-agent"
+    "coding-agent",
+    "code-agent",
+    "chat"
   ],
   "skills": "./skills/",
   "mcpServers": {
@@ -28,8 +30,8 @@
   },
   "interface": {
     "displayName": "Doable Code Context",
-    "shortDescription": "Resolve Doable questions from private code",
-    "longDescription": "Connect the current private workspace through the configured Doable MCP connection, answer frozen context requests with grounded findings, or start a complete feature-testing workflow through Doable. Exact source locations stay local; Doable receives only sanitized product behavior and opaque references.",
+    "shortDescription": "Answer Doable from private code and drive its chat",
+    "longDescription": "Connect the current private workspace through the configured Doable MCP connection and answer frozen context requests with grounded findings; on a machine that holds the product's repositories, serve the requests a Doable chat sends (code questions, test data preparation, backend checks and bug reports); or drive a Doable chat that writes and runs tests. Context answers keep exact source locations local; code agent results may hold file paths, line numbers and short code excerpts, never secrets.",
     "developerName": "Doable AI",
     "category": "Developer Tools",
     "capabilities": [
@@ -42,8 +44,8 @@
     "privacyPolicyURL": "https://qa.getdoable.ai/privacy-policy",
     "defaultPrompt": [
       "Resolve Doable context request DQ-7F3K for organization HireEZ (hireez).",
-      "Connect this workspace to Doable for code-context requests.",
-      "Use Doable to test the feature I just implemented."
+      "Serve Doable code agent requests on this machine.",
+      "Ask Doable's chat to test the feature I just implemented."
     ]
   }
 }
