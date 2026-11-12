@@ -305,8 +305,9 @@ never the person's decision about what the product should do. So it answers only
 questions the code settles. It never answers a write card (a Jira ticket or a correction of a run
 result), a card that decides a conflict between a run and the test spec, or a question about what
 the product should do, and it never passes on the person's decision in a message: it tells you to
-answer those on the Chat v2 page. Doable refuses a machine's answer to a write card or a conflict
-card. Runs it starts count toward the organization's quota.
+answer those on the Chat v2 page. While such a card waits, it sends no message to that chat,
+because a message closes every card that waits with no answers. Doable refuses a machine's answer
+to a write card or a conflict card. Runs it starts count toward the organization's quota.
 
 ## Shared grounding and privacy boundary
 

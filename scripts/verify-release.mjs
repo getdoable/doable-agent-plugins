@@ -298,6 +298,9 @@ for (const plugin of plugins) {
           "reading of the code, never the person's decision about what the product should do.",
           "Never answer a card that needs the person's decision: tell the person to answer it on the Chat v2 page.",
           "Never send the person's decision in a message or a card answer",
+          // A message closes every card that waits with no answers: a person-only card would close unanswered.
+          "While a card waits that only a person may answer, send no message to that chat: a message closes the card with no answers.",
+          "send no message to that chat, not with `send_chat_message` and not with `start_chat`.",
           "Do not ask the chat to change the test because of the code alone.",
           "Start a run only when the person asked for runs",
           "code excerpts of 10 lines or fewer each",
