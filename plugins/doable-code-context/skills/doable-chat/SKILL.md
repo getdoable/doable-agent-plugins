@@ -39,6 +39,10 @@ are queued as the owner of the organization API key and count toward the organiz
    one when the suite has none, then sends the message. Keep the `chat_id` it returns.
 3. Send later messages with `send_chat_message(suite_id, chat_id, text)`.
 
+To read a chat without sending a message, you need its `chat_id`: from an earlier result, from a
+code agent request (`chat.id`), or from the person. Doable MCP has no tool that lists a suite's
+chats.
+
 Write a message as a person would: what you want, which feature or tests, which account to use,
 and whether to run the tests. To test a feature you just built, say what changed and how a user
 reaches it. Never put a password in a message: a new login reaches Doable only through

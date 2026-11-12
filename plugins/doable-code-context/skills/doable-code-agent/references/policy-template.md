@@ -5,8 +5,8 @@ skill reads it before every request. Keep it at `.doable/code-agent.md` in the w
 stays on this machine and Git ignores it.
 
 Write plain words. Anything this file does not allow is not allowed. Production is never allowed,
-whatever this file says. Replace each line that starts with `Example:` with your own line, or
-delete it: the code agent ignores lines that still start with `Example:`.
+whatever this file says. Replace each line marked `Example:` with your own line, or delete it:
+the code agent ignores lines still marked `Example:`.
 
 ## Repositories
 
