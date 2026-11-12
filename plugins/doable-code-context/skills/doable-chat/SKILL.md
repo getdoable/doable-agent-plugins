@@ -13,9 +13,14 @@ Doable shows the messages and card answers you send as this machine's (a message
 `<machine name> (code agent)`, and `<machine name>'s answers`), and the chat's agent knows that a
 machine sent them. The machine name comes from the `DOABLE_MACHINE_NAME` environment variable
 (`code-agent` when it is not set). A name is 1 to 64 characters, each a letter, a digit, `.`, `_`,
-or `-`. If Doable refuses a call because of the machine name (`422`), tell the person this rule
-and stop. Runs that you start are queued as the owner of the organization API key and count
-toward the organization's quota.
+or `-`. If a call fails with an error about the machine name, whatever its status and also with
+no status, tell the person this rule, and that they set a name that keeps it and start the
+session again. Then stop. Such an error names the `X-Doable-Machine` header, or names the machine
+name (the field `machine`) as not valid: Doable MCP refuses a bad name itself, with a text such as
+`The X-Doable-Machine header must be 1 to 64 characters, ...` and no status, and Doable refuses
+it with `422`. `list_test_suites` does not send the name, so the first such error comes from
+`start_chat` or another chat call. Runs that you start are queued as the owner of the
+organization API key and count toward the organization's quota.
 
 ## Words
 

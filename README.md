@@ -146,7 +146,9 @@ Keep the key in the host environment or user-scoped credential store. Never comm
 
 In Cursor and Claude Code, the connection also sends a machine name as the `X-Doable-Machine`
 header: the value of `DOABLE_MACHINE_NAME`, or `code-agent` when it is not set. A name is 1 to 64
-characters, each a letter, a digit, `.`, `_`, or `-`; Doable refuses any other name (`422`).
+characters, each a letter, a digit, `.`, `_`, or `-`. Doable MCP refuses any other name itself,
+with an error that names the `X-Doable-Machine` header and has no status, and Doable refuses it
+with `422`. The Skills then tell you the rule and stop.
 Doable shows this name on the chat messages, the card answers, and the code agent requests of that
 machine. Give each machine its own name. The Codex manifest does not send this header, so Doable
 MCP uses its own default name for a Codex session.

@@ -263,6 +263,9 @@ for (const plugin of plugins) {
           // Claude Code asks before the Skill tool loads a plugin Skill that no rule allows.
           "`Skill(doable-code-context:doable-code-agent)`",
           "run the shell command `sleep 20`, exactly so",
+          // Doable MCP refuses a machine name that breaks the rule itself, with no status: the stop
+          // must not wait for Doable's 422.
+          "An error about the machine name, whatever its status, and also with no status",
         ],
       ],
       [
@@ -288,6 +291,7 @@ for (const plugin of plugins) {
         [
           "Never answer a write card.",
           "Never answer a conflict card.",
+          "If a call fails with an error about the machine name, whatever its status and also with no status",
           "`write: true`",
           "Never put a password in a message",
           "Never put a password, a key, or a token in a message or a card answer.",
