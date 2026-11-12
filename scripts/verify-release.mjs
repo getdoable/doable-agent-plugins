@@ -363,11 +363,14 @@ assert(
         doable: {
           type: "http",
           url: "https://mcp.getdoable.ai/mcp",
-          headers: { Authorization: "Bearer ${DOABLE_API_KEY}" },
+          headers: {
+            Authorization: "Bearer ${DOABLE_API_KEY}",
+            "X-Doable-Machine": "${DOABLE_MACHINE_NAME:-code-agent}",
+          },
         },
       },
     }),
-  "bundled Doable MCP config must contain only the official endpoint and variable reference",
+  "bundled Doable MCP config must contain only the official endpoint, the key variable and the machine name header",
 );
 
 // The helper is a deterministic local boundary. All remote work belongs to
