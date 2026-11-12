@@ -49,7 +49,10 @@ All notable changes to Doable Agent Plugins are documented here.
   such a card holds the chat's agent (kind `question` in `read_chat`'s `waiting_cards`), it sends
   no message to that chat, because a message closes that card with no answers. An open card of
   auto mode (kind `open`) does not hold the agent and stays open after a message, so it does not
-  block one. When a test looks wrong, it asks the chat to put the question to its person.
+  block one. When `start_chat` sends nothing because the suite's chat waits for a card's answers,
+  it reads that chat, answers the card only when the code settles it or else tells the person to
+  answer it on the Chat v2 page and waits, then sends with `send_chat_message`. When a test looks
+  wrong, it asks the chat to put the question to its person.
 - The bundled MCP connection sends the machine name as the `X-Doable-Machine` header
   (`DOABLE_MACHINE_NAME`, default `code-agent`) in Claude Code and Cursor. Doable admits an
   organization API key on the chat routes only with this header. A name is 1 to 64 letters,

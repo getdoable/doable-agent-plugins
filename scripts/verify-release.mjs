@@ -305,6 +305,11 @@ for (const plugin of plugins) {
           "Only a card of kind `question` in `waiting_cards` holds the agent and closes on a message.",
           "A card of kind `open` (auto mode) stays open after a message, so it does not block a message.",
           "Still never answer an open card that only a person may answer",
+          // Doable MCP's start_chat refuses to send while the suite's chat waits for a card's answers: the
+          // skill names that refusal, reads the chat, and sends with send_chat_message once no card holds it.
+          "When the suite's chat waits for a card's answers, `start_chat` sends nothing and fails with an error that names that chat",
+          "Read that chat with `read_chat`, with that `chat_id` and `after: 0`, and read its card of kind `question`.",
+          "When `read_chat` shows that no card of kind `question` waits, send your message with `send_chat_message(suite_id, chat_id, text)` and that `chat_id`. Do not call `start_chat` again for this message.",
           "Do not ask the chat to change the test because of the code alone.",
           "Start a run only when the person asked for runs",
           "code excerpts of 10 lines or fewer each",

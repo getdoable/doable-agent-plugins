@@ -59,6 +59,16 @@ organization API key and count toward the organization's quota.
    When you already know the suite's chat id (see below), read the chat first, and do not call
    `start_chat` while a card of kind `question` waits that only a person may answer (see "Answer
    a card").
+   - When the suite's chat waits for a card's answers, `start_chat` sends nothing and fails with
+     an error that names that chat, such as
+     `The suite's chat <chat id> has a card that waits for answers, ...`. This error is not a
+     failure of Doable. Read that chat with `read_chat`, with that `chat_id` and `after: 0`, and
+     read its card of kind `question`. Answer the card only when the code settles it (see "Answer
+     a card"). Else tell the person what the card asks and to answer it on the Chat v2 page, send
+     no message, and wait: keep reading the chat with the `token` and `wait_seconds`. When
+     `read_chat` shows that no card of kind `question` waits, send your message with
+     `send_chat_message(suite_id, chat_id, text)` and that `chat_id`. Do not call `start_chat`
+     again for this message.
 3. Send later messages with `send_chat_message(suite_id, chat_id, text)`, never while a card of
    kind `question` waits that only a person may answer.
 
