@@ -237,9 +237,10 @@ To set up a machine:
    - `sleep 20`, the wait before the Skill calls Doable again after an error (Claude Code blocks a
      `sleep` of 25 seconds or more);
    - only when the policy lets the machine try a fix for a bug report: file changes in the folder
-     that the policy names for it. One `Edit(...)` rule covers the Edit and the Write tool.
+     that the policy names for it, and the git commands of the fix try, such as `git switch`,
+     `git add`, and `git commit`. One `Edit(...)` rule covers the Edit and the Write tool.
 
-   For example:
+   For example, this list allows all that the template's example policy lines name:
 
    ```json
    {
@@ -248,11 +249,15 @@ To set up a machine:
          "Skill(doable-code-context:doable-code-agent)",
          "mcp__plugin_doable-code-context_doable",
          "Bash(npm test *)",
+         "Bash(npm run dev *)",
          "Bash(curl *)",
          "Bash(psql *)",
          "Bash(gcloud logging read *)",
          "Bash(security add-generic-password *)",
          "Bash(sleep 20)",
+         "Bash(git switch *)",
+         "Bash(git add *)",
+         "Bash(git commit *)",
          "Edit(/web/**)"
        ]
      }

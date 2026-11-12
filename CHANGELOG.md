@@ -31,12 +31,13 @@ All notable changes to Doable Agent Plugins are documented here.
   after each new message from the person, because Claude Code then forgets those tools. For a
   session with nobody at the terminal, the README's setup lists what to allow in
   `.claude/settings.json`: the Skill itself (Claude Code asks before it loads a Skill that no rule
-  allows), the Doable MCP server, the policy's commands, its data source commands,
-  the keychain command, `sleep 20`, and file changes when the policy allows a fix try; a person
-  watches the first request of each kind. It registers only
-  the logins a `prepare` request asks for, and only through `add_test_account`; a login made only
-  to reproduce a bug stays out of Doable. It never pushes, never touches production, and never
-  puts a secret in a result.
+  allows), the Doable MCP server, the policy's commands, its data source commands, the keychain
+  command, `sleep 20`, and file changes and git commands when the policy allows a fix try. Its
+  example list allows all that the template's example policy lines name, and the release verifier
+  checks that. A person watches the first request of each kind. It registers only the logins a
+  `prepare` request asks for, and only through `add_test_account`; a login made only to reproduce
+  a bug stays out of Doable. It never pushes, never touches production, and never puts a secret in
+  a result.
 - `doable-chat` drives a Doable chat through Doable MCP: `start_chat`, `send_chat_message`,
   `read_chat`, `answer_chat_questions`, `run_chat_proposal`, `get_chat_run` and `stop_chat`. It
   starts runs only when someone asked for them, and debugs a failed run in the local code. Doable

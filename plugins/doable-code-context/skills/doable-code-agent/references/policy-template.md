@@ -50,9 +50,10 @@ new message from a person), the Doable MCP server (`mcp__plugin_doable-code-cont
 command of this section, the command of each source in "Data sources it may read" (for example
 `psql` or `gcloud logging read`), the keychain command `security` when "Where secrets stay" names
 the macOS keychain, and `sleep 20` (its wait before it calls Doable again after an error). Only
-when this section lets it try a fix for a bug report, also allow file changes in that folder: one
-`Edit(...)` rule covers the Edit and the Write tool. For example:
-`{"permissions": {"allow": ["Skill(doable-code-context:doable-code-agent)", "mcp__plugin_doable-code-context_doable", "Bash(npm test *)", "Bash(curl *)", "Bash(psql *)", "Bash(gcloud logging read *)", "Bash(security add-generic-password *)", "Bash(sleep 20)", "Edit(/web/**)"]}}`.
+when this section lets it try a fix for a bug report, also allow file changes in that folder and
+the git commands of the fix try: one `Edit(...)` rule covers the Edit and the Write tool. For
+example, this list allows all that the example lines of this file name:
+`{"permissions": {"allow": ["Skill(doable-code-context:doable-code-agent)", "mcp__plugin_doable-code-context_doable", "Bash(npm test *)", "Bash(npm run dev *)", "Bash(curl *)", "Bash(psql *)", "Bash(gcloud logging read *)", "Bash(security add-generic-password *)", "Bash(sleep 20)", "Bash(git switch *)", "Bash(git add *)", "Bash(git commit *)", "Edit(/web/**)"]}}`.
 An allow rule only stops the prompt: this file still says what the code agent may do. See "Run a
 Doable code agent" in https://github.com/getdoable/doable-agent-plugins#run-a-doable-code-agent.
 

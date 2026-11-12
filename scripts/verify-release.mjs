@@ -438,6 +438,64 @@ for (const requiredCodeAgentSetup of [
   assert(includesPhrase(readme, requiredCodeAgentSetup), `README is missing code agent setup: ${requiredCodeAgentSetup}`);
 }
 
+// A person who copies the example allow list next to the template's example policy lines must get a
+// session that runs them with nobody at the terminal. README step 5 and the template carry the same
+// list; it allows the Skill (which loads itself again), the Doable server and the wait, a `Bash`
+// rule covers each command that an example line of "Commands it may run" or "Data sources it may
+// read" names, and an `Edit` rule covers each folder of an example line that tries a fix.
+function exampleAllowList(label, json) {
+  try {
+    const rules = JSON.parse(json)?.permissions?.allow;
+    assert(Array.isArray(rules), `${label} example allow list has no permissions.allow array`);
+    return Array.isArray(rules) ? rules : [];
+  } catch (error) {
+    fail(`${label} example allow list is not valid JSON: ${error.message}`);
+    return [];
+  }
+}
+
+// Claude Code's rule `Bash(cmd *)` matches `cmd` alone and `cmd` followed by a space; `Bash(cmd)` matches `cmd` only.
+function bashRuleCovers(rule, command) {
+  const inner = rule.match(/^Bash\((.*)\)$/)?.[1];
+  if (inner === undefined) return false;
+  if (!inner.endsWith(" *")) return command === inner;
+  const prefix = inner.slice(0, -2);
+  return command === prefix || command.startsWith(`${prefix} `);
+}
+
+const exampleTemplatePath = join(root, "plugins", "doable-code-context", "skills", "doable-code-agent", "references", "policy-template.md");
+const exampleTemplate = existsSync(exampleTemplatePath) ? readFileSync(exampleTemplatePath, "utf8") : "";
+const readmeAllow = exampleAllowList("README", readme.match(/```json\n([\s\S]*?)```/)?.[1] ?? "");
+const templateAllow = exampleAllowList("policy template", exampleTemplate.match(/`(\{"permissions":.*\})`/)?.[1] ?? "");
+assert(
+  JSON.stringify(readmeAllow) === JSON.stringify(templateAllow),
+  "README and the policy template must carry the same example allow list",
+);
+for (const rule of ["Skill(doable-code-context:doable-code-agent)", "mcp__plugin_doable-code-context_doable", "Bash(sleep 20)"]) {
+  assert(templateAllow.includes(rule), `the example allow list must allow ${rule}`);
+}
+for (const section of exampleTemplate.split(/^## /m).slice(1)) {
+  const title = section.slice(0, section.indexOf("\n")).trim();
+  if (title !== "Commands it may run" && title !== "Data sources it may read") continue;
+  // An example item is its "- Example:" line and the indented lines that continue it.
+  for (const item of section.match(/^- Example:.*(?:\n[ \t]+\S.*)*/gm) ?? []) {
+    const spans = [...item.matchAll(/`([^`]+)`/g)].map((match) => match[1]);
+    for (const command of spans.filter((span) => !span.endsWith("/"))) {
+      assert(
+        templateAllow.some((rule) => bashRuleCovers(rule, command)),
+        `the example allow list has no Bash rule for \`${command}\`, which a "${title}" example line names`,
+      );
+    }
+    if (!/try a fix/.test(item)) continue;
+    for (const folder of spans.filter((span) => span.endsWith("/"))) {
+      assert(
+        templateAllow.includes(`Edit(/${folder}**)`),
+        `the example allow list has no Edit(/${folder}**) rule for the example fix try in \`${folder}\``,
+      );
+    }
+  }
+}
+
 const allowedMcpConfig = join(root, "plugins", "doable-code-context", ".mcp.json");
 const forbiddenReleaseFiles = allPaths.filter((path) => {
   const name = path.split(sep).at(-1);
