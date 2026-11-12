@@ -1,0 +1,4 @@
+interface:
+  display_name: "Drive a Doable Chat"
+  short_description: "Ask Doable's chat for tests, runs and answers"
+  default_prompt: "Ask Doable's chat to test the feature I just implemented, run the tests, and tell me why any test failed."

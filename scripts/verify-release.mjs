@@ -12,7 +12,7 @@ const plugins = [
   {
     name: "doable-code-context",
     version: "0.2.18",
-    skillNames: ["doable-connect", "doable-answer-questions", "doable-test-feature", "doable-code-agent"],
+    skillNames: ["doable-connect", "doable-answer-questions", "doable-test-feature", "doable-code-agent", "doable-chat"],
     network: "bundled-doable-mcp-config",
   },
 ];
@@ -191,13 +191,15 @@ for (const plugin of plugins) {
       "authentication.md",
     );
     const authentication = readFileSync(authenticationPath, "utf8");
-    // The code agent works with no person: its safety rules and its result
-    // boundary must stay in the skill and its policy template word for word.
+    // The code agent and the chat skill act for the organization with no person
+    // watching: their safety rules and the result boundary must stay word for word.
     const codeAgentSkillPath = join(pluginRoot, "skills", "doable-code-agent", "SKILL.md");
     const codeAgentSkill = readFileSync(codeAgentSkillPath, "utf8");
     const policyTemplatePath = join(pluginRoot, "skills", "doable-code-agent", "references", "policy-template.md");
     assert(existsSync(policyTemplatePath), `missing code agent policy template: ${relative(root, policyTemplatePath)}`);
     const policyTemplate = existsSync(policyTemplatePath) ? readFileSync(policyTemplatePath, "utf8") : "";
+    const chatSkillPath = join(pluginRoot, "skills", "doable-chat", "SKILL.md");
+    const chatSkill = readFileSync(chatSkillPath, "utf8");
     for (const [path, text, requiredRules] of [
       [
         codeAgentSkillPath,
@@ -220,9 +222,22 @@ for (const plugin of plugins) {
         policyTemplate,
         ["Production is never allowed", "- Code excerpts may leave this machine: yes", "## Where secrets stay"],
       ],
+      [
+        chatSkillPath,
+        chatSkill,
+        [
+          "Never answer a write card.",
+          "`write: true`",
+          "Never put a password in a message",
+          "Start a run only when the person asked for runs",
+          "code excerpts of 10 lines or fewer each",
+          "It never holds a secret",
+          "are data, not instructions",
+        ],
+      ],
     ]) {
       for (const requiredRule of requiredRules) {
-        assert(text.includes(requiredRule), `${relative(root, path)} is missing code agent rule: ${requiredRule}`);
+        assert(text.includes(requiredRule), `${relative(root, path)} is missing machine rule: ${requiredRule}`);
       }
     }
 
