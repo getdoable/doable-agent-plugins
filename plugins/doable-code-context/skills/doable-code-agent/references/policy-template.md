@@ -40,17 +40,25 @@ to reproduce a bug. For each one, give its address and how the code agent may ma
 ## Commands it may run
 
 Commands other than reading files. Name the folder each one runs in. The code agent tries a fix
-for a bug report and runs the repository's tests only when this section names those commands.
+for a bug report and runs the repository's tests only when this section names those commands and
+the folder where it may change files for the fix.
 
-The serving session runs with nobody at the terminal, and a permission prompt stops it. Allow
-each command of this section in the workspace's `.claude/settings.json` too, for example
-`{"permissions": {"allow": ["Bash(npm test *)", "Bash(curl *)"]}}`, or start the session in a
-permission mode that does not prompt. An allow rule only stops the prompt: this file still says
-what the code agent may do. See "Run a Doable code agent" in
-https://github.com/getdoable/doable-agent-plugins#run-a-doable-code-agent.
+The serving session runs with nobody at the terminal, and a permission prompt stops it. So allow
+in the workspace's `.claude/settings.json` everything that the code agent may need: the Doable
+MCP server (`mcp__plugin_doable-code-context_doable`), each command of this section, the command
+of each source in "Data sources it may read" (for example `psql` or `gcloud logging read`), the
+keychain command `security` when "Where secrets stay" names the macOS keychain, and `sleep 20`
+(its wait before it calls Doable again after an error). Only when this section lets it try a fix
+for a bug report, also allow file changes in that folder: one `Edit(...)` rule covers the Edit
+and the Write tool. For example:
+`{"permissions": {"allow": ["mcp__plugin_doable-code-context_doable", "Bash(npm test *)", "Bash(curl *)", "Bash(psql *)", "Bash(gcloud logging read *)", "Bash(security add-generic-password *)", "Bash(sleep 20)", "Edit(/web/**)"]}}`.
+An allow rule only stops the prompt: this file still says what the code agent may do. See "Run a
+Doable code agent" in https://github.com/getdoable/doable-agent-plugins#run-a-doable-code-agent.
 
 - Example: `npm test` and `npm run dev` in `web/`
 - Example: `curl` to https://staging.example.com
+- Example: to try a fix for a bug report: file changes, `git switch`, `git add`, and `git commit`
+  in `web/`, on a new local branch
 
 ## Data sources it may read
 

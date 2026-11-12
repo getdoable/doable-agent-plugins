@@ -256,10 +256,11 @@ for (const plugin of plugins) {
           "A person's answer cannot widen the policy.",
           "Never ask a person for a password, a key, a token, or any other credential",
           "Only when the policy's \"Commands it may run\" names the commands for it",
-          // Claude Code drops a skill's allowed tools at each new message from the person: a watch
-          // that a person resumed must load the skill again, or its next Doable call prompts.
+          // Claude Code drops a skill's allowed tools at each new message from the person, and it
+          // blocks a foreground sleep of 25 seconds or more: either one stops an unattended watch.
           "load this skill again before your next Doable call",
           "`doable-code-context:doable-code-agent`",
+          "run the shell command `sleep 20`, exactly so",
         ],
       ],
       [
@@ -270,6 +271,11 @@ for (const plugin of plugins) {
           "- Code excerpts may leave this machine: yes",
           "## Where secrets stay",
           "person's answer on the Chat v2 page changes that",
+          "`mcp__plugin_doable-code-context_doable`",
+          "\"Data sources it may read\" (for example `psql` or `gcloud logging read`)",
+          "keychain command `security`",
+          "\"Bash(sleep 20)\"",
+          "Only when this section lets it try a fix",
         ],
       ],
       [
@@ -401,11 +407,20 @@ for (const requiredSetup of [
   assert(readme.includes(requiredSetup), `README is missing public MCP setup: ${requiredSetup}`);
 }
 // A code agent machine serves requests with nobody at the terminal: its setup must say how to stop
-// permission prompts and to watch the first request.
+// permission prompts for every tool and command the policy may need (the Doable server, which a new
+// message from the person takes from the Skill; the data source and keychain commands; the wait),
+// and to watch the first request of each kind.
 for (const requiredCodeAgentSetup of [
   "`.claude/settings.json`",
   "a permission mode that does not prompt",
-  "Send a first request from a Chat v2 chat",
+  "`mcp__plugin_doable-code-context_doable`",
+  '"mcp__plugin_doable-code-context_doable",',
+  "\"Data sources it may read\"",
+  "keychain command `security`",
+  '"Bash(sleep 20)"',
+  "only when the policy lets the machine try a fix for a bug report",
+  "Send a first request of each kind from a Chat v2 chat",
+  "a `question`, a `prepare`, a `check`, and a `bug_report`",
 ]) {
   assert(includesPhrase(readme, requiredCodeAgentSetup), `README is missing code agent setup: ${requiredCodeAgentSetup}`);
 }

@@ -214,34 +214,60 @@ To set up a machine:
    above.
 4. Write the policy file `.doable/code-agent.md`: which repositories, environments, commands, and
    data sources the machine may use, what it must never touch, and whether code excerpts may
-   leave the machine. The Skill copies its template there on the first start.
+   leave the machine. On the first start (step 6), the Skill copies its template there and waits
+   until you say that the policy is ready. Do that first start in the normal permission mode:
+   a mode that does not prompt (step 5) refuses the copy.
 5. Let the session work with nobody at the terminal: a permission prompt stops the watch until
-   someone answers it. In Claude Code, the Skill allows the Doable MCP tools it calls while it
-   runs. Allow each command that the policy's "Commands it may run" names in the workspace's
-   `.claude/settings.json`, for example:
+   someone answers it. In Claude Code, allow in the workspace's `.claude/settings.json`:
+   - the Doable MCP server, `mcp__plugin_doable-code-context_doable` (or `mcp__doable` if you set
+     up a user-scoped `doable` server instead). The Skill allows its Doable tools while it runs,
+     but Claude Code forgets that at each new message from a person, for example "continue" after
+     a plan limit. This rule allows every Doable tool in this workspace;
+   - each command that the policy's "Commands it may run" names;
+   - the command of each source in the policy's "Data sources it may read", for example `psql` or
+     `gcloud logging read`;
+   - the keychain command `security`, when the policy's "Where secrets stay" names the macOS
+     keychain;
+   - `sleep 20`, the wait before the Skill calls Doable again after an error (Claude Code blocks a
+     `sleep` of 25 seconds or more);
+   - only when the policy lets the machine try a fix for a bug report: file changes in the folder
+     that the policy names for it. One `Edit(...)` rule covers the Edit and the Write tool.
+
+   For example:
 
    ```json
    {
      "permissions": {
-       "allow": ["Bash(npm test *)", "Bash(curl *)"]
+       "allow": [
+         "mcp__plugin_doable-code-context_doable",
+         "Bash(npm test *)",
+         "Bash(curl *)",
+         "Bash(psql *)",
+         "Bash(gcloud logging read *)",
+         "Bash(security add-generic-password *)",
+         "Bash(sleep 20)",
+         "Edit(/web/**)"
+       ]
      }
    }
    ```
 
-   Or start the session in a permission mode that does not prompt, such as
-   `claude --permission-mode dontAsk`, which refuses a tool or command that is not allowed instead
-   of asking. An allow rule only stops the prompt: the policy file still says what the machine may
-   do. In Codex and Cursor, allow the Doable MCP tools and the same commands in that host's
-   settings.
+   Or, after the first start, start the session in a permission mode that does not prompt, such
+   as `claude --permission-mode dontAsk`, which refuses a tool or command that is not allowed
+   instead of asking. An allow rule only stops the prompt: the policy file still says what the
+   machine may do. In Codex and Cursor, allow the Doable MCP tools and the same commands in that
+   host's settings.
 6. Ask the agent:
 
    ```text
    Serve Doable code agent requests on this machine.
    ```
 
-7. Send a first request from a Chat v2 chat (a `question`, then a `prepare`) and watch the session
-   serve it. If a permission prompt appears, answer it and allow that tool or command as in step
-   5, so that later requests run with nobody at the terminal.
+7. Send a first request of each kind from a Chat v2 chat and watch the session serve it: a
+   `question`, a `prepare`, a `check`, and a `bug_report` (ask the chat to send each one; it
+   sends a `bug_report` for a run that failed as a product bug). If a permission prompt appears,
+   answer it and allow that tool or command as in step 5, so that later requests run with nobody
+   at the terminal.
 
 The watch lasts one agent turn and writes nothing while no request comes. Nothing restarts it after
 a reboot, a sleep, or a plan limit. The machine serves one request at a time; requests that wait

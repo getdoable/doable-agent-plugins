@@ -49,10 +49,13 @@ again.
    - If it is missing, copy [the policy template](references/policy-template.md) to
      `.doable/code-agent.md`. Add the line `code-agent.md` to `.doable/.gitignore` (create the
      file when it is missing). Show the person the file and ask them to fill it in. Also tell them
-     two things: allow each command the policy names in the workspace's `.claude/settings.json`
-     (the template says how), and stay at the terminal for the first request, because a
-     permission prompt stops the watch until someone answers it. Start the loop only after the
-     person says the policy is ready.
+     two things: allow in the workspace's `.claude/settings.json` the Doable MCP server and each
+     command the policy may need (the template's "Commands it may run" lists them), and stay at
+     the terminal for the first request of each kind, because a permission prompt stops the watch
+     until someone answers it. Start the loop only after the person says the policy is ready.
+   - If the host refuses the copy (a permission mode that does not prompt refuses a file write
+     that is not allowed), tell the person to start this skill once in the normal permission mode,
+     or to copy the template themselves, and stop.
    - Read it again before each request: the person may change it while you serve.
 2. Check the connection: call Doable MCP `list_code_agent_machines`.
    - If the tool is missing, disconnected, or returns `401`, follow
@@ -84,10 +87,12 @@ Repeat:
    instead, and after every empty poll check each of them as "Check the requests that wait for a
    person" says.
 
-When a call fails (Doable MCP puts the status in the error text, for example
-`doable_not_found: Doable returned 404: ...`):
+When a call fails, Doable MCP puts the status in the error text, for example
+`doable_not_found: Doable returned 404: ...`. To wait before you call again, run the shell command
+`sleep 20`, exactly so: the host blocks a `sleep` of 25 seconds or more, and the machine's
+settings allow `sleep 20` (README setup step 5). Then act on the status:
 
-- A timeout, a network error, `429`, or a `5xx` error: wait about 30 seconds and call again. If it
+- A timeout, a network error, `429`, or a `5xx` error: wait (`sleep 20`) and call again. If it
   goes on for more than 10 minutes, tell the person once, then keep calling.
 - `401`: follow the connection recovery workflow. When it needed a message from the person, load
   this skill again (see "After a new message from the person"). Then continue the loop.
@@ -95,10 +100,11 @@ When a call fails (Doable MCP puts the status in the error text, for example
   stop.
 - `404` from a call about one of your requests (`get_code_agent_request`,
   `report_code_agent_progress`, `ask_person`, or `submit_code_agent_result`): after a restart,
-  Doable answers `404` for a request until that request's chat loads again. Keep the request. Make
-  the same call again every 30 seconds for up to 5 minutes, and keep working on the request
-  meanwhile. If it still answers `404` after 5 minutes, drop the request: stop its work, stop any
-  local server you started for it, and go back to the loop.
+  Doable answers `404` for a request until that request's chat loads again. Keep the request, and
+  make the same call again for up to 5 minutes after the first `404`. Between two tries, keep
+  working on the request when you have work for it, else wait with `sleep 20`. If it still answers
+  `404` after 5 minutes, drop the request: stop its work, stop any local server you started for
+  it, and go back to the loop.
 
 Never end the turn yourself. Do not end with a status summary, and do not ask the person to say
 continue. If the host ends the turn and the person later says continue or resume, go to
@@ -243,8 +249,8 @@ expected results). Doable's `diagnosis` is a hint to check, not a fact.
    test expected. Check the test too: it can expect a label, rule, or order that the product does
    not have on purpose.
 5. Only when the policy's "Commands it may run" names the commands for it, you may try a fix on a
-   separate local branch or worktree and run the repository's tests. Otherwise describe the fix
-   in words only. Never push it.
+   separate local branch or worktree, in the folder that the policy names for it, and run the
+   repository's tests. Otherwise describe the fix in words only. Never push it.
 6. Return `done` with a summary in this layout:
 
    ```markdown

@@ -23,11 +23,16 @@ All notable changes to Doable Agent Plugins are documented here.
   `ask_person` only when the work cannot go on without one, never for a credential. It checks a
   request that waits for a person after every empty poll and at each progress report, continues
   an answered request with its `person_answer` and never asks again, and retries a `404` on a
-  request it holds for up to 5 minutes after a Doable restart. The machine's local policy file
-  `.doable/code-agent.md` says which repositories, environments, commands and data sources it may
-  use; neither a request nor a person's answer widens it. The Skill copies a template from its
-  `references/` on the first start, and its frontmatter allows the Doable MCP tools it calls, so
-  a session with nobody at the terminal does not stop at a permission prompt. It registers only
+  request it holds for up to 5 minutes after a Doable restart, with `sleep 20` between tries
+  (Claude Code blocks a longer `sleep`). The machine's local policy file `.doable/code-agent.md`
+  says which repositories, environments, commands and data sources it may use; neither a request
+  nor a person's answer widens it. The Skill copies a template from its `references/` on the
+  first start. Its frontmatter allows the Doable MCP tools it calls, and it loads itself again
+  after each new message from the person, because Claude Code then forgets those tools. For a
+  session with nobody at the terminal, the README's setup lists what to allow in
+  `.claude/settings.json`: the Doable MCP server, the policy's commands, its data source commands,
+  the keychain command, `sleep 20`, and file changes when the policy allows a fix try; a person
+  watches the first request of each kind. It registers only
   the logins a `prepare` request asks for, and only through `add_test_account`; a login made only
   to reproduce a bug stays out of Doable. It never pushes, never touches production, and never
   puts a secret in a result.
