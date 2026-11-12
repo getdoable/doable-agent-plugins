@@ -164,9 +164,10 @@ code agent's question to a person. Ask the person to do them on the Chat v2 page
 
 `read_chat` lists the chat's open code agent requests. A machine that serves them runs the
 `doable-code-agent` skill in its own session. A machine counts as connected when Doable saw it in
-the last 90 seconds, or while it holds a `working` request whose lease has not run out: a busy
-machine stays connected. A request waits in the queue while a machine is connected. It ends only
-after it waited 30 minutes in total with no machine of the organization connected.
+the last 90 seconds, or while it holds a `working` request and Doable saw it in the last 10
+minutes: a busy machine that reports its progress stays connected, and a machine that went away
+does not. A request waits in the queue while a machine is connected. It ends only after it waited
+30 minutes in total with no machine of the organization connected.
 
 ## Rules
 

@@ -187,10 +187,10 @@ holds a password.
 
 Serve one request at a time. Other requests wait in the queue while you work, and they do not
 expire because you are busy. Doable counts this machine as connected when it called Doable in the
-last 90 seconds, or while it holds a `working` request whose lease has not run out (so report
-progress at least every 5 minutes). Doable ends a queued request only after it waited 30 minutes
-in total with no machine of the organization connected. It ends any request 4 hours after it was
-asked (time that waits for a person does not count).
+last 90 seconds, or while it holds a `working` request and called Doable in the last 10 minutes
+(so report progress at least every 5 minutes). Doable ends a queued request only after it waited
+30 minutes in total with no machine of the organization connected. It ends any request 4 hours
+after it was asked (time that waits for a person does not count).
 
 ## What to do for each kind
 
@@ -382,7 +382,7 @@ on the request you serve. Then act on its `status`:
 
 - `needs_person`: no answer yet. Check it again later. A person has 24 hours to answer.
 - `working` with a `person_answer`: the person answered, and the request is yours again. Doable
-  keeps it for you for 30 minutes after the answer.
+  keeps it for you for 30 minutes after the answer; a progress report never shortens that time.
   - If you serve no other request, continue it now with that answer, and report progress on it at
     once.
   - If you serve another request, report progress on the answered one at once (for example
