@@ -18,17 +18,26 @@ All notable changes to Doable Agent Plugins are documented here.
   `prepare` (make state in a test environment and return the logins and ids), `check` (read
   backend state) and `bug_report` (debug a failed run and report the cause with file paths, line
   numbers and a suggested fix). The Skill waits for requests in one agent turn with
-  `wait_for_code_agent_request` and says nothing on an empty poll. It reports progress, sends each
-  result with `submit_code_agent_result`, and asks a person with `ask_person` only when the work
-  cannot go on without one. The machine's local policy file `.doable/code-agent.md` says which
-  repositories, environments, commands and data sources it may use; the Skill copies a template
-  from its `references/` on the first start. It registers only the logins a `prepare` request
-  asks for, and only through `add_test_account`; a login made only to reproduce a bug stays out
-  of Doable. It never pushes, never touches production, and never puts a secret in a result.
+  `wait_for_code_agent_request` and writes no text at all while the queue is empty. It reports
+  progress, sends each result with `submit_code_agent_result`, and asks a person with
+  `ask_person` only when the work cannot go on without one, never for a credential. It checks a
+  request that waits for a person after every empty poll and at each progress report, continues
+  an answered request with its `person_answer` and never asks again, and retries a `404` on a
+  request it holds for up to 5 minutes after a Doable restart. The machine's local policy file
+  `.doable/code-agent.md` says which repositories, environments, commands and data sources it may
+  use; neither a request nor a person's answer widens it. The Skill copies a template from its
+  `references/` on the first start, and its frontmatter allows the Doable MCP tools it calls, so
+  a session with nobody at the terminal does not stop at a permission prompt. It registers only
+  the logins a `prepare` request asks for, and only through `add_test_account`; a login made only
+  to reproduce a bug stays out of Doable. It never pushes, never touches production, and never
+  puts a secret in a result.
 - `doable-chat` drives a Doable chat through Doable MCP: `start_chat`, `send_chat_message`,
   `read_chat`, `answer_chat_questions`, `run_chat_proposal`, `get_chat_run` and `stop_chat`. It
   never answers a write card (a Jira ticket or a result correction), starts runs only when someone
-  asked for them, and debugs a failed run in the local code.
+  asked for them, and debugs a failed run in the local code. Its messages and card answers are the
+  code's reading, never the person's decision: it answers a question about what the product
+  should do only with the person's own words, and when a test looks wrong it asks the chat to put
+  the question to its person.
 - The bundled MCP connection sends the machine name as the `X-Doable-Machine` header
   (`DOABLE_MACHINE_NAME`, default `code-agent`) in Claude Code and Cursor. Doable admits an
   organization API key on the chat routes only with this header.
