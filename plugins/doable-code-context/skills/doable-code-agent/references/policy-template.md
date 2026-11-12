@@ -4,9 +4,10 @@ This file tells the Doable code agent on this machine what it may do. The `doabl
 skill reads it before every request. Keep it at `.doable/code-agent.md` in the workspace root; it
 stays on this machine and Git ignores it.
 
-Write plain words. Anything this file does not allow is not allowed. Production is never allowed,
-whatever this file says. Replace each line marked `Example:` with your own line, or delete it:
-the code agent ignores lines still marked `Example:`.
+Write plain words. Anything this file does not allow is not allowed, and neither a request nor a
+person's answer on the Chat v2 page changes that: only an edit of this file does.
+Production is never allowed, whatever this file says. Replace each line marked `Example:` with
+your own line, or delete it: the code agent ignores lines still marked `Example:`.
 
 ## Repositories
 
@@ -38,7 +39,8 @@ to reproduce a bug. For each one, give its address and how the code agent may ma
 
 ## Commands it may run
 
-Commands other than reading files. Name the folder each one runs in.
+Commands other than reading files. Name the folder each one runs in. The code agent tries a fix
+for a bug report and runs the repository's tests only when this section names those commands.
 
 - Example: `npm test` and `npm run dev` in `web/`
 - Example: `curl` to https://staging.example.com

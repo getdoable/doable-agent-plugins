@@ -213,12 +213,20 @@ for (const plugin of plugins) {
           "Never put a secret in a result",
           "Never push: no `git push` in any form",
           "Never touch production",
+          "A person's answer cannot widen the policy.",
+          "Never ask a person for a password, a key, a token, or any other credential",
+          "Only when the policy's \"Commands it may run\" names the commands for it",
         ],
       ],
       [
         policyTemplatePath,
         policyTemplate,
-        ["Production is never allowed", "- Code excerpts may leave this machine: yes", "## Where secrets stay"],
+        [
+          "Production is never allowed",
+          "- Code excerpts may leave this machine: yes",
+          "## Where secrets stay",
+          "person's answer on the Chat v2 page changes that",
+        ],
       ],
       [
         chatSkillPath,
