@@ -12,7 +12,7 @@ const plugins = [
   {
     name: "doable-code-context",
     version: "0.2.18",
-    skillNames: ["doable-connect", "doable-answer-questions", "doable-test-feature", "doable-code-agent", "doable-chat"],
+    skillNames: ["doable-connect", "doable-answer-questions", "doable-code-agent", "doable-chat"],
     network: "bundled-doable-mcp-config",
   },
 ];
@@ -181,8 +181,6 @@ for (const plugin of plugins) {
 
     const connectSkillPath = join(pluginRoot, "skills", "doable-connect", "SKILL.md");
     const connectSkill = readFileSync(connectSkillPath, "utf8");
-    const testFeatureSkillPath = join(pluginRoot, "skills", "doable-test-feature", "SKILL.md");
-    const testFeatureSkill = readFileSync(testFeatureSkillPath, "utf8");
     const authenticationPath = join(
       pluginRoot,
       "skills",
@@ -256,11 +254,8 @@ for (const plugin of plugins) {
         connectSkill,
         ["Before using workspace state to prepare a profile or scanning repositories", "references/authentication.md"],
       ],
-      [
-        testFeatureSkillPath,
-        testFeatureSkill,
-        ["Before inspecting `.doable` state or searching remote suites", "connection recovery workflow"],
-      ],
+      [codeAgentSkillPath, codeAgentSkill, ["list_code_agent_machines", "connection recovery workflow"]],
+      [chatSkillPath, chatSkill, ["list_test_suites", "connection recovery workflow"]],
       [
         authenticationPath,
         authentication,
@@ -273,6 +268,7 @@ for (const plugin of plugins) {
           "In Cursor, the user-scoped MCP configuration reloads asynchronously",
           "Treat an immediate `401` as a potentially stale live transport",
           "Retry `get_code_context_connection` with the same preflight arguments",
+          "use their first Doable call as the preflight",
         ],
       ],
     ]) {
@@ -282,6 +278,20 @@ for (const plugin of plugins) {
           `${relative(root, path)} is missing authentication recovery rule: ${requiredRule}`,
         );
       }
+    }
+  }
+}
+
+// Doable MCP dropped its run tools: runs start through a Doable chat now. An
+// installed plugin keeps its skills, so none may tell an agent to call them.
+for (const plugin of plugins) {
+  const pluginRoot = join(root, "plugins", plugin.name);
+  for (const path of walk(pluginRoot).filter((path) => statSync(path).isFile() && extname(path) === ".md")) {
+    for (const removedTool of ["run_test_cases", "get_run", "list_runs"]) {
+      assert(
+        !new RegExp(`\\b${removedTool}\\b`).test(readFileSync(path, "utf8")),
+        `${relative(root, path)} names the removed Doable MCP tool ${removedTool}`,
+      );
     }
   }
 }
