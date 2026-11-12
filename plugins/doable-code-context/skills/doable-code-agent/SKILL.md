@@ -173,7 +173,8 @@ holds a password.
    timeout, a network error, or a `404` (see "When a call fails"), send the same result again:
    Doable keeps the first one.
 7. Write one line to the person, such as `CA-7K2M9P (prepare): done, made one login and one
-   pending time-off request.` Then go back to the loop.
+   pending time-off request.` If a person answered one of your other requests while you worked,
+   serve that request now with its answer. Then go back to the loop.
 
 Serve one request at a time. Other requests wait in the queue while you work, and they do not
 expire because you are busy. Doable counts this machine as connected when it called Doable in the
