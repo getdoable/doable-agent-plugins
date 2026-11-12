@@ -263,7 +263,10 @@ Ask Doable's chat to test the feature I just implemented, run the tests, and tel
 ```
 
 It never answers a write card (a Jira ticket or a correction of a run result): a person answers
-those on the Chat v2 page. Runs it starts count toward the organization's quota.
+those on the Chat v2 page. Its messages and card answers are the code's reading, never the
+person's decision about what the product should do: it answers a question about what the product
+should do only with the person's own words, and else leaves it open and tells the person. Runs it
+starts count toward the organization's quota.
 
 ## Shared grounding and privacy boundary
 
