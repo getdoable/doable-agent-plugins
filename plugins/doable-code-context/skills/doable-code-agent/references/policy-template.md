@@ -44,14 +44,15 @@ for a bug report and runs the repository's tests only when this section names th
 the folder where it may change files for the fix.
 
 The serving session runs with nobody at the terminal, and a permission prompt stops it. So allow
-in the workspace's `.claude/settings.json` everything that the code agent may need: the Doable
-MCP server (`mcp__plugin_doable-code-context_doable`), each command of this section, the command
-of each source in "Data sources it may read" (for example `psql` or `gcloud logging read`), the
-keychain command `security` when "Where secrets stay" names the macOS keychain, and `sleep 20`
-(its wait before it calls Doable again after an error). Only when this section lets it try a fix
-for a bug report, also allow file changes in that folder: one `Edit(...)` rule covers the Edit
-and the Write tool. For example:
-`{"permissions": {"allow": ["mcp__plugin_doable-code-context_doable", "Bash(npm test *)", "Bash(curl *)", "Bash(psql *)", "Bash(gcloud logging read *)", "Bash(security add-generic-password *)", "Bash(sleep 20)", "Edit(/web/**)"]}}`.
+in the workspace's `.claude/settings.json` everything that the code agent may need: the skill
+itself (`Skill(doable-code-context:doable-code-agent)`, because it loads itself again after each
+new message from a person), the Doable MCP server (`mcp__plugin_doable-code-context_doable`), each
+command of this section, the command of each source in "Data sources it may read" (for example
+`psql` or `gcloud logging read`), the keychain command `security` when "Where secrets stay" names
+the macOS keychain, and `sleep 20` (its wait before it calls Doable again after an error). Only
+when this section lets it try a fix for a bug report, also allow file changes in that folder: one
+`Edit(...)` rule covers the Edit and the Write tool. For example:
+`{"permissions": {"allow": ["Skill(doable-code-context:doable-code-agent)", "mcp__plugin_doable-code-context_doable", "Bash(npm test *)", "Bash(curl *)", "Bash(psql *)", "Bash(gcloud logging read *)", "Bash(security add-generic-password *)", "Bash(sleep 20)", "Edit(/web/**)"]}}`.
 An allow rule only stops the prompt: this file still says what the code agent may do. See "Run a
 Doable code agent" in https://github.com/getdoable/doable-agent-plugins#run-a-doable-code-agent.
 

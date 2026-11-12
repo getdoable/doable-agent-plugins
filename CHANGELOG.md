@@ -30,7 +30,8 @@ All notable changes to Doable Agent Plugins are documented here.
   first start. Its frontmatter allows the Doable MCP tools it calls, and it loads itself again
   after each new message from the person, because Claude Code then forgets those tools. For a
   session with nobody at the terminal, the README's setup lists what to allow in
-  `.claude/settings.json`: the Doable MCP server, the policy's commands, its data source commands,
+  `.claude/settings.json`: the Skill itself (Claude Code asks before it loads a Skill that no rule
+  allows), the Doable MCP server, the policy's commands, its data source commands,
   the keychain command, `sleep 20`, and file changes when the policy allows a fix try; a person
   watches the first request of each kind. It registers only
   the logins a `prepare` request asks for, and only through `add_test_account`; a login made only

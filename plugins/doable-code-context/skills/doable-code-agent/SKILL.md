@@ -51,10 +51,11 @@ again.
    - If it is missing, copy [the policy template](references/policy-template.md) to
      `.doable/code-agent.md`. Add the line `code-agent.md` to `.doable/.gitignore` (create the
      file when it is missing). Show the person the file and ask them to fill it in. Also tell them
-     two things: allow in the workspace's `.claude/settings.json` the Doable MCP server and each
-     command the policy may need (the template's "Commands it may run" lists them), and stay at
-     the terminal for the first request of each kind, because a permission prompt stops the watch
-     until someone answers it. Start the loop only after the person says the policy is ready.
+     two things: allow in the workspace's `.claude/settings.json` this skill, the Doable MCP server
+     and each command the policy may need (the template's "Commands it may run" lists them), and
+     stay at the terminal for the first request of each kind, because a permission prompt stops
+     the watch until someone answers it. Start the loop only after the person says the policy is
+     ready.
    - If the host refuses the copy (a permission mode that does not prompt refuses a file write
      that is not allowed), tell the person to start this skill once in the normal permission mode,
      or to copy the template themselves, and stop.
@@ -408,8 +409,10 @@ allowed at each new message from the person: for example "continue" after a plan
 after they reconnected `doable` in `/mcp`. Without them, your next Doable call can stop at a
 permission prompt while nobody is at the terminal. So after any new message from the person, load
 this skill again before your next Doable call: in Claude Code, call the Skill tool with
-`doable-code-context:doable-code-agent`. In another host, read this skill again. Loading it does
-not start the watch again: go on from where you were.
+`doable-code-context:doable-code-agent`. The machine's settings allow that call with the rule
+`Skill(doable-code-context:doable-code-agent)` (README setup step 5); without that rule, the call
+itself stops at a permission prompt. In another host, read this skill again. Loading it does not
+start the watch again: go on from where you were.
 
 ## Resume after an interruption
 

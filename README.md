@@ -220,10 +220,13 @@ To set up a machine:
    a mode that does not prompt (step 5) refuses the copy.
 5. Let the session work with nobody at the terminal: a permission prompt stops the watch until
    someone answers it. In Claude Code, allow in the workspace's `.claude/settings.json`:
+   - the Skill itself, `Skill(doable-code-context:doable-code-agent)`. After each new message from
+     a person, for example "continue" after a plan limit, the Skill loads itself again, and Claude
+     Code asks before it loads a Skill that no rule allows;
    - the Doable MCP server, `mcp__plugin_doable-code-context_doable` (or `mcp__doable` if you set
      up a user-scoped `doable` server instead). The Skill allows its Doable tools while it runs,
-     but Claude Code forgets that at each new message from a person, for example "continue" after
-     a plan limit. This rule allows every Doable tool in this workspace;
+     but Claude Code forgets that at each new message from a person. This rule allows every Doable
+     tool in this workspace;
    - each command that the policy's "Commands it may run" names;
    - the command of each source in the policy's "Data sources it may read", for example `psql` or
      `gcloud logging read`;
@@ -240,6 +243,7 @@ To set up a machine:
    {
      "permissions": {
        "allow": [
+         "Skill(doable-code-context:doable-code-agent)",
          "mcp__plugin_doable-code-context_doable",
          "Bash(npm test *)",
          "Bash(curl *)",

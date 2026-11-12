@@ -260,6 +260,8 @@ for (const plugin of plugins) {
           // blocks a foreground sleep of 25 seconds or more: either one stops an unattended watch.
           "load this skill again before your next Doable call",
           "`doable-code-context:doable-code-agent`",
+          // Claude Code asks before the Skill tool loads a plugin Skill that no rule allows.
+          "`Skill(doable-code-context:doable-code-agent)`",
           "run the shell command `sleep 20`, exactly so",
         ],
       ],
@@ -271,6 +273,8 @@ for (const plugin of plugins) {
           "- Code excerpts may leave this machine: yes",
           "## Where secrets stay",
           "person's answer on the Chat v2 page changes that",
+          "`Skill(doable-code-context:doable-code-agent)`",
+          "\"Skill(doable-code-context:doable-code-agent)\"",
           "`mcp__plugin_doable-code-context_doable`",
           "\"Data sources it may read\" (for example `psql` or `gcloud logging read`)",
           "keychain command `security`",
@@ -409,12 +413,15 @@ for (const requiredSetup of [
   assert(readme.includes(requiredSetup), `README is missing public MCP setup: ${requiredSetup}`);
 }
 // A code agent machine serves requests with nobody at the terminal: its setup must say how to stop
-// permission prompts for every tool and command the policy may need (the Doable server, which a new
-// message from the person takes from the Skill; the data source and keychain commands; the wait),
-// and to watch the first request of each kind.
+// permission prompts for every tool and command the policy may need (the Skill, which loads itself
+// again after a new message from the person; the Doable server, which that message takes from the
+// Skill; the data source and keychain commands; the wait), and to watch the first request of each
+// kind.
 for (const requiredCodeAgentSetup of [
   "`.claude/settings.json`",
   "a permission mode that does not prompt",
+  "`Skill(doable-code-context:doable-code-agent)`",
+  '"Skill(doable-code-context:doable-code-agent)",',
   "`mcp__plugin_doable-code-context_doable`",
   '"mcp__plugin_doable-code-context_doable",',
   "\"Data sources it may read\"",
