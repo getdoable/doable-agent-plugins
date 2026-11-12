@@ -306,9 +306,10 @@ questions the code settles. It never answers a write card (a Jira ticket or a co
 result), a card that decides a conflict between a run and the test spec, or a question about what
 the product should do, and it never passes on the person's decision in a message: it tells you to
 answer those on the Chat v2 page. While such a card holds the chat's agent, it sends no message
-to that chat, because a message closes that card with no answers. An open card of auto mode does
-not hold the agent and stays open after a message, so it does not block one. Doable refuses a
-machine's answer to a write card or a conflict card. Runs it starts count toward the organization's quota.
+to that chat and does not stop the chat, because a message or a stop closes that card with no
+answers. An open card of auto mode does not hold the agent and stays open after a message, so it
+does not block one. Doable refuses a machine's answer to a write card or a conflict card. Runs it
+starts count toward the organization's quota.
 
 ## Shared grounding and privacy boundary
 

@@ -1,6 +1,6 @@
 ---
 name: doable-chat
-description: Drive a Doable chat (Chat v2) from this coding agent through Doable MCP - start the chat of a test suite, send it messages, read its replies and run results, answer the question cards that the code settles, start the runs it proposes, and debug a failed run in the local code. Use when the person asks Doable to test a feature they just built, to create, change or run tests, to read or follow a Doable chat, to answer Doable's questions from here, or to find why a Doable run failed. It never answers a write card (a Jira ticket or a result correction), a card that decides a conflict, or a question about what the product should do, and never passes on the person's decision: the person answers those on the Chat v2 page. While such a card holds the chat's agent, it sends no message to that chat, because a message closes that card with no answers.
+description: Drive a Doable chat (Chat v2) from this coding agent through Doable MCP - start the chat of a test suite, send it messages, read its replies and run results, answer the question cards that the code settles, start the runs it proposes, and debug a failed run in the local code. Use when the person asks Doable to test a feature they just built, to create, change or run tests, to read or follow a Doable chat, to answer Doable's questions from here, or to find why a Doable run failed. It never answers a write card (a Jira ticket or a result correction), a card that decides a conflict, or a question about what the product should do, and never passes on the person's decision: the person answers those on the Chat v2 page. While such a card holds the chat's agent, it sends no message to that chat and does not stop the chat, because a message or a stop closes that card with no answers.
 ---
 
 # Drive a Doable Chat
@@ -175,6 +175,11 @@ asks for them.
   nothing about the code.
 - To stop the agent's turn and its runs, call `stop_chat(suite_id, chat_id)`. Do this only when
   the person asks or the chat clearly goes wrong.
+- A stop also closes the card that holds the agent (kind `question`) with no answers, as a
+  message does. So never call `stop_chat` while a card of kind `question` waits that only a
+  person may answer, also when the person asks for a stop or the chat seems to go wrong. Tell the
+  person what the card asks and that a stop would close it with no answers. Ask them to answer
+  the card on the Chat v2 page, or to stop the chat there themselves with its Stop button.
 
 ## Debug a failed run locally
 
@@ -232,6 +237,8 @@ does not. A request waits in the queue while a machine is connected. It ends onl
   chat: a message closes the card with no answers. Tell the person to answer the card on the
   Chat v2 page, and wait. A card of kind `open` stays open after a message, so it does not block
   one.
+- Never call `stop_chat` while a card of kind `question` waits that only a person may answer: a
+  stop closes the card with no answers. Tell the person instead.
 - Never put a password, a key, or a token in a message or a card answer.
 - Your messages and card answers are the code's reading, never the person's decision about what
   the product should do.
