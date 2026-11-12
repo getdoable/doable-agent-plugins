@@ -46,9 +46,10 @@ All notable changes to Doable Agent Plugins are documented here.
   (a Jira ticket or a result correction), a card that decides a conflict (Doable refuses a
   machine's answer to both) or a question about what the product should do, and it never passes
   on the person's decision in a message: it tells the person to answer on the Chat v2 page. While
-  such a card waits, it sends no message to that chat, because a message closes every card that
-  waits with no answers. When a test looks wrong, it asks the chat to put the question to its
-  person.
+  such a card holds the chat's agent (kind `question` in `read_chat`'s `waiting_cards`), it sends
+  no message to that chat, because a message closes that card with no answers. An open card of
+  auto mode (kind `open`) does not hold the agent and stays open after a message, so it does not
+  block one. When a test looks wrong, it asks the chat to put the question to its person.
 - The bundled MCP connection sends the machine name as the `X-Doable-Machine` header
   (`DOABLE_MACHINE_NAME`, default `code-agent`) in Claude Code and Cursor. Doable admits an
   organization API key on the chat routes only with this header. A name is 1 to 64 letters,

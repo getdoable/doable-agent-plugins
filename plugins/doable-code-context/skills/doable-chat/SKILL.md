@@ -1,6 +1,6 @@
 ---
 name: doable-chat
-description: Drive a Doable chat (Chat v2) from this coding agent through Doable MCP - start the chat of a test suite, send it messages, read its replies and run results, answer the question cards that the code settles, start the runs it proposes, and debug a failed run in the local code. Use when the person asks Doable to test a feature they just built, to create, change or run tests, to read or follow a Doable chat, to answer Doable's questions from here, or to find why a Doable run failed. It never answers a write card (a Jira ticket or a result correction), a card that decides a conflict, or a question about what the product should do, and never passes on the person's decision: the person answers those on the Chat v2 page. While such a card waits, it sends no message to that chat, because a message closes the card with no answers.
+description: Drive a Doable chat (Chat v2) from this coding agent through Doable MCP - start the chat of a test suite, send it messages, read its replies and run results, answer the question cards that the code settles, start the runs it proposes, and debug a failed run in the local code. Use when the person asks Doable to test a feature they just built, to create, change or run tests, to read or follow a Doable chat, to answer Doable's questions from here, or to find why a Doable run failed. It never answers a write card (a Jira ticket or a result correction), a card that decides a conflict, or a question about what the product should do, and never passes on the person's decision: the person answers those on the Chat v2 page. While such a card holds the chat's agent, it sends no message to that chat, because a message closes that card with no answers.
 ---
 
 # Drive a Doable Chat
@@ -27,9 +27,15 @@ organization API key and count toward the organization's quota.
 - **Suite id**: `ts-` and eight letters, such as `ts-abcdefgh`. **Test id**: `tc-` and eight
   letters.
 - **Turn**: the chat agent's work on one message. A turn can take minutes.
-- **Card**: a set of questions that the chat waits on. A **question card** asks for facts or
+- **Card**: a set of questions that waits for answers. A **question card** asks for facts or
   choices. A **write card** asks for a person's yes before Doable writes outside the chat (a Jira
   ticket, a correction of a run result). `read_chat` marks a write card with `write: true`.
+- **Card kind**: `read_chat` lists the cards that wait for answers in `waiting_cards`, each with a
+  `kind`. A card of kind `question` holds the agent: the agent waits for its answers (status
+  `waiting_for_answer`), and a message closes the card with no answers. A card of kind `open` is
+  a card of auto mode: it does not hold the agent, and it stays open after a message. The kind is
+  not the same thing as a question card: a question card, a write card, and a conflict card can
+  each be of either kind.
 - **Conflict card**: a card that decides a conflict, that is a difference between what a run of
   the app showed and what the test spec, the person, or their code says. Its question asks which
   one is right, and one of its options starts with "The app is right". Only a person decides it.
@@ -51,9 +57,10 @@ organization API key and count toward the organization's quota.
 2. Send the first message with `start_chat(suite_id, message)`. It uses the suite's newest chat,
    or makes one when the suite has none, then sends the message. Keep the `chat_id` it returns.
    When you already know the suite's chat id (see below), read the chat first, and do not call
-   `start_chat` while a card waits that only a person may answer (see "Answer a card").
-3. Send later messages with `send_chat_message(suite_id, chat_id, text)`, never while a card waits
-   that only a person may answer.
+   `start_chat` while a card of kind `question` waits that only a person may answer (see "Answer
+   a card").
+3. Send later messages with `send_chat_message(suite_id, chat_id, text)`, never while a card of
+   kind `question` waits that only a person may answer.
 
 To read a chat without sending a message, you need its `chat_id`: from an earlier result, from a
 code agent request (`chat.id`), or from the person. Doable MCP has no tool that lists a suite's
@@ -73,21 +80,22 @@ Call `read_chat(suite_id, chat_id, after, wait_seconds, token)`:
 - The first call uses `after: 0` and reads the whole chat.
 - Each later call passes `after` = the last result's `next_after` and `token` = its `token`, with
   `wait_seconds` up to 110. The call returns as soon as the chat changes, or when that time ends.
-- A result holds: `status`, the new entries as text lines, the cards that wait (each with its
-  `question_set_id`, its questions and options, and `write`), the run proposal, the open code
-  agent requests, `next_after`, and `token`.
+- A result holds: `status`, the new entries as text lines, the cards that wait (`waiting_cards`,
+  each with its `question_set_id`, its `kind`, its questions and options, and `write`), the run
+  proposal, the open code agent requests, `next_after`, and `token`.
 
 | `status` | Meaning | What to do |
 | --- | --- | --- |
 | `working` | The agent is on a turn. | Keep reading, with a wait. |
-| `waiting_for_answer` | A card waits. | Answer it only when the code settles every question (see "Answer a card"). Else tell the person to answer it on the Chat v2 page, send no message to this chat, and keep reading until it is answered. |
+| `waiting_for_answer` | A card of kind `question` holds the agent. | Answer it only when the code settles every question (see "Answer a card"). Else tell the person to answer it on the Chat v2 page, send no message to this chat, and keep reading until it is answered. |
 | `idle` | The turn ended. | Read the last lines. Send the next message, or stop. |
 | `needs_passwords` | The chat needs a password that only a person can type. | Ask the person to type it on the Chat v2 page. |
 | `failed` | The turn failed. | Read the error line and tell the person. |
 
 Do not narrate each read. Tell the person only what matters: the chat's replies, its cards, and run
 results. When a reply of the chat asks the person a question outside a card, answer it in a message
-only when the code settles it, as for a card, and no card waits that only a person may answer.
+only when the code settles it, as for a card, and no card of kind `question` waits that only a
+person may answer.
 When it needs the person's decision, tell the person to answer it on the Chat v2 page.
 
 ## Answer a card
@@ -114,24 +122,31 @@ treat it as a question about what the product should do.
   must find, and not with the person's words from this session either. In your own text, tell the
   person what the card asks and that they answer it on the Chat v2 page. Add what the code does
   now for each question when you know it, so that they can decide. Then keep reading the chat
-  until they answered it there, and send no message to this chat until then. Doable refuses a
-  machine's answer to a write card or a conflict card (`403`).
+  until they answered it there. When it is a card of kind `question`, send no message to this
+  chat until then (see "No message while a card waits"). Doable refuses a machine's answer to a
+  write card or a conflict card (`403`), of either kind.
 - Never put a password, a key, or a token in an answer.
 
 ### No message while a card waits
 
-A message to the chat closes every card that waits: Doable ends the wait with no answers. A write
-card then writes nothing, and the person can no longer answer a conflict card or a question card.
-So:
+A message to the chat closes the card that holds the agent, a card of kind `question`: Doable ends
+the wait with no answers. A write card then writes nothing, and the person can no longer answer a
+conflict card or a question card. Only a card of kind `question` in `waiting_cards` holds the
+agent and closes on a message. A card of kind `open` (auto mode) stays open after a message, so
+it does not block a message. So:
 
 - When the code settles a card, answer the card first, then send your message.
-- While a card waits that only a person may answer, send no message to that chat, not with
-  `send_chat_message` and not with `start_chat`. Tell the person what the card asks and to answer
-  it on the Chat v2 page. Keep reading the chat, and send your message only after `read_chat`
-  shows that no card waits.
+- While a card of kind `question` waits that only a person may answer, send no message to that
+  chat, not with `send_chat_message` and not with `start_chat`. Tell the person what the card asks
+  and to answer it on the Chat v2 page. Keep reading the chat, and send your message only after
+  `read_chat` shows that no card of kind `question` waits.
 - If the person asks you to send a message while such a card waits, do not send it yet. Tell them
   that the message would close the card with no answers, and ask them to answer the card on the
-  Chat v2 page first. Send the message when `read_chat` shows that no card waits.
+  Chat v2 page first. Send the message when `read_chat` shows that no card of kind `question`
+  waits.
+- A card of kind `open` does not block a message: send your message while it is open. Still never
+  answer an open card that only a person may answer: tell the person what it asks and to answer
+  it on the Chat v2 page.
 
 ## Run tests
 
@@ -166,15 +181,15 @@ asks for them.
 6. Tell the person the cause, where it is (file paths and line numbers), how to reproduce it, and a
    suggested fix.
 7. When the test looks wrong, remember that the code shows what the product does, not what it
-   should do. Do not ask the chat to change the test because of the code alone. When no card
-   waits that only a person may answer (see "No message while a card waits"), send the code's
-   reading, and ask the chat to put the question to its person. For example: "Code reading, not a
-   decision: test tc-abcdefgh expects the button Save, but the product shows Save changes
-   (web/src/settings/Form.tsx:42). Please ask the person whether the test or the product is
-   right." When the chat then asks its person, tell the person to answer on the Chat v2 page (see
-   "Answer a card"). If the person tells you in this session which one is right, do not send their
-   decision: ask them to write it on the Chat v2 page, because Doable reads all that you send as
-   the code agent's.
+   should do. Do not ask the chat to change the test because of the code alone. When no card of
+   kind `question` waits that only a person may answer (see "No message while a card waits"),
+   send the code's reading, and ask the chat to put the question to its person. For example:
+   "Code reading, not a decision: test tc-abcdefgh expects the button Save, but the product shows
+   Save changes (web/src/settings/Form.tsx:42). Please ask the person whether the test or the
+   product is right." When the chat then asks its person, tell the person to answer on the Chat
+   v2 page (see "Answer a card"). If the person tells you in this session which one is right, do
+   not send their decision: ask them to write it on the Chat v2 page, because Doable reads all
+   that you send as the code agent's.
 
 What you send to the chat follows the code agent's rule. It may hold file paths, line numbers,
 and code excerpts of 10 lines or fewer each. It never holds a secret (passwords, keys, tokens,
@@ -203,9 +218,10 @@ does not. A request waits in the queue while a machine is connected. It ends onl
   tell the person to answer it on the Chat v2 page.
 - Never send the person's decision in a message or a card answer, also when they told you in this
   session: ask them to write it on the Chat v2 page.
-- While a card waits that only a person may answer, send no message to that chat: a message
-  closes the card with no answers. Tell the person to answer the card on the Chat v2 page, and
-  wait.
+- While a card of kind `question` waits that only a person may answer, send no message to that
+  chat: a message closes the card with no answers. Tell the person to answer the card on the
+  Chat v2 page, and wait. A card of kind `open` stays open after a message, so it does not block
+  one.
 - Never put a password, a key, or a token in a message or a card answer.
 - Your messages and card answers are the code's reading, never the person's decision about what
   the product should do.
