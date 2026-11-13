@@ -637,7 +637,7 @@ assert(
           url: "https://mcp.getdoable.ai/mcp",
           headers: {
             Authorization: "Bearer ${DOABLE_API_KEY}",
-            "X-Doable-Machine": "${DOABLE_MACHINE_NAME:-code-agent}",
+            "X-Doable-Machine": "${DOABLE_MACHINE_NAME:-unnamed-machine}",
           },
         },
       },

@@ -145,14 +145,16 @@ The plugin supplies Skills, a declarative connection to the hosted Doable MCP en
 Keep the key in the host environment or user-scoped credential store. Never commit it, add it to a project-level MCP file, save it under `.doable/`, or print it in agent output.
 
 In Cursor and Claude Code, the connection also sends a machine name as the `X-Doable-Machine`
-header: the value of `DOABLE_MACHINE_NAME`, or `code-agent` when it is not set. A name is 1 to 64
-characters, each a letter, a digit, `.`, `_`, or `-`. Doable MCP refuses any other name itself,
-with an error that names the `X-Doable-Machine` header and has no status, and Doable refuses it
-with `422`. The Skills then tell you the rule and stop.
+header: the value of the environment variable `DOABLE_MACHINE_NAME`. Set `DOABLE_MACHINE_NAME` on
+every machine that uses the plugin, and give each machine its own name, such as `mac-mini-1`. When
+it is not set, the name is `unnamed-machine`, and people cannot tell such machines apart in Doable.
+A name is 1 to 64 characters, each a letter, a digit, `.`, `_`, or `-`. Doable MCP refuses any
+other name itself, with an error that names the `X-Doable-Machine` header and has no status, and
+Doable refuses it with `422`. The Skills then tell you the rule and stop.
 Doable shows this name on the chat messages, the card answers, and the code agent requests of that
 machine. In a chat, Doable names the machine a coding agent of the team, shown as
-`<machine name> (coding agent)` on the Chat v2 page. Give each machine its own name. The Codex
-manifest does not send this header, so Doable MCP uses its own default name for a Codex session.
+`<machine name> (coding agent)` on the Chat v2 page. The Codex manifest does not send this header,
+so Doable MCP uses its own default name for a Codex session.
 
 ### Host credential loading
 
@@ -216,6 +218,8 @@ To set up a machine:
 3. Export `DOABLE_API_KEY` (an organization API key from Doable Settings) and
    `DOABLE_MACHINE_NAME` (the name Doable shows for this machine: 1 to 64 characters, each a
    letter, a digit, `.`, `_`, or `-`, such as `mac-mini-1`), then install the plugin as above.
+   Do not leave `DOABLE_MACHINE_NAME` unset: the machine then shows as `unnamed-machine` in the
+   chat and on its requests.
 4. Write the policy file `.doable/code-agent.md`: which repositories, environments, commands, and
    data sources the machine may use, what it must never touch, and whether code excerpts may
    leave the machine. On the first start (step 6), the Skill copies its template there and waits

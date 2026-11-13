@@ -38,7 +38,7 @@ again.
   the ones that wait for a person's answer (see "Ask a person").
 - **Machine name**: the name Doable shows for this machine. The plugin sends the
   `DOABLE_MACHINE_NAME` environment variable as the `X-Doable-Machine` header; without it the name
-  is `code-agent`. A name is 1 to 64 characters, each a letter, a digit, `.`, `_`, or `-` (for
+  is `unnamed-machine`. A name is 1 to 64 characters, each a letter, a digit, `.`, `_`, or `-` (for
   example `mac-mini-1`); Doable MCP and Doable refuse any other name (see "When a call fails").
   Give each machine its own name, and run one serving session per name.
 - **Policy file**: `.doable/code-agent.md` in the workspace root (the folder this session started

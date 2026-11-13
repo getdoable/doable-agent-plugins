@@ -11,8 +11,8 @@ Chat v2 page, except a few things that only a person may do.
 
 Doable shows the messages and card answers you send as this machine's, and the chat names this
 machine a coding agent of the team (see "Words"). The machine name comes from the
-`DOABLE_MACHINE_NAME` environment variable (`code-agent` when it is not set). A name is 1 to 64
-characters, each a letter, a digit, `.`, `_`, or `-`. If a call fails with an error about the
+`DOABLE_MACHINE_NAME` environment variable (`unnamed-machine` when it is not set). A name is 1 to
+64 characters, each a letter, a digit, `.`, `_`, or `-`. If a call fails with an error about the
 machine name, whatever its status and also with no status, tell the person this rule, and that
 they set a name that keeps it and start the session again. Then stop. Such an error names the
 `X-Doable-Machine` header, or names the machine name (the field `machine`) as not valid: Doable
