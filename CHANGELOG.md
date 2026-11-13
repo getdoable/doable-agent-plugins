@@ -65,16 +65,20 @@ All notable changes to Doable Agent Plugins are documented here.
   because a message closes that card with no answers. An open card of auto mode (kind `open`) does
   not hold the agent and stays open after a message, so it does not block one; a write card is
   always of kind `question`. A card that a restart of Doable left (kind `after_restart`) does not
-  hold the agent or change the status, but a message ends it with no answers: the Skill reads the
-  chat before each message, answers every such card that the code settles first (with at least one
-  answer that is not blank), and sends no message while one waits that only a person may answer.
+  hold the agent or change the status, but a message ends it with no answers. The answer to one
+  such card starts the agent's turn, and the agent's next card ends the others with no answers. So
+  the Skill reads the chat before each message; while one such card waits that only a person may
+  answer, it answers none of them and sends no message; when the code settles all of them, it works
+  out every answer first and sends them one right after another (each with at least one answer
+  that is not blank).
   It never answers a card that Doable MCP marks `person_only` (a write card or a conflict card). A
   stop closes the card that holds the agent and each open card with no answers, and leaves a card
   of kind `after_restart`, so it does not call `stop_chat` while such a card of kind `question` or
   `open` waits. When `start_chat` sends nothing because the suite's chat waits for a card's
-  answers, or shows a card that a restart left, it reads that chat, answers every such card that
-  the code settles, tells the person to answer each other card on the Chat v2 page and waits, then
-  reads the chat again and sends with `send_chat_message`. When a test looks wrong, it asks the
+  answers, or shows a card that a restart left, it reads that chat, answers the cards in that same
+  order (none while a card waits that only a person may answer: it tells the person to answer that
+  card on the Chat v2 page and waits), then reads the chat again and sends with
+  `send_chat_message`. When a test looks wrong, it asks the
   chat to put the question to its person.
 - The bundled MCP connection sends the machine name as the `X-Doable-Machine` header
   (`DOABLE_MACHINE_NAME`, default `unnamed-machine`) in Claude Code and Cursor. Doable admits an

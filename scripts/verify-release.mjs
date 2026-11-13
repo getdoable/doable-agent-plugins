@@ -395,9 +395,16 @@ for (const plugin of plugins) {
           "and leaves a card of kind `after_restart`.",
           "A card of kind `after_restart` can wait in any status, also `idle`, and the status does not show it.",
           "Read the chat again right before each message: a restart of Doable can leave cards at any time.",
-          "When a restart left several cards, answer every one that the code settles before any message.",
+          // The answer to one card that a restart left starts the agent's turn, and the agent's next card ends every
+          // other such card with no answers (orchestration's LiveChat._newer_card): while a card that only a person
+          // may answer waits among them, the machine answers none of them; else it sends every answer at once.
+          "When a restart left cards, answer them first as \"Cards that a restart left\" says: none of them while one waits that only a person may answer, else all of them, one right after another.",
+          "In that turn, the agent's next card ends every other card that the restart left, with no answers.",
+          "While one of them waits that only a person may answer (`person_only: true`, or a question that needs the person's decision), answer none of them and send no message.",
+          "When the code settles every one of them, work out all their answers first: check each answer in the code before you send any. Then send them with `answer_chat_questions`, one right after another",
+          "While a card that a restart left waits that only a person may answer, answer no card that the restart left",
           "Such a card blocks your message until the person answers it.",
-          "Before each message, answer each card of kind `question` or `after_restart` that the code settles: a message ends it with no answers.",
+          "Before each message, answer the cards of kind `question` or `after_restart` that the code settles: a message ends them with no answers.",
           // Doable strips each answer: a blank one counts as no answer, and a card that a restart left takes none.
           "For a card of kind `after_restart`, give at least one answer that is not blank",
           // Doable MCP marks the cards that Doable refuses a machine's answer to (a write card, a conflict card).
@@ -417,7 +424,7 @@ for (const plugin of plugins) {
           // skill names that refusal, reads the chat, and sends with send_chat_message once no card holds it.
           "When the suite's chat waits for a card's answers, `start_chat` sends nothing and fails with an error that names that chat",
           "Read that chat with `read_chat`, with that `chat_id` and `after: 0`, and read its cards of kind `question` and `after_restart`.",
-          "Answer every such card that the code settles (see \"Answer a card\"). Each other card blocks your message until the person answers it",
+          "While one of them waits that only a person may answer, answer none of them: tell the person what that card asks and to answer it on the Chat v2 page, send no message, and wait.",
           // A stop closes every waiting card with no answers, the card that holds the agent and each open
           // card of auto mode (Session.stop closes the open cards too): the skill never stops the chat while
           // a person-only card of either kind waits.

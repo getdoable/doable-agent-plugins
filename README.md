@@ -350,9 +350,11 @@ the product should do, and it never passes on the person's decision in a message
 answer those on the Chat v2 page. Doable MCP marks a write card and a conflict card
 `person_only`. While such a card holds the chat's agent, it sends no message to that chat, because
 a message closes that card with no answers. A card that a restart of Doable left (kind
-`after_restart`) does not hold the agent, but a message ends it with no answers too: the Skill
-answers each such card that the code settles first, and sends no message while one waits that
-only you may answer. An open card of auto mode does not hold the agent and stays open after a
+`after_restart`) does not hold the agent, but a message ends it with no answers too. The answer to
+one such card starts the agent's turn, and the agent's next card ends the others. So while one
+waits that only you may answer, the Skill answers none of them and sends no message; when the code
+settles all of them, it works out every answer first and sends them one right after another. An
+open card of auto mode does not hold the agent and stays open after a
 message, so it does not block one. A stop closes the card that holds the agent and each open card
 with no answers, so the Skill does not stop the chat while such a card of either kind waits.
 Doable refuses a machine's answer to a write card or a conflict card. Runs it starts count toward

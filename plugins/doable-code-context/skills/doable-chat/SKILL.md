@@ -91,24 +91,26 @@ conflict or answers a write card.
      it. Doable MCP does not make suites.
 2. Send the first message with `start_chat(suite_id, message)`. It uses the suite's newest chat,
    or makes one when the suite has none, then sends the message. Keep the `chat_id` it returns.
-   When you already know the suite's chat id (see below), read the chat first. Answer each card of
-   kind `question` or `after_restart` that the code settles, and do not call `start_chat` while
-   such a card waits that only a person may answer (see "Answer a card").
+   When you already know the suite's chat id (see below), read the chat first. Answer its cards of
+   kind `question` or `after_restart` as "Answer a card" and "Cards that a restart left" say, and
+   do not call `start_chat` while such a card waits that only a person may answer.
    - When the suite's chat waits for a card's answers, `start_chat` sends nothing and fails with
      an error that names that chat, such as
      `The suite's chat <chat id> has a card that waits for answers, ...`. It does the same for a
      card that a restart of Doable left. This error is not a failure of Doable. Read that chat
      with `read_chat`, with that `chat_id` and `after: 0`, and read its cards of kind `question`
-     and `after_restart`. Answer every such card that the code settles (see "Answer a card"). Each
-     other card blocks your message until the person answers it: tell the person what it asks and
-     to answer it on the Chat v2 page, send no message, and wait. Keep reading the chat with the
-     `token` and `wait_seconds`. Read the chat again before you send. When `read_chat` shows that
+     and `after_restart`. While one of them waits that only a person may answer, answer none of
+     them: tell the person what that card asks and to answer it on the Chat v2 page, send no
+     message, and wait. Such a card blocks your message until the person answers it. When no such
+     card waits, answer every card as "Cards that a restart left" says. Keep reading the chat with
+     the `token` and `wait_seconds`. Read the chat again before you send. When `read_chat` shows that
      no card of kind `question` or `after_restart` waits, send your message with
      `send_chat_message(suite_id, chat_id, text)` and that `chat_id`. Do not call `start_chat`
      again for this message.
 3. Send later messages with `send_chat_message(suite_id, chat_id, text)`. Before each one, read the
-   chat and answer each card of kind `question` or `after_restart` that the code settles. Never
-   send while such a card waits that only a person may answer.
+   chat and answer the cards of kind `question` or `after_restart` that the code settles, in the
+   order that "Cards that a restart left" gives. Never send while such a card waits that only a
+   person may answer.
 
 To read a chat without sending a message, you need its `chat_id`: from an earlier result, from a
 code agent request (`chat.id`), or from the person. Doable MCP has no tool that lists a suite's
@@ -178,8 +180,9 @@ treat it as a question about what the product should do.
   file and line. For example: `From the code: the form needs a start date and an end date
   (web/src/time-off/Form.tsx:30)`. For a card of kind `after_restart`, give at least one answer
   that is not blank: Doable counts a blank answer as no answer, and refuses (`400`) a card with
-  none. Its answers reach the chat's agent as the next message and start a turn. Answer every such
-  card that the code settles before you send a message.
+  none. Its answers reach the chat's agent as the next message and start a turn, and the agent's
+  next card in that turn ends the other cards that the restart left. So answer such cards only as
+  "Cards that a restart left" says, and before you send a message.
 - **A card that needs the person's decision**: a card with a question about what the product
   should do, a question that the code does not settle, a conflict card, or a write card
   (`write: true`). `person_only: true` marks a conflict card and a write card. Never answer it:
@@ -203,9 +206,9 @@ question card. Only a card of kind `question` in `waiting_cards` holds the agent
 message. So:
 
 - Read the chat again right before each message: a restart of Doable can leave cards at any time.
-- When the code settles a card of kind `question` or `after_restart`, answer the card first, then
-  send your message. When a restart left several cards, answer every one that the code settles
-  before any message.
+- When the code settles a card of kind `question`, answer the card first, then send your message.
+  When a restart left cards, answer them first as "Cards that a restart left" says: none of them
+  while one waits that only a person may answer, else all of them, one right after another.
 - While a card of kind `question` or `after_restart` waits that only a person may answer, send no
   message to that chat, not with `send_chat_message` and not with `start_chat`. Such a card blocks
   your message until the person answers it. Tell the person what the card asks and to answer it on
@@ -219,6 +222,23 @@ message. So:
   answer an open card that only a person may answer: tell the person what it asks and to answer
   it on the Chat v2 page. And do not stop the chat while it waits: a stop closes it (see "Run
   tests").
+
+### Cards that a restart left
+
+A restart of Doable can leave several cards of kind `after_restart`. The answers to one of them
+reach the chat's agent as the next message and start a turn. In that turn, the agent's next card
+ends every other card that the restart left, with no answers. So answer these cards as one set:
+
+- While one of them waits that only a person may answer (`person_only: true`, or a question that
+  needs the person's decision), answer none of them and send no message. An answer to another
+  card can end the person's card before the person sees it. Tell the person what that card asks
+  and to answer it on the Chat v2 page. Keep reading the chat with the `token` and
+  `wait_seconds`, and read the cards again when the chat changes.
+- When the code settles every one of them, work out all their answers first: check each answer
+  in the code before you send any. Then send them with `answer_chat_questions`, one right after
+  another, with no other work between them.
+- If Doable refuses an answer with `409` (`That question set does not wait for answers.`), a newer
+  card of the agent ended that card. Read the chat again.
 
 ## Run tests
 
@@ -298,8 +318,12 @@ does not. A request waits in the queue while a machine is connected. It ends onl
   tell the person to answer it on the Chat v2 page.
 - Never send the person's decision in a message or a card answer, also when they told you in this
   session: ask them to write it on the Chat v2 page.
-- Before each message, answer each card of kind `question` or `after_restart` that the code
-  settles: a message ends it with no answers.
+- Before each message, answer the cards of kind `question` or `after_restart` that the code
+  settles: a message ends them with no answers.
+- While a card that a restart left waits that only a person may answer, answer no card that the
+  restart left: an answer starts a turn, and the agent's next card ends the person's card with no
+  answers. When the code settles every such card, work out all the answers first, then send them
+  one right after another.
 - While a card of kind `question` or `after_restart` waits that only a person may answer, send no
   message to that chat: a message closes the card with no answers. Tell the person to answer the
   card on the Chat v2 page, and wait. A card of kind `open` stays open after a message, so it does
