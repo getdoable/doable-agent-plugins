@@ -307,6 +307,17 @@ for (const plugin of plugins) {
         `${relative(root, chatSkillPath)} ${label} says that a message closes such a card as a stop does: a message closes only the card that holds the agent`,
       );
     }
+    // The MCP library puts "Error executing tool <name>: " before a tool's error text, so the key refusal is in the
+    // error but not at its start: a skill that waits for an error that starts with it can miss it.
+    for (const [path, text] of [
+      [chatSkillPath, chatSkill],
+      [codeAgentSkillPath, codeAgentSkill],
+    ]) {
+      assert(
+        !/\bstarts(?: with)? `This tool needs an organization API key`/.test(text.replace(/\s+/g, " ")),
+        `${relative(root, path)} says that the key refusal starts the error: the MCP library puts a prefix before it, so say "contains"`,
+      );
+    }
     for (const [path, text, requiredRules] of [
       [
         codeAgentSkillPath,
@@ -348,8 +359,10 @@ for (const plugin of plugins) {
           // The default of the bundled .mcp.json (and of Doable MCP) when DOABLE_MACHINE_NAME is not set.
           "without it the name is `unnamed-machine`",
           // Doable MCP's code agent tools take only an organization API key, and refuse a personal key or a login
-          // token with no status: the skill stops on that text instead of retrying.
-          "An error that starts `This tool needs an organization API key`, with no status",
+          // token with no status: the skill stops on that text instead of retrying. The MCP library puts
+          // "Error executing tool <name>: " before a tool's error text, so the text is in the error, not at its start.
+          "An error that contains `This tool needs an organization API key`, with no status",
+          "If it fails with an error that contains `This tool needs an organization API key`",
           "Tell the person that a machine needs an organization API key from Doable's Settings > MCP",
         ],
       ],
@@ -437,7 +450,8 @@ for (const plugin of plugins) {
           // Doable MCP's chat tools take only an organization API key: Doable takes the caller of a personal key or a
           // login token for its person. The refusal has no status, so the skill names its text and stops.
           "The chat tools take only an organization API key",
-          "with an error that starts `This tool needs an organization API key`. If a call fails with that error, do not call again.",
+          "with an error that contains `This tool needs an organization API key`.",
+          "If a call fails with that error, do not call again.",
           "(`This tool needs an organization API key`), tell the person and stop.",
           "Do not ask the chat to change the test because of the code alone.",
           // The chat's agent does a machine's work as it would the person's (write, change and run tests, ask the

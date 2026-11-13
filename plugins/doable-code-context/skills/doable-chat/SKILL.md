@@ -25,8 +25,9 @@ organization API key and count toward the organization's quota.
 The chat tools take only an organization API key (`sk-doable-` and 48 hex characters) in
 `DOABLE_API_KEY`. Doable takes the caller of a personal API key or of a person's Doable login token
 for the person who owns it, so your messages and card answers would count as that person's. So the
-chat tools refuse such a token before they call Doable, with an error that starts
-`This tool needs an organization API key`. If a call fails with that error, do not call again. Tell
+chat tools refuse such a token before they call Doable, with an error that contains
+`This tool needs an organization API key`. The MCP library can put a prefix before that text, such
+as `Error executing tool read_chat: `. If a call fails with that error, do not call again. Tell
 the person that `DOABLE_API_KEY` must hold an organization API key from Doable's Settings > MCP,
 and that they set it and start the session again. Then stop. `list_test_suites` takes a personal
 key too, so the first such error comes from `start_chat` or another chat call.
