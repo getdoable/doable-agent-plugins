@@ -453,6 +453,13 @@ for (const requiredCodeAgentSetup of [
   "keychain command `security`",
   '"Bash(sleep 20)"',
   "only when the policy lets the machine try a fix for a bug report",
+  // Claude Code ignores the workspace allow list until the folder is trusted, and a start with -p shows
+  // no trust dialog: the Skill is then refused in dontAsk mode and the watch never starts.
+  "Claude Code reads the allow list in `.claude/settings.json` only in a folder that you trusted.",
+  "So do the first start (step 6) interactively in that folder, with `claude` and no `-p`, and accept the trust dialog.",
+  "Or give the same rules on the command line with `--allowedTools`",
+  // The operator's user settings reach the serving session: their allow rules and the tools their features add.
+  "Your own Claude Code settings apply to this session too",
   "Send a first request of each kind from a Chat v2 chat",
   "a `question`, a `prepare`, a `check`, and a `bug_report`",
 ]) {

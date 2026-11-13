@@ -51,11 +51,13 @@ again.
    - If it is missing, copy [the policy template](references/policy-template.md) to
      `.doable/code-agent.md`. Add the line `code-agent.md` to `.doable/.gitignore` (create the
      file when it is missing). Show the person the file and ask them to fill it in. Also tell them
-     two things: allow in the workspace's `.claude/settings.json` this skill, the Doable MCP server
-     and each command the policy may need (the template's "Commands it may run" lists them), and
-     stay at the terminal for the first request of each kind, because a permission prompt stops
-     the watch until someone answers it. Start the loop only after the person says the policy is
-     ready.
+     three things. First, allow in the workspace's `.claude/settings.json` this skill, the Doable
+     MCP server and each command the policy may need (the template's "Commands it may run" lists
+     them). Second, Claude Code reads that allow list only in a folder they trusted: they start
+     Claude Code in this folder interactively once (not with `claude -p`) and accept the trust
+     dialog, or they give the same rules with `--allowedTools` on the command line. Third, stay at
+     the terminal for the first request of each kind, because a permission prompt stops the watch
+     until someone answers it. Start the loop only after the person says the policy is ready.
    - If the host refuses the copy (a permission mode that does not prompt refuses a file write
      that is not allowed), tell the person to start this skill once in the normal permission mode,
      or to copy the template themselves, and stop.

@@ -54,8 +54,12 @@ when this section lets it try a fix for a bug report, also allow file changes in
 the git commands of the fix try: one `Edit(...)` rule covers the Edit and the Write tool. For
 example, this list allows all that the example lines of this file name:
 `{"permissions": {"allow": ["Skill(doable-code-context:doable-code-agent)", "mcp__plugin_doable-code-context_doable", "Bash(npm test *)", "Bash(npm run dev *)", "Bash(curl *)", "Bash(psql *)", "Bash(gcloud logging read *)", "Bash(security add-generic-password *)", "Bash(sleep 20)", "Bash(git switch *)", "Bash(git add *)", "Bash(git commit *)", "Edit(/web/**)"]}}`.
-An allow rule only stops the prompt: this file still says what the code agent may do. See "Run a
-Doable code agent" in https://github.com/getdoable/doable-agent-plugins#run-a-doable-code-agent.
+An allow rule only stops the prompt: this file still says what the code agent may do. Claude Code
+reads that allow list only in a folder that you trusted: start Claude Code in the workspace
+interactively once (not with `claude -p`) and accept the trust dialog, or give the same rules with
+`--allowedTools` on the command line. Your own user settings (`~/.claude/settings.json`) apply to
+the serving session too, with their allow rules. See "Run a Doable code agent" in
+https://github.com/getdoable/doable-agent-plugins#run-a-doable-code-agent.
 
 - Example: `npm test` and `npm run dev` in `web/`
 - Example: `curl` to https://staging.example.com

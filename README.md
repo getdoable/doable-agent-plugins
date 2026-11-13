@@ -218,8 +218,9 @@ To set up a machine:
 4. Write the policy file `.doable/code-agent.md`: which repositories, environments, commands, and
    data sources the machine may use, what it must never touch, and whether code excerpts may
    leave the machine. On the first start (step 6), the Skill copies its template there and waits
-   until you say that the policy is ready. Do that first start in the normal permission mode:
-   a mode that does not prompt (step 5) refuses the copy.
+   until you say that the policy is ready. Do that first start interactively, in the normal
+   permission mode: a mode that does not prompt (step 5) refuses the copy, and the first
+   interactive start is also where you trust the folder (step 5).
 5. Let the session work with nobody at the terminal: a permission prompt stops the watch until
    someone answers it. In Claude Code, allow in the workspace's `.claude/settings.json`:
    - the Skill itself, `Skill(doable-code-context:doable-code-agent)`. After each new message from
@@ -269,6 +270,31 @@ To set up a machine:
    instead of asking. An allow rule only stops the prompt: the policy file still says what the
    machine may do. In Codex and Cursor, allow the Doable MCP tools and the same commands in that
    host's settings.
+
+   Claude Code reads the allow list in `.claude/settings.json` only in a folder that you trusted.
+   In a folder that is not trusted, it prints `Ignoring ... permissions.allow entries from
+   .claude/settings.json: this workspace has not been trusted`, and a mode that does not prompt
+   then refuses the Skill itself, so the watch cannot start. A start that is not interactive, such
+   as `claude -p`, shows no trust dialog. So do the first start (step 6) interactively in that
+   folder, with `claude` and no `-p`, and accept the trust dialog. Or give the same rules on the
+   command line with `--allowedTools`, one quoted rule each. Put `--allowedTools` last, because it
+   reads every word after it as a rule. This example shows only some of the rules: give all the
+   rules of your list.
+
+   ```bash
+   claude -p "Serve Doable code agent requests on this machine." --permission-mode dontAsk \
+     --allowedTools "Skill(doable-code-context:doable-code-agent)" \
+     "mcp__plugin_doable-code-context_doable" "Bash(sleep 20)" "Bash(npm test *)"
+   ```
+
+   Your own Claude Code settings apply to this session too: your user settings
+   (`~/.claude/settings.json`), with their allow rules and the features they turn on, your
+   user-level plugins and MCP servers, and the connectors of your Claude login. An allow rule in
+   your user settings lets the machine use that tool or command with no prompt, so read your user
+   allow list before you leave the machine. A feature that your user settings turn on can make the
+   machine try its tool: for example, when they turn on multi-agent workflows, the machine may try
+   the Workflow tool. A mode that does not prompt refuses a tool that no rule allows, and the
+   machine goes on without it.
 6. Ask the agent:
 
    ```text

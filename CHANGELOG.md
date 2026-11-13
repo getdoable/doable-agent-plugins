@@ -34,7 +34,10 @@ All notable changes to Doable Agent Plugins are documented here.
   allows), the Doable MCP server, the policy's commands, its data source commands, the keychain
   command, `sleep 20`, and file changes and git commands when the policy allows a fix try. Its
   example list allows all that the template's example policy lines name, and the release verifier
-  checks that. A person watches the first request of each kind. It registers only the logins a
+  checks that. Claude Code reads that list only in a folder the person trusted, so the setup says to
+  do the first start interactively and accept the trust dialog, or to give the same rules with
+  `--allowedTools`; it also says that the person's own user settings apply to the serving session.
+  A person watches the first request of each kind. It registers only the logins a
   `prepare` request asks for, and only through `add_test_account`; a login made only to reproduce
   a bug stays out of Doable. It never pushes, never touches production, and never puts a secret in
   a result.
