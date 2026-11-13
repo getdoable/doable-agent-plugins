@@ -504,6 +504,16 @@ for (const requiredCodeAgentSetup of [
   assert(includesPhrase(readme, requiredCodeAgentSetup), `README is missing code agent setup: ${requiredCodeAgentSetup}`);
 }
 
+// The README names a machine in a chat as the chat does (a coding agent of the team) and keeps "the code agent" for
+// the session that serves the chat's code agent requests.
+for (const requiredChatNaming of [
+  "`<machine name>, a coding agent of the team, wrote:`",
+  "`<machine name> (coding agent)`",
+  "the Skill's messages are not the code agent's",
+]) {
+  assert(includesPhrase(readme, requiredChatNaming), `README is missing the chat's name for a machine: ${requiredChatNaming}`);
+}
+
 // A person who copies the example allow list next to the template's example policy lines must get a
 // session that runs them with nobody at the terminal. README step 5 and the template carry the same
 // list; it allows the Skill (which loads itself again), the Doable server and the wait, a `Bash`

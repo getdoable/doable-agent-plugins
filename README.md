@@ -150,8 +150,9 @@ characters, each a letter, a digit, `.`, `_`, or `-`. Doable MCP refuses any oth
 with an error that names the `X-Doable-Machine` header and has no status, and Doable refuses it
 with `422`. The Skills then tell you the rule and stop.
 Doable shows this name on the chat messages, the card answers, and the code agent requests of that
-machine. Give each machine its own name. The Codex manifest does not send this header, so Doable
-MCP uses its own default name for a Codex session.
+machine. In a chat, Doable names the machine a coding agent of the team, shown as
+`<machine name> (coding agent)` on the Chat v2 page. Give each machine its own name. The Codex
+manifest does not send this header, so Doable MCP uses its own default name for a Codex session.
 
 ### Host credential loading
 
@@ -326,12 +327,18 @@ failed run in the local code. For example:
 Ask Doable's chat to test the feature I just implemented, run the tests, and tell me why any test failed.
 ```
 
-The chat's agent does the work that the Skill's messages ask for, as it would for you: it writes,
-changes, and runs tests, and asks the code agent to prepare data. A test that rests on a product
-decision nobody made goes to you on a card, and only you decide a conflict.
+Doable names the machine a coding agent of the team, which works for a person of your
+organization. The chat's agent gets each of its messages under the heading
+`<machine name>, a coding agent of the team, wrote:`, and is told about its card answers as
+`<machine name>, a coding agent of the team, answered`. The Chat v2 page shows the machine as
+`<machine name> (coding agent)`. The chat's agent does the work that the Skill's messages ask for,
+as it would for you: it writes, changes, and runs tests, and asks the code agent to prepare data
+or to check state. "The code agent" is only the session that serves those requests (see
+[Run a Doable code agent](#run-a-doable-code-agent)): the Skill's messages are not the code agent's.
 
-Doable shows its messages and card answers as the machine's, and they are the code's reading,
-never the person's decision about what the product should do. So it answers only the cards whose
+What the machine says the product does or should do is its reading of the code, never your
+decision. A test that rests on a product decision nobody made goes to you on a card, and only a
+person decides a conflict or answers a write card. So the Skill answers only the cards whose
 questions the code settles. It never answers a write card (a Jira ticket or a correction of a run
 result), a card that decides a conflict between a run and the test spec, or a question about what
 the product should do, and it never passes on the person's decision in a message: it tells you to

@@ -45,24 +45,31 @@ All notable changes to Doable Agent Plugins are documented here.
   pushes, never touches production, and never puts a secret in a result.
 - `doable-chat` drives a Doable chat through Doable MCP: `start_chat`, `send_chat_message`,
   `read_chat`, `answer_chat_questions`, `run_chat_proposal`, `get_chat_run` and `stop_chat`. It
-  starts runs only when someone asked for them, and debugs a failed run in the local code. It
-  expects the chat to do the work its messages ask for (write, change and run tests, and ask the
-  code agent to prepare data), as for the person; a test that rests on a product decision nobody
-  made goes to the person on a card. If the chat does not act on a machine's message, it tells the
-  person and never writes as if it were the person. Doable
-  shows its messages and card answers as the machine's: they are the code's reading, never the
-  person's decision. It answers only a card that the code settles. It never answers a write card
-  (a Jira ticket or a result correction), a card that decides a conflict (Doable refuses a
-  machine's answer to both) or a question about what the product should do, and it never passes
-  on the person's decision in a message: it tells the person to answer on the Chat v2 page. While
-  such a card holds the chat's agent (kind `question` in `read_chat`'s `waiting_cards`), it sends
-  no message to that chat, because a message closes that card with no answers. An open card of
-  auto mode (kind `open`) does not hold the agent and stays open after a message, so it does not
-  block one; a write card is always of kind `question`. A stop closes every waiting card of both kinds with no answers, so it does not call
-  `stop_chat` while such a card of either kind waits. When `start_chat` sends nothing because the suite's chat waits for a card's answers,
-  it reads that chat, answers the card only when the code settles it or else tells the person to
-  answer it on the Chat v2 page and waits, then sends with `send_chat_message`. When a test looks
-  wrong, it asks the chat to put the question to its person.
+  starts runs only when someone asked for them, and debugs a failed run in the local code. Doable
+  names the machine a coding agent of the team, which works for a person of the organization: the
+  chat's agent gets a message under the heading
+  `<machine name>, a coding agent of the team, wrote:` and is told about a card answer as
+  `<machine name>, a coding agent of the team, answered`, and the Chat v2 page and `read_chat`
+  show `<machine name> (coding agent)`. "The code agent" names only the session that serves the
+  chat's code agent requests. The Skill expects the chat to do the work its messages ask for
+  (write, change and run tests, and ask the code agent to prepare data or to check state), as for
+  the person. What the machine says the product does or should do is the code's reading, never the
+  person's decision: a test that rests on a product decision nobody made goes to the person on a
+  card, and only a person decides a conflict or answers a write card. If the chat does not act on
+  a machine's message, the Skill tells the person and never writes as if it were the person. It
+  answers only a card that the code settles. It never answers a write card (a Jira ticket or a
+  result correction), a card that decides a conflict (Doable refuses a machine's answer to both)
+  or a question about what the product should do, and it never passes on the person's decision in
+  a message: it tells the person to answer on the Chat v2 page. While such a card holds the chat's
+  agent (kind `question` in `read_chat`'s `waiting_cards`), it sends no message to that chat,
+  because a message closes that card with no answers. An open card of auto mode (kind `open`) does
+  not hold the agent and stays open after a message, so it does not block one; a write card is
+  always of kind `question`. A stop closes every waiting card of both kinds with no answers, so it
+  does not call `stop_chat` while such a card of either kind waits. When `start_chat` sends
+  nothing because the suite's chat waits for a card's answers, it reads that chat, answers the
+  card only when the code settles it or else tells the person to answer it on the Chat v2 page and
+  waits, then sends with `send_chat_message`. When a test looks wrong, it asks the chat to put the
+  question to its person.
 - The bundled MCP connection sends the machine name as the `X-Doable-Machine` header
   (`DOABLE_MACHINE_NAME`, default `code-agent`) in Claude Code and Cursor. Doable admits an
   organization API key on the chat routes only with this header. A name is 1 to 64 letters,
