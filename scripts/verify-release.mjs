@@ -312,6 +312,10 @@ for (const plugin of plugins) {
           "Only a card of kind `question` in `waiting_cards` holds the agent and closes on a message.",
           "A card of kind `open` (auto mode) stays open after a message, so it does not block a message.",
           "Still never answer an open card that only a person may answer",
+          // The open-card line of "No message while a card waits" and the status table's row say the same rule: an
+          // open card does not block a message, and only a card of kind question holds the agent.
+          "A card of kind `open` does not block a message: send your message while it is open.",
+          "| `waiting_for_answer` | A card of kind `question` holds the agent. |",
           // A write card always holds the agent (orchestration asks it with host.ask(write=True), and its open cards
           // are never write cards): a skill that expects an open write card would send a message that closes it.
           "but a write card is always of kind `question`, also in auto mode.",
