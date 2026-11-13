@@ -64,18 +64,29 @@ All notable changes to Doable Agent Plugins are documented here.
   agent (kind `question` in `read_chat`'s `waiting_cards`), it sends no message to that chat,
   because a message closes that card with no answers. An open card of auto mode (kind `open`) does
   not hold the agent and stays open after a message, so it does not block one; a write card is
-  always of kind `question`. A stop closes every waiting card of both kinds with no answers, so it
-  does not call `stop_chat` while such a card of either kind waits. When `start_chat` sends
-  nothing because the suite's chat waits for a card's answers, it reads that chat, answers the
-  card only when the code settles it or else tells the person to answer it on the Chat v2 page and
-  waits, then sends with `send_chat_message`. When a test looks wrong, it asks the chat to put the
-  question to its person.
+  always of kind `question`. A card that a restart of Doable left (kind `after_restart`) does not
+  hold the agent or change the status, but a message ends it with no answers: the Skill reads the
+  chat before each message, answers every such card that the code settles first (with at least one
+  answer that is not blank), and sends no message while one waits that only a person may answer.
+  It never answers a card that Doable MCP marks `person_only` (a write card or a conflict card). A
+  stop closes the card that holds the agent and each open card with no answers, and leaves a card
+  of kind `after_restart`, so it does not call `stop_chat` while such a card of kind `question` or
+  `open` waits. When `start_chat` sends nothing because the suite's chat waits for a card's
+  answers, or shows a card that a restart left, it reads that chat, answers every such card that
+  the code settles, tells the person to answer each other card on the Chat v2 page and waits, then
+  reads the chat again and sends with `send_chat_message`. When a test looks wrong, it asks the
+  chat to put the question to its person.
 - The bundled MCP connection sends the machine name as the `X-Doable-Machine` header
   (`DOABLE_MACHINE_NAME`, default `unnamed-machine`) in Claude Code and Cursor. Doable admits an
   organization API key on the chat routes only with this header. A name is 1 to 64 letters,
   digits, `.`, `_` or `-`. Doable MCP refuses any other name itself, with an error that names the
   header and has no status, and Doable refuses it with `422`. The Skills stop on any error about
   the machine name, whatever its status, and tell the person the rule.
+- `doable-code-agent` and `doable-chat` need an organization API key in `DOABLE_API_KEY`. Doable
+  MCP's code agent and chat tools refuse a personal API key and a person's Doable login token
+  before they call Doable, because Doable takes the caller of such a token for the person who owns
+  it. On that error (`This tool needs an organization API key`) the Skills tell the person to set
+  an organization API key and stop.
 
 ### Removed
 

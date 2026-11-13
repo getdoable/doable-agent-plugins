@@ -215,7 +215,8 @@ To set up a machine:
 1. Put the product's repositories in one folder, and start the coding agent there.
 2. Run Claude Code on the Claude plan (`claude login`). Remove `ANTHROPIC_API_KEY` from the
    environment of that session, or its usage is billed to the API.
-3. Export `DOABLE_API_KEY` (an organization API key from Doable Settings) and
+3. Export `DOABLE_API_KEY` (an organization API key from Doable Settings: the code agent and
+   chat tools refuse a personal API key and a Doable login token) and
    `DOABLE_MACHINE_NAME` (the name Doable shows for this machine: 1 to 64 characters, each a
    letter, a digit, `.`, `_`, or `-`, such as `mac-mini-1`), then install the plugin as above.
    Do not leave `DOABLE_MACHINE_NAME` unset: the machine then shows as `unnamed-machine` in the
@@ -346,12 +347,18 @@ person decides a conflict or answers a write card. So the Skill answers only the
 questions the code settles. It never answers a write card (a Jira ticket or a correction of a run
 result), a card that decides a conflict between a run and the test spec, or a question about what
 the product should do, and it never passes on the person's decision in a message: it tells you to
-answer those on the Chat v2 page. While such a card holds the chat's agent, it sends no message
-to that chat, because a message closes that card with no answers. An open card of auto mode does
-not hold the agent and stays open after a message, so it does not block one. A stop closes every
-waiting card with no answers, an open card too, so the Skill does not stop the chat while such a
-card of either kind waits. Doable refuses a machine's answer to a write card or a conflict card.
-Runs it starts count toward the organization's quota.
+answer those on the Chat v2 page. Doable MCP marks a write card and a conflict card
+`person_only`. While such a card holds the chat's agent, it sends no message to that chat, because
+a message closes that card with no answers. A card that a restart of Doable left (kind
+`after_restart`) does not hold the agent, but a message ends it with no answers too: the Skill
+answers each such card that the code settles first, and sends no message while one waits that
+only you may answer. An open card of auto mode does not hold the agent and stays open after a
+message, so it does not block one. A stop closes the card that holds the agent and each open card
+with no answers, so the Skill does not stop the chat while such a card of either kind waits.
+Doable refuses a machine's answer to a write card or a conflict card. Runs it starts count toward
+the organization's quota. The chat tools take only an organization API key: Doable MCP refuses a
+personal API key and a Doable login token, and the Skill then tells you to set an organization
+API key and stops.
 
 ## Shared grounding and privacy boundary
 

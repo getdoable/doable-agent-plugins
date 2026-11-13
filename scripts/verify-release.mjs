@@ -283,17 +283,21 @@ for (const plugin of plugins) {
     const chatSkillPath = join(pluginRoot, "skills", "doable-chat", "SKILL.md");
     const chatSkill = readFileSync(chatSkillPath, "utf8");
     // A host shows a Skill's description without its body, so the description must say the card rule correctly: a
-    // message closes only the card that holds the agent (kind question), and an open card of auto mode stays open after
-    // a message; a stop closes every waiting card. "A message or a stop closes such a card" says that a message closes an
-    // open card too.
+    // message closes the card that holds the agent (kind question) and each card that a restart of Doable left (kind
+    // after_restart), and an open card of auto mode stays open after a message; a stop closes the card that holds the
+    // agent and each open card, and leaves a card that a restart left. "A message or a stop closes such a card" says
+    // that a message closes an open card too.
     const chatDescription = skillDescription(chatSkill);
-    assert(
-      includesPhrase(
-        chatDescription,
-        "because a message closes the card that holds the agent, and a stop closes every waiting card, with no answers",
-      ),
-      `${relative(root, chatSkillPath)} description must say that a message closes the card that holds the agent, and a stop closes every waiting card`,
-    );
+    for (const phrase of [
+      "It never answers a person_only card",
+      "It sends no message while such a card holds the chat's agent or a restart left it, because a message closes both",
+      "does not stop the chat while such a card holds the agent or is an open card of auto mode, because a stop closes both, with no answers",
+    ]) {
+      assert(
+        includesPhrase(chatDescription, phrase),
+        `${relative(root, chatSkillPath)} description must say which cards a message and a stop close: ${phrase}`,
+      );
+    }
     for (const [label, text] of [
       ["description", chatDescription],
       ["text", chatSkill],
@@ -343,6 +347,10 @@ for (const plugin of plugins) {
           "An error about the machine name, whatever its status, and also with no status",
           // The default of the bundled .mcp.json (and of Doable MCP) when DOABLE_MACHINE_NAME is not set.
           "without it the name is `unnamed-machine`",
+          // Doable MCP's code agent tools take only an organization API key, and refuse a personal key or a login
+          // token with no status: the skill stops on that text instead of retrying.
+          "An error that starts `This tool needs an organization API key`, with no status",
+          "Tell the person that a machine needs an organization API key from Doable's Settings > MCP",
         ],
       ],
       [
@@ -377,9 +385,25 @@ for (const plugin of plugins) {
           "Never send the person's decision in a message or a card answer",
           // A message closes the card that holds the agent (kind question) with no answers: a person-only card
           // would close unanswered. An auto mode open card (kind open) stays, so it must not block a message.
-          "While a card of kind `question` waits that only a person may answer, send no message to that chat: a message closes the card with no answers.",
+          "While a card of kind `question` or `after_restart` waits that only a person may answer, send no message to that chat: a message closes the card with no answers.",
           "send no message to that chat, not with `send_chat_message` and not with `start_chat`.",
-          "Only a card of kind `question` in `waiting_cards` holds the agent and closes on a message.",
+          "Only a card of kind `question` in `waiting_cards` holds the agent.",
+          // A card that a restart of Doable left (kind after_restart; Doable MCP's waiting_cards) does not hold the
+          // agent and leaves the status as it is, but a message ends it with no answers (orchestration's
+          // end_after_restart at each message), and a stop leaves it.
+          "A card of kind `after_restart` does not hold the agent, but a message ends it as it closes a card of kind `question`.",
+          "and leaves a card of kind `after_restart`.",
+          "A card of kind `after_restart` can wait in any status, also `idle`, and the status does not show it.",
+          "Read the chat again right before each message: a restart of Doable can leave cards at any time.",
+          "When a restart left several cards, answer every one that the code settles before any message.",
+          "Such a card blocks your message until the person answers it.",
+          "Before each message, answer each card of kind `question` or `after_restart` that the code settles: a message ends it with no answers.",
+          // Doable strips each answer: a blank one counts as no answer, and a card that a restart left takes none.
+          "For a card of kind `after_restart`, give at least one answer that is not blank",
+          // Doable MCP marks the cards that Doable refuses a machine's answer to (a write card, a conflict card).
+          "It marks each card that Doable lets only a person answer with `person_only: true`",
+          "A card with `person_only: false` can still need the person's decision: read its questions.",
+          "Never answer a card with `person_only: true`.",
           "A card of kind `open` (auto mode) stays open after a message, so it does not block a message.",
           "Still never answer an open card that only a person may answer",
           // The open-card line of "No message while a card waits" and the status table's row say the same rule: an
@@ -392,14 +416,20 @@ for (const plugin of plugins) {
           // Doable MCP's start_chat refuses to send while the suite's chat waits for a card's answers: the
           // skill names that refusal, reads the chat, and sends with send_chat_message once no card holds it.
           "When the suite's chat waits for a card's answers, `start_chat` sends nothing and fails with an error that names that chat",
-          "Read that chat with `read_chat`, with that `chat_id` and `after: 0`, and read its card of kind `question`.",
+          "Read that chat with `read_chat`, with that `chat_id` and `after: 0`, and read its cards of kind `question` and `after_restart`.",
+          "Answer every such card that the code settles (see \"Answer a card\"). Each other card blocks your message until the person answers it",
           // A stop closes every waiting card with no answers, the card that holds the agent and each open
           // card of auto mode (Session.stop closes the open cards too): the skill never stops the chat while
           // a person-only card of either kind waits.
-          "A stop closes every card in `waiting_cards` with no answers, of either kind",
-          "So never call `stop_chat` while a card of either kind waits that only a person may answer, also when the person asks for a stop or the chat seems to go wrong.",
-          "Never call `stop_chat` while a card of either kind waits that only a person may answer: a stop closes every waiting card with no answers, also an open card of auto mode. Tell the person instead.",
-          "When `read_chat` shows that no card of kind `question` waits, send your message with `send_chat_message(suite_id, chat_id, text)` and that `chat_id`. Do not call `start_chat` again for this message.",
+          "A stop closes every card of kind `question` or `open` in `waiting_cards` with no answers",
+          "So never call `stop_chat` while a card of kind `question` or `open` waits that only a person may answer, also when the person asks for a stop or the chat seems to go wrong.",
+          "Never call `stop_chat` while a card of kind `question` or `open` waits that only a person may answer: a stop closes each such card with no answers, also an open card of auto mode. Tell the person instead.",
+          "When `read_chat` shows that no card of kind `question` or `after_restart` waits, send your message with `send_chat_message(suite_id, chat_id, text)` and that `chat_id`. Do not call `start_chat` again for this message.",
+          // Doable MCP's chat tools take only an organization API key: Doable takes the caller of a personal key or a
+          // login token for its person. The refusal has no status, so the skill names its text and stops.
+          "The chat tools take only an organization API key",
+          "with an error that starts `This tool needs an organization API key`. If a call fails with that error, do not call again.",
+          "(`This tool needs an organization API key`), tell the person and stop.",
           "Do not ask the chat to change the test because of the code alone.",
           // The chat's agent does a machine's work as it would the person's (write, change and run tests, ask the
           // code agent to prepare data); only product decisions go to the person. When an older chat does not act,

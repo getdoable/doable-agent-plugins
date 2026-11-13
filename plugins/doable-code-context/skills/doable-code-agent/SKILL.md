@@ -70,6 +70,8 @@ again.
      from the person"), then continue here.
    - If the tool exists but returns `404`, the Doable server has the code agent turned off. Tell
      the person and stop.
+   - If it fails with an error that starts `This tool needs an organization API key`, the key is
+     not an organization API key (see "When a call fails").
    - This call does not send the machine name. So a name that breaks the rule shows first at the
      loop's first call (see "When a call fails").
 3. Tell the person one line, such as "Serving Doable code agent requests under
@@ -106,6 +108,12 @@ step 5). Act on the error by the first item that fits:
   name itself, with a text such as `The X-Doable-Machine header must be 1 to 64 characters, ...`
   and no status; Doable refuses it with `422`. Do not call again. Tell the person the rule, and
   that they set a name that keeps it and start the session again. Then stop.
+- An error that starts `This tool needs an organization API key`, with no status: `DOABLE_API_KEY`
+  holds a personal API key or a person's Doable login token. Doable takes the caller of such a
+  token for the person who owns it, so Doable MCP refuses it for the code agent tools before it
+  calls Doable. Do not call again. Tell the person that a machine needs an organization API key
+  from Doable's Settings > MCP, and that they set it in `DOABLE_API_KEY` and start the session
+  again. Then stop.
 - A timeout, a network error, `429`, or a `5xx` error: wait (`sleep 20`) and call again. If it
   goes on for more than 10 minutes, tell the person once, then keep calling.
 - `401`: follow the connection recovery workflow. When it needed a message from the person, load
