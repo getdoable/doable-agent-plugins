@@ -309,10 +309,12 @@ for (const plugin of plugins) {
           // skill names that refusal, reads the chat, and sends with send_chat_message once no card holds it.
           "When the suite's chat waits for a card's answers, `start_chat` sends nothing and fails with an error that names that chat",
           "Read that chat with `read_chat`, with that `chat_id` and `after: 0`, and read its card of kind `question`.",
-          // A stop also closes the card that holds the agent with no answers: the skill never stops the chat
-          // while a person-only card waits.
-          "So never call `stop_chat` while a card of kind `question` waits that only a person may answer, also when the person asks for a stop or the chat seems to go wrong.",
-          "Never call `stop_chat` while a card of kind `question` waits that only a person may answer: a stop closes the card with no answers. Tell the person instead.",
+          // A stop closes every waiting card with no answers, the card that holds the agent and each open
+          // card of auto mode (Session.stop closes the open cards too): the skill never stops the chat while
+          // a person-only card of either kind waits.
+          "A stop closes every card in `waiting_cards` with no answers, of either kind",
+          "So never call `stop_chat` while a card of either kind waits that only a person may answer, also when the person asks for a stop or the chat seems to go wrong.",
+          "Never call `stop_chat` while a card of either kind waits that only a person may answer: a stop closes every waiting card with no answers, also an open card of auto mode. Tell the person instead.",
           "When `read_chat` shows that no card of kind `question` waits, send your message with `send_chat_message(suite_id, chat_id, text)` and that `chat_id`. Do not call `start_chat` again for this message.",
           "Do not ask the chat to change the test because of the code alone.",
           "Start a run only when the person asked for runs",
