@@ -95,7 +95,9 @@ All notable changes to Doable Agent Plugins are documented here.
   next message, and Doable MCP's `read_chat` shows `held_for_person: true`. `doable-chat` then
   does not wait for the chat's agent to report them (it reads a run's result with
   `get_chat_run`), tells the person that the chat waits for their next message, and does not send
-  a message only to end the hold.
+  a message only to end the hold. Until the person asks it to go on, it also answers no card that a
+  restart left: those answers end the hold as a message does and start the turn that the person
+  stopped.
 
 ### Removed
 

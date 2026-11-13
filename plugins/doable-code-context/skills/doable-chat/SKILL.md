@@ -162,7 +162,8 @@ starts a turn for them, only with that message, and the status stays `idle` unti
 wait for the chat's agent to report them: read a run's result yourself with `get_chat_run`, and
 tell the person that the chat waits for their next message. Do not send a message only to end the
 hold: a stop asks the agent to wait. Send a message only when you have one to send, for example
-when the person asks you to go on. A chat server that does not send the field gives
+when the person asks you to go on. Until then, answer no card of kind `after_restart` either (see
+"Cards that a restart left"). A chat server that does not send the field gives
 `held_for_person: null`, and then nothing in `read_chat` shows a hold.
 
 Do not narrate each read. Tell the person only what matters: the chat's replies, its cards, and run
@@ -248,6 +249,10 @@ ends every other card that the restart left, with no answers. So answer these ca
   card can end the person's card before the person sees it. Tell the person what that card asks
   and to answer it on the Chat v2 page. Keep reading the chat with the `token` and
   `wait_seconds`, and read the cards again when the chat changes.
+- While `held_for_person` is `true`, answer none of these cards until the person asks you to go
+  on, also those that the code settles. Their answers end the stop's hold as a message does, and
+  start the turn that the person stopped. Tell the person what each card asks, and that the chat
+  waits for their next message.
 - When the code settles every one of them, work out all their answers first: check each answer
   in the code before you send any. Then send them with `answer_chat_questions`, one right after
   another, with no other work between them.
@@ -339,6 +344,9 @@ does not. A request waits in the queue while a machine is connected. It ends onl
   restart left: an answer starts a turn, and the agent's next card ends the person's card with no
   answers. When the code settles every such card, work out all the answers first, then send them
   one right after another.
+- While `held_for_person` is `true`, answer no card of kind `after_restart` until the person asks
+  you to go on: its answers end the stop's hold and start the turn that the person stopped. Tell
+  the person instead.
 - While a card of kind `question` or `after_restart` waits that only a person may answer, send no
   message to that chat: a message closes the card with no answers. Tell the person to answer the
   card on the Chat v2 page, and wait. A card of kind `open` stays open after a message, so it does

@@ -461,6 +461,11 @@ for (const plugin of plugins) {
           "`held_for_person: true` means that a stop holds the chat",
           "Do not wait for the chat's agent to report them",
           "Do not send a message only to end the hold",
+          // The answers to a card that a restart left end the hold as a message does (orchestration 84a16f80:
+          // LiveChat._answer_after_restart calls _taken_by_the_person) and start the turn that the person stopped.
+          "While `held_for_person` is `true`, answer none of these cards until the person asks you to go on, also those that the code settles.",
+          "Their answers end the stop's hold as a message does, and start the turn that the person stopped.",
+          "While `held_for_person` is `true`, answer no card of kind `after_restart` until the person asks you to go on",
           "When `read_chat` shows that no card of kind `question` or `after_restart` waits, send your message with `send_chat_message(suite_id, chat_id, text)` and that `chat_id`. Do not call `start_chat` again for this message.",
           // Doable MCP's chat tools take only an organization API key: Doable takes the caller of a personal key or a
           // login token for its person. The refusal has no status, so the skill names its text and stops.
