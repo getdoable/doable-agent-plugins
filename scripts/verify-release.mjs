@@ -307,6 +307,12 @@ for (const plugin of plugins) {
         `${relative(root, chatSkillPath)} ${label} says that a message closes such a card as a stop does: a message closes only the card that holds the agent`,
       );
     }
+    // An older chat server gives a conflict card person_only false, so the skill must not read person_only false as
+    // "not a write card or a conflict card".
+    assert(
+      !/`person_only: false`, so not a/.test(chatSkill.replace(/\s+/g, " ")),
+      `${relative(root, chatSkillPath)} reads person_only false as "not a write card or a conflict card": an older chat server gives a conflict card person_only false`,
+    );
     // The MCP library puts "Error executing tool <name>: " before a tool's error text, so the key refusal is in the
     // error but not at its start: a skill that waits for an error that starts with it can miss it.
     for (const [path, text] of [
@@ -423,6 +429,9 @@ for (const plugin of plugins) {
           // Doable MCP marks the cards that Doable refuses a machine's answer to (a write card, a conflict card).
           "It marks each card that Doable lets only a person answer with `person_only: true`",
           "A card with `person_only: false` can still need the person's decision: read its questions.",
+          // Doable MCP gives a conflict card person_only false when the chat server is from before the conflict mark
+          // (it sends no decides_conflict): person_only false alone does not rule out a conflict card.
+          "a chat server from before the conflict mark gives a conflict card `person_only: false`",
           "Never answer a card with `person_only: true`.",
           "A card of kind `open` (auto mode) stays open after a message, so it does not block a message.",
           "Still never answer an open card that only a person may answer",

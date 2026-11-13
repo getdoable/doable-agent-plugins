@@ -174,9 +174,11 @@ page's address, a field's name, the steps of a flow) or what the product should 
 limit, who may do what, a text or a result the product should show). When you cannot tell which,
 treat it as a question about what the product should do.
 
-- **A card that the code settles**: a question card (`person_only: false`, so not a write card
-  or a conflict card) whose every question asks what the product does now, and you checked each
-  answer in the code or a test environment. Call
+- **A card that the code settles**: a question card (not a write card and not a conflict card)
+  whose every question asks what the product does now, and you checked each answer in the code or
+  a test environment. Such a card has `person_only: false`, but that alone does not show that it
+  is a question card: a chat server from before the conflict mark gives a conflict card
+  `person_only: false`. So read its questions too. Call
   `answer_chat_questions(suite_id, chat_id, question_set_id, answers)`. `answers` is a list with
   one entry for each question, in the card's order. For each question, write a short answer of
   your own, also when an option says the same, that starts with `From the code:` and names the
