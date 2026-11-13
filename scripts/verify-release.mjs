@@ -417,9 +417,11 @@ for (const plugin of plugins) {
           // open card does not block a message, and only a card of kind question holds the agent.
           "A card of kind `open` does not block a message: send your message while it is open.",
           "| `waiting_for_answer` | A card of kind `question` holds the agent. |",
-          // A write card always holds the agent (orchestration asks it with host.ask(write=True), and its open cards
-          // are never write cards): a skill that expects an open write card would send a message that closes it.
-          "but a write card is always of kind `question`, also in auto mode.",
+          // Off auto mode a write card holds the agent (host.ask(write=True)); in auto mode it is an open card with
+          // write true (orchestration #451, extensions.write_after_yes and WebHost.show_write), and a restart never
+          // shows it again (WebHost.after_restart leaves out a write's card).
+          "A write card is of kind `question`, or of kind `open` in auto mode, and never of kind `after_restart`",
+          "So a card of kind `open` can be a write card, a conflict card or a question card",
           // Doable MCP's start_chat refuses to send while the suite's chat waits for a card's answers: the
           // skill names that refusal, reads the chat, and sends with send_chat_message once no card holds it.
           "When the suite's chat waits for a card's answers, `start_chat` sends nothing and fails with an error that names that chat",

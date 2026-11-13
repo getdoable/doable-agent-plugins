@@ -63,8 +63,8 @@ All notable changes to Doable Agent Plugins are documented here.
   a message: it tells the person to answer on the Chat v2 page. While such a card holds the chat's
   agent (kind `question` in `read_chat`'s `waiting_cards`), it sends no message to that chat,
   because a message closes that card with no answers. An open card of auto mode (kind `open`) does
-  not hold the agent and stays open after a message, so it does not block one; a write card is
-  always of kind `question`. A card that a restart of Doable left (kind `after_restart`) does not
+  not hold the agent and stays open after a message, so it does not block one. In auto mode a write
+  card is such an open card too (`write: true`), and a restart drops a write card. A card that a restart of Doable left (kind `after_restart`) does not
   hold the agent or change the status, but a message ends it with no answers. The answer to one
   such card starts the agent's turn, and the agent's next card ends the others with no answers. So
   the Skill reads the chat before each message; while one such card waits that only a person may

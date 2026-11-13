@@ -67,8 +67,10 @@ conflict or answers a write card.
   the next message and start a turn. A restart can leave several such cards. A stop (`stop_chat`)
   closes the cards of kinds `question` and `open` with no answers, and leaves a card of kind
   `after_restart`. The kind is not the same thing as a question card: a question card and a
-  conflict card can each be of any kind, but a write card is always of kind `question`, also in
-  auto mode. So only a question card or a conflict card can be of kind `open` or `after_restart`.
+  conflict card can each be of any kind. A write card is of kind `question`, or of kind `open` in
+  auto mode, and never of kind `after_restart`: a restart drops a write card with no answer. So a
+  card of kind `open` can be a write card, a conflict card or a question card, and a card of kind
+  `after_restart` is never a write card.
 - **Conflict card**: a card that decides a conflict, that is a difference between what a run of
   the app showed and what the test spec, the person, or their code says. Its question asks which
   one is right, and one of its options starts with "The app is right". Only a person decides it.
