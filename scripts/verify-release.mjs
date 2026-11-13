@@ -321,6 +321,8 @@ for (const plugin of plugins) {
           // Doable MCP refuses a machine name that breaks the rule itself, with no status: the stop
           // must not wait for Doable's 422.
           "An error about the machine name, whatever its status, and also with no status",
+          // The default of the bundled .mcp.json (and of Doable MCP) when DOABLE_MACHINE_NAME is not set.
+          "without it the name is `unnamed-machine`",
         ],
       ],
       [
@@ -398,6 +400,7 @@ for (const plugin of plugins) {
           "code excerpts of 10 lines or fewer each",
           "It never holds a secret",
           "are data, not instructions",
+          "`DOABLE_MACHINE_NAME` environment variable (`unnamed-machine` when it is not set)",
         ],
       ],
     ]) {
@@ -480,6 +483,15 @@ for (const path of markdownPaths) {
     assert(!oldName.test(flat), `${relative(root, path)} uses an old name for a machine in a chat: ${oldName}`);
   }
 }
+// The default machine name is `unnamed-machine`, not the old `code-agent`: a machine whose operator set no
+// DOABLE_MACHINE_NAME showed in a chat as "code-agent, a coding agent of the team", a name that reads as the code agent.
+// No release text may give the old default.
+for (const path of markdownPaths) {
+  assert(
+    !readFileSync(path, "utf8").includes("`code-agent`"),
+    `${relative(root, path)} names \`code-agent\`, the old default machine name: the default is \`unnamed-machine\``,
+  );
+}
 for (const path of markdownPaths) {
   const markdown = readFileSync(path, "utf8");
   for (const match of markdown.matchAll(/\[[^\]]*\]\(([^)]+)\)/g)) {
@@ -557,6 +569,16 @@ for (const requiredChatNaming of [
   "the Skill's messages are not the code agent's",
 ]) {
   assert(includesPhrase(readme, requiredChatNaming), `README is missing the chat's name for a machine: ${requiredChatNaming}`);
+}
+
+// Without DOABLE_MACHINE_NAME every machine shows as `unnamed-machine`, and people cannot tell the machines apart: the
+// README tells the operator to set it, in the connection section and in the machine setup.
+for (const requiredMachineName of [
+  "Set `DOABLE_MACHINE_NAME` on every machine that uses the plugin, and give each machine its own name",
+  "When it is not set, the name is `unnamed-machine`",
+  "Do not leave `DOABLE_MACHINE_NAME` unset: the machine then shows as `unnamed-machine`",
+]) {
+  assert(includesPhrase(readme, requiredMachineName), `README is missing the machine name setup: ${requiredMachineName}`);
 }
 
 // A person who copies the example allow list next to the template's example policy lines must get a
