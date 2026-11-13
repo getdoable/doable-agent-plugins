@@ -313,14 +313,30 @@ for (const plugin of plugins) {
       !/`person_only: false`, so not a/.test(chatSkill.replace(/\s+/g, " ")),
       `${relative(root, chatSkillPath)} reads person_only false as "not a write card or a conflict card": an older chat server gives a conflict card person_only false`,
     );
+    // Old false texts must not come back beside the new ones. The answer to one card that a restart left starts a
+    // turn, and the agent's next card ends the others (orchestration's LiveChat._newer_card): no rule may tell the
+    // machine to answer each card that the code settles before any message, also while a person's card waits. In auto
+    // mode a write card is an open card (orchestration #451), so it is not always of kind question.
+    for (const [pattern, why] of [
+      [
+        /\banswer every (?:one|card)\b[^.]*\bthe code settles\b|\bsettles before any message\b/i,
+        "tells the machine to answer every card that the code settles before any message: while a card that only a person may answer waits among the cards that a restart left, the machine answers none of them",
+      ],
+      [
+        /\bwrite card is always of kind `question`/i,
+        "says that a write card is always of kind question: in auto mode a write card is of kind open",
+      ],
+    ]) {
+      assert(!pattern.test(chatSkill.replace(/\s+/g, " ")), `${relative(root, chatSkillPath)} ${why}`);
+    }
     // The MCP library puts "Error executing tool <name>: " before a tool's error text, so the key refusal is in the
-    // error but not at its start: a skill that waits for an error that starts with it can miss it.
+    // error but not at its start: a skill that waits for an error that starts or begins with it can miss it.
     for (const [path, text] of [
       [chatSkillPath, chatSkill],
       [codeAgentSkillPath, codeAgentSkill],
     ]) {
       assert(
-        !/\bstarts(?: with)? `This tool needs an organization API key`/.test(text.replace(/\s+/g, " ")),
+        !/\b(?:start|begin)s?(?: with)? `This tool needs an organization API key`/i.test(text.replace(/\s+/g, " ")),
         `${relative(root, path)} says that the key refusal starts the error: the MCP library puts a prefix before it, so say "contains"`,
       );
     }
