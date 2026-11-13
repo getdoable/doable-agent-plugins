@@ -57,18 +57,39 @@ function insideRoot(path, boundary) {
   return rel !== ".." && !rel.startsWith(`..${sep}`) && !rel.startsWith(sep);
 }
 
+function skillDescription(text) {
+  const frontmatter = text.match(/^---\n([\s\S]*?)\n---/)?.[1] ?? "";
+  return frontmatter.match(/^description:\s*(.+)$/m)?.[1] ?? "";
+}
+
+// What breaks an unquoted (plain) one-line YAML value. A strict YAML parser refuses the whole frontmatter for a ":"
+// followed by a space or a tab, or at the end of the value (it reads a mapping key), and for a YAML indicator character
+// at the start. It reads a "#" after a space or a tab as the start of a comment and drops the rest of the value. A value
+// in matching quotes passes. Returns null when the value is safe, else what breaks it.
+function plainYamlValueProblem(value) {
+  const trimmed = value.trim();
+  if (/^(["']).*\1$/.test(trimmed)) return null;
+  if (/:(?:[ \t]|$)/.test(trimmed)) {
+    return 'holds a ":" followed by a space, or at the end, and is not quoted: a strict YAML parser refuses the frontmatter';
+  }
+  if (/[ \t]#/.test(trimmed)) {
+    return 'holds a " #" and is not quoted: a YAML parser drops the rest of the description as a comment';
+  }
+  if (/^(?:[,[\]{}#&*!|>'"%@`]|[-?:](?:[ \t]|$))/.test(trimmed)) {
+    return "starts with a YAML indicator character and is not quoted: a strict YAML parser refuses the frontmatter";
+  }
+  return null;
+}
+
 function skillName(skillPath) {
   const text = readFileSync(skillPath, "utf8");
   const frontmatter = text.match(/^---\n([\s\S]*?)\n---/);
   assert(frontmatter, `${relative(root, skillPath)} must contain YAML frontmatter`);
   const name = (frontmatter?.[1] ?? "").match(/^name:\s*([^\s]+)\s*$/m)?.[1];
-  const description = (frontmatter?.[1] ?? "").match(/^description:\s*(.+)$/m)?.[1] ?? "";
+  const description = skillDescription(text);
   assert(description.length > 0 && description.length <= 1024, `${relative(root, skillPath)} description must be 1-1024 characters`);
-  // An unquoted YAML value may not hold ": " or " #": a strict YAML parser refuses the whole frontmatter.
-  assert(
-    /^(["']).*\1$/.test(description.trim()) || !/: | #/.test(description),
-    `${relative(root, skillPath)} description must not hold ": " or " #" unless it is quoted: a strict YAML parser refuses it`,
-  );
+  const yamlProblem = plainYamlValueProblem(description);
+  assert(yamlProblem === null, `${relative(root, skillPath)} description ${yamlProblem}`);
   assert(!text.includes("[TODO:"), `${relative(root, skillPath)} contains an unfinished placeholder`);
   return name;
 }
