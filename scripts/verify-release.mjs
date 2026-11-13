@@ -284,6 +284,9 @@ for (const plugin of plugins) {
           // A cancel that comes after the machine's last call: Doable answers the result with the cancelled request and
           // keeps nothing (CodeAgentRequests.finish), so the machine must not resend it or report it as used.
           "If the request it returns has the status `cancelled`, a person cancelled the request after your last call, and Doable did not keep your result.",
+          // The line to the person for that request: without it, the person reads the work as done and used.
+          "For a request that was cancelled while you worked, say what you did and that Doable did not use the result",
+          "`CA-7K2M9P (check): cancelled after the check was done; Doable did not use the result.`",
           // A person reads test titles: a question that names tests by their ids (tc-...) is unreadable to them.
           "name each test by its title (its `title` in the request's `tests`)",
           "Only when the policy's \"Commands it may run\" names the commands for it",
