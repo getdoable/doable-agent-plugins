@@ -341,6 +341,14 @@ for (const plugin of plugins) {
           "when a test rests on a product decision that nobody made, the chat asks the person on a card",
           "never write as if you were the person: tell the person what the chat answered",
           "Never write as if you were the person, also when the chat does not act on your message",
+          // One name for a machine in a chat, in every repo: a coding agent of the team, which works for a person of the
+          // organization. "The code agent" names only the session that serves the chat's code agent requests: a chat
+          // that called every machine "the code agent" refused its requests (live test 2).
+          "`<machine name>, a coding agent of the team, wrote:`",
+          "`<machine name>, a coding agent of the team, answered`",
+          "`<machine name> (coding agent)`",
+          "Your messages and card answers are not the code agent's",
+          "only a person decides a conflict or answers a write card",
           "Start a run only when the person asked for runs",
           "code excerpts of 10 lines or fewer each",
           "It never holds a secret",
@@ -418,6 +426,15 @@ for (const path of allPaths) {
 const markdownPaths = allPaths.filter(
   (path) => statSync(path).isFile() && extname(path).toLowerCase() === ".md",
 );
+// The old names of a machine in a chat ("<name>, the code agent, wrote:", "## M3 (<name>, the code agent)", "<name> (code
+// agent)", "the code agent answered") call a coding agent of the team the code agent, which made the chat refuse its
+// requests: no release text may use them.
+for (const path of markdownPaths) {
+  const flat = readFileSync(path, "utf8").replace(/\s+/g, " ");
+  for (const oldName of [/, the code agent[,)]/, /\(code agent\)/, /\bthe code agent answered\b/]) {
+    assert(!oldName.test(flat), `${relative(root, path)} uses an old name for a machine in a chat: ${oldName}`);
+  }
+}
 for (const path of markdownPaths) {
   const markdown = readFileSync(path, "utf8");
   for (const match of markdown.matchAll(/\[[^\]]*\]\(([^)]+)\)/g)) {

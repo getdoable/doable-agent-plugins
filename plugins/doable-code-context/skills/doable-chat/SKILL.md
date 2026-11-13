@@ -1,6 +1,6 @@
 ---
 name: doable-chat
-description: Drive a Doable chat (Chat v2) through Doable MCP - start a test suite's chat, send messages, read replies and run results, answer the cards that the code settles, start the runs it proposes, and debug a failed run locally. Use when the person asks Doable to test a feature they just built, to create, change or run tests, to read or follow a Doable chat, to answer Doable's questions from here, or to find why a Doable run failed. The chat does the work a message asks for, as for the person; product decisions stay with the person. It never answers a write card, a conflict card, or a question about what the product should do, and never passes on the person's decision; the person answers those on the Chat v2 page. It sends no message while such a card holds the chat's agent, and does not stop the chat while such a card waits, also an open card of auto mode, because a message closes the card that holds the agent, and a stop closes every waiting card, with no answers.
+description: Drive a Doable chat (Chat v2) through Doable MCP - start a suite's chat, send messages, read replies and run results, answer the cards that the code settles, start the runs it proposes, and debug a failed run locally. Use when the person asks Doable to test a feature they just built, to create, change or run tests, to read or follow a Doable chat, to answer Doable's questions from here, or to find why a Doable run failed. The chat names this machine a coding agent of the team and does the work a message asks for, as for the person; product decisions stay with the person. It never answers a write card, a conflict card, or a question about what the product should do, and never passes on the person's decision; the person answers those on the Chat v2 page. It sends no message while such a card holds the chat's agent, and does not stop the chat while such a card waits, also an open card of auto mode, because a message closes the card that holds the agent, and a stop closes every waiting card, with no answers.
 ---
 
 # Drive a Doable Chat
@@ -9,28 +9,39 @@ A Doable chat (Chat v2) is an agent that writes tests, runs them, and reports th
 one test suite. Each suite has one chat. Through Doable MCP you can do what a person does on the
 Chat v2 page, except a few things that only a person may do.
 
-Doable shows the messages and card answers you send as this machine's (a message from
-`<machine name> (code agent)`, and `<machine name>'s answers`), and the chat's agent knows that a
-machine sent them. The machine name comes from the `DOABLE_MACHINE_NAME` environment variable
-(`code-agent` when it is not set). A name is 1 to 64 characters, each a letter, a digit, `.`, `_`,
-or `-`. If a call fails with an error about the machine name, whatever its status and also with
-no status, tell the person this rule, and that they set a name that keeps it and start the
-session again. Then stop. Such an error names the `X-Doable-Machine` header, or names the machine
-name (the field `machine`) as not valid: Doable MCP refuses a bad name itself, with a text such as
+Doable shows the messages and card answers you send as this machine's, and the chat names this
+machine a coding agent of the team (see "Words"). The machine name comes from the
+`DOABLE_MACHINE_NAME` environment variable (`code-agent` when it is not set). A name is 1 to 64
+characters, each a letter, a digit, `.`, `_`, or `-`. If a call fails with an error about the
+machine name, whatever its status and also with no status, tell the person this rule, and that
+they set a name that keeps it and start the session again. Then stop. Such an error names the
+`X-Doable-Machine` header, or names the machine name (the field `machine`) as not valid: Doable
+MCP refuses a bad name itself, with a text such as
 `The X-Doable-Machine header must be 1 to 64 characters, ...` and no status, and Doable refuses
 it with `422`. `list_test_suites` does not send the name, so the first such error comes from
 `start_chat` or another chat call. Runs that you start are queued as the owner of the
 organization API key and count toward the organization's quota.
 
-The chat's agent does the work that your message asks for, as it would for the person: it writes,
-changes, and runs tests, and it asks the code agent to prepare data. What you say the product
-does or should do is only your reading of the code: when a test rests on a product decision that
-nobody made, the chat asks the person on a card, and only the person decides a conflict.
+A coding agent of the team works for a person of the organization. The chat's agent does the work
+that your message asks for, as it would for the person: it writes, changes, and runs tests, and it
+asks the code agent to prepare data or to check state. What you say the product does or should do
+is only your reading of the code, never the person's decision: when a test rests on a product
+decision that nobody made, the chat asks the person on a card, and only a person decides a
+conflict or answers a write card.
 
 ## Words
 
 - **Suite id**: `ts-` and eight letters, such as `ts-abcdefgh`. **Test id**: `tc-` and eight
   letters.
+- **Coding agent of the team**: how the chat names this machine when it writes in the chat or
+  answers a card there. The chat's agent gets your message under the heading
+  `<machine name>, a coding agent of the team, wrote:`, and is told about your card answers as
+  `<machine name>, a coding agent of the team, answered`. The Chat v2 page and `read_chat`'s lines
+  show you as `<machine name> (coding agent)`.
+- **Code agent**: the session that serves the chat's code agent requests (answer a question about
+  the code, prepare data, check state, or debug a failed run) with the `doable-code-agent` skill,
+  on this machine or on another one. The chat's agent sends it those requests. Your messages and
+  card answers are not the code agent's: they are those of a coding agent of the team.
 - **Turn**: the chat agent's work on one message. A turn can take minutes.
 - **Card**: a set of questions that waits for answers. A **question card** asks for facts or
   choices. A **write card** asks for a person's yes before Doable writes outside the chat (a Jira
@@ -93,8 +104,9 @@ to a decision that the person already made in this chat (for example their answe
 because the chat can read it there.
 
 Expect the chat to do what your message asks. If it answers that it acts only on the person's own
-messages, do not ask again in other words, and never write as if you were the person: tell the
-person what the chat answered, and ask them to send the request on the Chat v2 page.
+messages (for example, that your message came from the code agent and not from the person), do
+not ask again in other words, and never write as if you were the person: tell the person what the
+chat answered, and ask them to send the request on the Chat v2 page.
 
 ## Read the chat
 
@@ -123,9 +135,10 @@ When it needs the person's decision, tell the person to answer it on the Chat v2
 
 ## Answer a card
 
-Doable shows your card answers as this machine's (`<machine name>'s answers`) and tells the
-chat's agent that this machine answered. What you send is this machine's reading of the code,
-never the person's decision about what the product should do.
+Doable shows your card answers as this machine's (marked `(coding agent)` on the Chat v2 page),
+and tells the chat's agent that `<machine name>, a coding agent of the team, answered`. What you
+send is this machine's reading of the code, never the person's decision about what the product
+should do.
 
 Read every question of the card first. Each question asks either what the product does now (a
 page's address, a field's name, the steps of a flow) or what the product should do (a rule, a
@@ -222,9 +235,9 @@ asks for them.
    not send their decision: ask them to write it on the Chat v2 page, because Doable reads all
    that you send as this machine's reading of the code.
 
-What you send to the chat follows the code agent's rule. It may hold file paths, line numbers,
-and code excerpts of 10 lines or fewer each. It never holds a secret (passwords, keys, tokens,
-session cookies, customer personal data).
+What you send to the chat follows the same rule as a code agent result. It may hold file paths,
+line numbers, and code excerpts of 10 lines or fewer each. It never holds a secret (passwords,
+keys, tokens, session cookies, customer personal data).
 
 ## What only a person may do
 
