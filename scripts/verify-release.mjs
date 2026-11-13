@@ -262,6 +262,27 @@ for (const plugin of plugins) {
     const policyTemplate = existsSync(policyTemplatePath) ? readFileSync(policyTemplatePath, "utf8") : "";
     const chatSkillPath = join(pluginRoot, "skills", "doable-chat", "SKILL.md");
     const chatSkill = readFileSync(chatSkillPath, "utf8");
+    // A host shows a Skill's description without its body, so the description must say the card rule correctly: a
+    // message closes only the card that holds the agent (kind question), and an open card of auto mode stays open after
+    // a message; a stop closes every waiting card. "A message or a stop closes such a card" says that a message closes an
+    // open card too.
+    const chatDescription = skillDescription(chatSkill);
+    assert(
+      includesPhrase(
+        chatDescription,
+        "because a message closes the card that holds the agent, and a stop closes every waiting card, with no answers",
+      ),
+      `${relative(root, chatSkillPath)} description must say that a message closes the card that holds the agent, and a stop closes every waiting card`,
+    );
+    for (const [label, text] of [
+      ["description", chatDescription],
+      ["text", chatSkill],
+    ]) {
+      assert(
+        !/\bmessage or a stop closes\b/i.test(text.replace(/\s+/g, " ")),
+        `${relative(root, chatSkillPath)} ${label} says that a message closes such a card as a stop does: a message closes only the card that holds the agent`,
+      );
+    }
     for (const [path, text, requiredRules] of [
       [
         codeAgentSkillPath,
