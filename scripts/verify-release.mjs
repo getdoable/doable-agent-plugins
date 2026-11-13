@@ -64,6 +64,11 @@ function skillName(skillPath) {
   const name = (frontmatter?.[1] ?? "").match(/^name:\s*([^\s]+)\s*$/m)?.[1];
   const description = (frontmatter?.[1] ?? "").match(/^description:\s*(.+)$/m)?.[1] ?? "";
   assert(description.length > 0 && description.length <= 1024, `${relative(root, skillPath)} description must be 1-1024 characters`);
+  // An unquoted YAML value may not hold ": " or " #": a strict YAML parser refuses the whole frontmatter.
+  assert(
+    /^(["']).*\1$/.test(description.trim()) || !/: | #/.test(description),
+    `${relative(root, skillPath)} description must not hold ": " or " #" unless it is quoted: a strict YAML parser refuses it`,
+  );
   assert(!text.includes("[TODO:"), `${relative(root, skillPath)} contains an unfinished placeholder`);
   return name;
 }
