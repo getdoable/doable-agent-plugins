@@ -62,13 +62,31 @@ function skillDescription(text) {
   return frontmatter.match(/^description:\s*(.+)$/m)?.[1] ?? "";
 }
 
+// This check and the description guards read only the description's own line, so the description must be all there:
+// a block value (">" or "|") or an indented line after it would be read in part, or not at all. Returns null when the
+// description is on one line, else what is wrong.
+function descriptionLineProblem(text) {
+  const lines = (text.match(/^---\n([\s\S]*?)\n---/)?.[1] ?? "").split("\n");
+  const index = lines.findIndex((line) => /^description:/.test(line));
+  if (index < 0) return null;
+  const value = lines[index].replace(/^description:\s*/, "");
+  if (/^[>|][-+0-9]*\s*$/.test(value) || /^[ \t]/.test(lines[index + 1] ?? "")) {
+    return "goes on past its own line: keep the description on one line, which this check and the guards read";
+  }
+  return null;
+}
+
 // What breaks an unquoted (plain) one-line YAML value. A strict YAML parser refuses the whole frontmatter for a ":"
 // followed by a space or a tab, or at the end of the value (it reads a mapping key), and for a YAML indicator character
-// at the start. It reads a "#" after a space or a tab as the start of a comment and drops the rest of the value. A value
-// in matching quotes passes. Returns null when the value is safe, else what breaks it.
+// at the start. It reads a "#" after a space or a tab as the start of a comment and drops the rest of the value. A
+// quoted value passes when its quote character comes inside it only escaped ('' in single quotes, \" in double quotes).
+// Returns null when the value is safe, else what breaks it.
 function plainYamlValueProblem(value) {
   const trimmed = value.trim();
-  if (/^(["']).*\1$/.test(trimmed)) return null;
+  if (/^"(?:[^"\\]|\\.)*"$/.test(trimmed) || /^'(?:[^']|'')*'$/.test(trimmed)) return null;
+  if (/^["']/.test(trimmed)) {
+    return "starts with a quote but is not one quoted value (a quote inside it is not escaped, or the quotes do not match): a YAML parser refuses the frontmatter";
+  }
   if (/:(?:[ \t]|$)/.test(trimmed)) {
     return 'holds a ":" followed by a space, or at the end, and is not quoted: a strict YAML parser refuses the frontmatter';
   }
@@ -86,6 +104,8 @@ function skillName(skillPath) {
   const frontmatter = text.match(/^---\n([\s\S]*?)\n---/);
   assert(frontmatter, `${relative(root, skillPath)} must contain YAML frontmatter`);
   const name = (frontmatter?.[1] ?? "").match(/^name:\s*([^\s]+)\s*$/m)?.[1];
+  const lineProblem = descriptionLineProblem(text);
+  assert(lineProblem === null, `${relative(root, skillPath)} description ${lineProblem}`);
   const description = skillDescription(text);
   assert(description.length > 0 && description.length <= 1024, `${relative(root, skillPath)} description must be 1-1024 characters`);
   const yamlProblem = plainYamlValueProblem(description);
