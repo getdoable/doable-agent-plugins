@@ -326,6 +326,10 @@ failed run in the local code. For example:
 Ask Doable's chat to test the feature I just implemented, run the tests, and tell me why any test failed.
 ```
 
+The chat's agent does the work that the Skill's messages ask for, as it would for you: it writes,
+changes, and runs tests, and asks the code agent to prepare data. A test that rests on a product
+decision nobody made goes to you on a card, and only you decide a conflict.
+
 Doable shows its messages and card answers as the machine's, and they are the code's reading,
 never the person's decision about what the product should do. So it answers only the cards whose
 questions the code settles. It never answers a write card (a Jira ticket or a correction of a run

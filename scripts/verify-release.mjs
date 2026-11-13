@@ -322,6 +322,13 @@ for (const plugin of plugins) {
           "Never call `stop_chat` while a card of either kind waits that only a person may answer: a stop closes every waiting card with no answers, also an open card of auto mode. Tell the person instead.",
           "When `read_chat` shows that no card of kind `question` waits, send your message with `send_chat_message(suite_id, chat_id, text)` and that `chat_id`. Do not call `start_chat` again for this message.",
           "Do not ask the chat to change the test because of the code alone.",
+          // The chat's agent does a machine's work as it would the person's (write, change and run tests, ask the
+          // code agent to prepare data); only product decisions go to the person. When an older chat does not act,
+          // the skill tells the person and never writes as the person.
+          "The chat's agent does the work that your message asks for, as it would for the person",
+          "when a test rests on a product decision that nobody made, the chat asks the person on a card",
+          "never write as if you were the person: tell the person what the chat answered",
+          "Never write as if you were the person, also when the chat does not act on your message",
           "Start a run only when the person asked for runs",
           "code excerpts of 10 lines or fewer each",
           "It never holds a secret",

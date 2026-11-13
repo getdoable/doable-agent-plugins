@@ -44,7 +44,11 @@ All notable changes to Doable Agent Plugins are documented here.
   a result.
 - `doable-chat` drives a Doable chat through Doable MCP: `start_chat`, `send_chat_message`,
   `read_chat`, `answer_chat_questions`, `run_chat_proposal`, `get_chat_run` and `stop_chat`. It
-  starts runs only when someone asked for them, and debugs a failed run in the local code. Doable
+  starts runs only when someone asked for them, and debugs a failed run in the local code. It
+  expects the chat to do the work its messages ask for (write, change and run tests, and ask the
+  code agent to prepare data), as for the person; a test that rests on a product decision nobody
+  made goes to the person on a card. If the chat does not act on a machine's message, it tells the
+  person and never writes as if it were the person. Doable
   shows its messages and card answers as the machine's: they are the code's reading, never the
   person's decision. It answers only a card that the code settles. It never answers a write card
   (a Jira ticket or a result correction), a card that decides a conflict (Doable refuses a
