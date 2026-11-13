@@ -34,9 +34,10 @@ organization API key and count toward the organization's quota.
   `kind`. A card of kind `question` holds the agent: the agent waits for its answers (status
   `waiting_for_answer`), and a message closes the card with no answers. A card of kind `open` is
   a card of auto mode: it does not hold the agent, and it stays open after a message. A stop
-  (`stop_chat`) closes the cards of both kinds with no answers. The kind is
-  not the same thing as a question card: a question card, a write card, and a conflict card can
-  each be of either kind.
+  (`stop_chat`) closes the cards of both kinds with no answers. The kind is not the same thing as
+  a question card: a question card and a conflict card can each be of either kind, but a write
+  card is always of kind `question`, also in auto mode. So only a question card or a conflict card
+  can be of kind `open`.
 - **Conflict card**: a card that decides a conflict, that is a difference between what a run of
   the app showed and what the test spec, the person, or their code says. Its question asks which
   one is right, and one of its options starts with "The app is right". Only a person decides it.
@@ -135,7 +136,7 @@ treat it as a question about what the product should do.
   now for each question when you know it, so that they can decide. Then keep reading the chat
   until they answered it there. When it is a card of kind `question`, send no message to this
   chat until then (see "No message while a card waits"). Doable refuses a machine's answer to a
-  write card or a conflict card (`403`), of either kind.
+  write card or a conflict card (`403`), also to a conflict card of kind `open`.
 - Never put a password, a key, or a token in an answer.
 
 ### No message while a card waits

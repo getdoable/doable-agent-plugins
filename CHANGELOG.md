@@ -49,7 +49,7 @@ All notable changes to Doable Agent Plugins are documented here.
   such a card holds the chat's agent (kind `question` in `read_chat`'s `waiting_cards`), it sends
   no message to that chat, because a message closes that card with no answers. An open card of
   auto mode (kind `open`) does not hold the agent and stays open after a message, so it does not
-  block one. A stop closes every waiting card of both kinds with no answers, so it does not call
+  block one; a write card is always of kind `question`. A stop closes every waiting card of both kinds with no answers, so it does not call
   `stop_chat` while such a card of either kind waits. When `start_chat` sends nothing because the suite's chat waits for a card's answers,
   it reads that chat, answers the card only when the code settles it or else tells the person to
   answer it on the Chat v2 page and waits, then sends with `send_chat_message`. When a test looks
