@@ -455,6 +455,12 @@ for (const plugin of plugins) {
           "A stop closes every card of kind `question` or `open` in `waiting_cards` with no answers",
           "So never call `stop_chat` while a card of kind `question` or `open` waits that only a person may answer, also when the person asks for a stop or the chat seems to go wrong.",
           "Never call `stop_chat` while a card of kind `question` or `open` waits that only a person may answer: a stop closes each such card with no answers, also an open card of auto mode. Tell the person instead.",
+          // After a stop, the chat holds its notices (run results, the code agent's answers) until the next message
+          // (Doable MCP's held_for_person): the agent reports none of them until then, and a machine's message only to
+          // end the hold would undo the person's stop.
+          "`held_for_person: true` means that a stop holds the chat",
+          "Do not wait for the chat's agent to report them",
+          "Do not send a message only to end the hold",
           "When `read_chat` shows that no card of kind `question` or `after_restart` waits, send your message with `send_chat_message(suite_id, chat_id, text)` and that `chat_id`. Do not call `start_chat` again for this message.",
           // Doable MCP's chat tools take only an organization API key: Doable takes the caller of a personal key or a
           // login token for its person. The refusal has no status, so the skill names its text and stops.

@@ -143,7 +143,7 @@ Call `read_chat(suite_id, chat_id, after, wait_seconds, token)`:
 - A result holds: `status`, the new entries as text lines, the cards that wait (`waiting_cards`,
   each with its `question_set_id`, its `kind`, its questions and options, `write`,
   `decides_conflict`, and `person_only`), the run proposal, the open code agent requests,
-  `next_after`, and `token`.
+  `held_for_person`, `next_after`, and `token`.
 
 | `status` | Meaning | What to do |
 | --- | --- | --- |
@@ -155,6 +155,15 @@ Call `read_chat(suite_id, chat_id, after, wait_seconds, token)`:
 
 A card of kind `after_restart` can wait in any status, also `idle`, and the status does not show
 it. So read `waiting_cards` before each message.
+
+`held_for_person: true` means that a stop holds the chat: the results of test runs and the code
+agent's answers wait for the next message, the person's or yours. The chat's agent gets them, and
+starts a turn for them, only with that message, and the status stays `idle` until then. Do not
+wait for the chat's agent to report them: read a run's result yourself with `get_chat_run`, and
+tell the person that the chat waits for their next message. Do not send a message only to end the
+hold: a stop asks the agent to wait. Send a message only when you have one to send, for example
+when the person asks you to go on. A chat server that does not send the field gives
+`held_for_person: null`, and then nothing in `read_chat` shows a hold.
 
 Do not narrate each read. Tell the person only what matters: the chat's replies, its cards, and run
 results. When a reply of the chat asks the person a question outside a card, answer it in a message
@@ -261,7 +270,8 @@ asks for them.
   A failure of the test means the test is wrong or out of date. A run that could not finish says
   nothing about the code.
 - To stop the agent's turn and its runs, call `stop_chat(suite_id, chat_id)`. Do this only when
-  the person asks or the chat clearly goes wrong.
+  the person asks or the chat clearly goes wrong. After a stop, `held_for_person` is `true` until
+  the next message (see "Read the chat").
 - A stop closes every card of kind `question` or `open` in `waiting_cards` with no answers: the
   card that holds the agent (kind `question`), as a message does, and each open card of auto mode
   (kind `open`), which a message leaves open. A card of kind `after_restart` stays after a stop.

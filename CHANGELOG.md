@@ -91,6 +91,11 @@ All notable changes to Doable Agent Plugins are documented here.
   before they call Doable, because Doable takes the caller of such a token for the person who owns
   it. On that error (`This tool needs an organization API key`) the Skills tell the person to set
   an organization API key and stop.
+- After a stop, the chat holds the results of test runs and the code agent's answers until the
+  next message, and Doable MCP's `read_chat` shows `held_for_person: true`. `doable-chat` then
+  does not wait for the chat's agent to report them (it reads a run's result with
+  `get_chat_run`), tells the person that the chat waits for their next message, and does not send
+  a message only to end the hold.
 
 ### Removed
 

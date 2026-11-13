@@ -357,6 +357,9 @@ settles all of them, it works out every answer first and sends them one right af
 open card of auto mode does not hold the agent and stays open after a
 message, so it does not block one. A stop closes the card that holds the agent and each open card
 with no answers, so the Skill does not stop the chat while such a card of either kind waits.
+After a stop, the chat holds the results of test runs and the code agent's answers until the next
+message (Doable MCP's `held_for_person`): the Skill then does not wait for the chat's report of
+them, and does not send a message only to end the hold.
 Doable refuses a machine's answer to a write card or a conflict card. Runs it starts count toward
 the organization's quota. The chat tools take only an organization API key: Doable MCP refuses a
 personal API key and a Doable login token, and the Skill then tells you to set an organization
