@@ -1,0 +1,4 @@
+interface:
+  display_name: "Serve Doable Code Agent"
+  short_description: "Answer Doable chat requests from this machine"
+  default_prompt: "Serve Doable code agent requests on this machine."

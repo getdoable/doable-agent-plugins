@@ -1,8 +1,8 @@
 {
   "name": "doable-code-context",
   "displayName": "Doable Code Context",
-  "version": "0.2.18",
-  "description": "Connect private code to Doable through MCP, resolve grounded context requests, and start managed feature-testing workflows.",
+  "version": "0.3.0",
+  "description": "Connect private code to Doable through MCP: resolve grounded context requests, serve Doable code agent requests from a machine, and drive Doable chats.",
   "author": {
     "name": "Doable AI"
   },
@@ -14,13 +14,16 @@
     "test-spec",
     "trd",
     "code-context",
-    "agent-skills"
+    "agent-skills",
+    "code-agent",
+    "chat"
   ],
   "category": "developer-tools",
   "tags": [
     "testing",
     "requirements",
-    "code-context"
+    "code-context",
+    "code-agent"
   ],
   "skills": "./skills/",
   "variables": {
