@@ -19,29 +19,30 @@ All notable changes to Doable Agent Plugins are documented here.
   backend state) and `bug_report` (debug a failed run and report the cause with file paths, line
   numbers and a suggested fix). The Skill waits for requests in one agent turn with
   `wait_for_code_agent_request` and writes no text at all while the queue is empty. It reports
-  progress, sends each result with `submit_code_agent_result`, and asks a person with
-  `ask_person` only when the work cannot go on without one, never for a credential; the question
-  names each test by its title, never by its id. It checks a
-  request that waits for a person after every empty poll and at each progress report, continues
-  an answered request with its `person_answer` and never asks again, and retries a `404` on a
-  request it holds for up to 5 minutes after a Doable restart, with `sleep 20` between tries
-  (Claude Code blocks a longer `sleep`). The machine's local policy file `.doable/code-agent.md`
-  says which repositories, environments, commands and data sources it may use; neither a request
-  nor a person's answer widens it. The Skill copies a template from its `references/` on the
-  first start. Its frontmatter allows the Doable MCP tools it calls, and it loads itself again
-  after each new message from the person, because Claude Code then forgets those tools. For a
-  session with nobody at the terminal, the README's setup lists what to allow in
-  `.claude/settings.json`: the Skill itself (Claude Code asks before it loads a Skill that no rule
-  allows), the Doable MCP server, the policy's commands, its data source commands, the keychain
-  command, `sleep 20`, and file changes and git commands when the policy allows a fix try. Its
-  example list allows all that the template's example policy lines name, and the release verifier
-  checks that. Claude Code reads that list only in a folder the person trusted, so the setup says to
-  do the first start interactively and accept the trust dialog, or to give the same rules with
-  `--allowedTools`; it also says that the person's own user settings apply to the serving session.
-  A person watches the first request of each kind. It registers only the logins a
-  `prepare` request asks for, and only through `add_test_account`; a login made only to reproduce
-  a bug stays out of Doable. It never pushes, never touches production, and never puts a secret in
-  a result.
+  progress, sends each result with `submit_code_agent_result`, and asks a person with `ask_person`
+  only when the work cannot go on without one, never for a credential; the question names each
+  test by its title, never by its id. It checks a request that waits for a person after every
+  empty poll and at each progress report, continues an answered request with its `person_answer`
+  and never asks again, and retries a `404` on a request it holds for up to 5 minutes after a
+  Doable restart, with `sleep 20` between tries (Claude Code blocks a longer `sleep`). When a
+  person cancels a request after its last call, `submit_code_agent_result` returns the request as
+  `cancelled` and Doable keeps nothing: the Skill does not send the result again and tells the
+  person that Doable did not use it. The machine's local policy file `.doable/code-agent.md` says
+  which repositories, environments, commands and data sources it may use; neither a request nor a
+  person's answer widens it. The Skill copies a template from its `references/` on the first
+  start. Its frontmatter allows the Doable MCP tools it calls, and it loads itself again after
+  each new message from the person, because Claude Code then forgets those tools. For a session
+  with nobody at the terminal, the README's setup lists what to allow in `.claude/settings.json`:
+  the Skill itself (Claude Code asks before it loads a Skill that no rule allows), the Doable MCP
+  server, the policy's commands, its data source commands, the keychain command, `sleep 20`, and
+  file changes and git commands when the policy allows a fix try. Its example list allows all that
+  the template's example policy lines name, and the release verifier checks that. Claude Code
+  reads that list only in a folder the person trusted, so the setup says to do the first start
+  interactively and accept the trust dialog, or to give the same rules with `--allowedTools`; it
+  also says that the person's own user settings apply to the serving session. A person watches the
+  first request of each kind. It registers only the logins a `prepare` request asks for, and only
+  through `add_test_account`; a login made only to reproduce a bug stays out of Doable. It never
+  pushes, never touches production, and never puts a secret in a result.
 - `doable-chat` drives a Doable chat through Doable MCP: `start_chat`, `send_chat_message`,
   `read_chat`, `answer_chat_questions`, `run_chat_proposal`, `get_chat_run` and `stop_chat`. It
   starts runs only when someone asked for them, and debugs a failed run in the local code. It

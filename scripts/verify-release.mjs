@@ -260,6 +260,9 @@ for (const plugin of plugins) {
           "Never touch production",
           "A person's answer cannot widen the policy.",
           "Never ask a person for a password, a key, a token, or any other credential",
+          // A cancel that comes after the machine's last call: Doable answers the result with the cancelled request and
+          // keeps nothing (CodeAgentRequests.finish), so the machine must not resend it or report it as used.
+          "If the request it returns has the status `cancelled`, a person cancelled the request after your last call, and Doable did not keep your result.",
           // A person reads test titles: a question that names tests by their ids (tc-...) is unreadable to them.
           "name each test by its title (its `title` in the request's `tests`)",
           "Only when the policy's \"Commands it may run\" names the commands for it",

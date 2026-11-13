@@ -194,10 +194,14 @@ holds a password.
    server you started for it and go back to the loop.
 6. Send the result with `submit_code_agent_result` (see "Result format"). If the call fails with a
    timeout, a network error, or a `404` (see "When a call fails"), send the same result again:
-   Doable keeps the first one.
+   Doable keeps the first one. If the request it returns has the status `cancelled`, a person
+   cancelled the request after your last call, and Doable did not keep your result. Do not send
+   it again.
 7. Write one line to the person, such as `CA-7K2M9P (prepare): done, made one login and one
-   pending time-off request.` If a person answered one of your other requests while you worked,
-   serve that request now with its answer. Then go back to the loop.
+   pending time-off request.` For a request that was cancelled while you worked, say what you did
+   and that Doable did not use the result, such as `CA-7K2M9P (check): cancelled after the check
+   was done; Doable did not use the result.` If a person answered one of your other requests
+   while you worked, serve that request now with its answer. Then go back to the loop.
 
 Serve one request at a time. Other requests wait in the queue while you work, and they do not
 expire because you are busy. Doable counts this machine as connected when it called Doable in the
