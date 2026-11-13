@@ -379,7 +379,10 @@ secrets stay"). If an answer holds a secret anyway, do not use it and do not rep
 above, and say that a person should replace that secret, because the chat now holds it.
 
 1. Call `ask_person` with the request id and one question of 1-2000 characters. Say in plain words
-   what you found so far, the choices, and what you will do for each choice. No secret. Doable
+   what you found so far, the choices, and what you will do for each choice. A person reads test
+   titles, not test ids: name each test by its title (its `title` in the request's `tests`), such
+   as "File a time-off request", never by its id such as `tc-abcdefgh`. When the request does not
+   give a test's title, say in words what the test checks. No secret. Doable
    shows the question on the Chat v2 page and sends a Slack message to the chat's person. The
    request's status becomes `needs_person`.
 2. Keep serving other requests, and check this one as the next section says.

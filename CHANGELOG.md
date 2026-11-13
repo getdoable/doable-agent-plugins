@@ -20,7 +20,8 @@ All notable changes to Doable Agent Plugins are documented here.
   numbers and a suggested fix). The Skill waits for requests in one agent turn with
   `wait_for_code_agent_request` and writes no text at all while the queue is empty. It reports
   progress, sends each result with `submit_code_agent_result`, and asks a person with
-  `ask_person` only when the work cannot go on without one, never for a credential. It checks a
+  `ask_person` only when the work cannot go on without one, never for a credential; the question
+  names each test by its title, never by its id. It checks a
   request that waits for a person after every empty poll and at each progress report, continues
   an answered request with its `person_answer` and never asks again, and retries a `404` on a
   request it holds for up to 5 minutes after a Doable restart, with `sleep 20` between tries

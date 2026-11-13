@@ -255,6 +255,8 @@ for (const plugin of plugins) {
           "Never touch production",
           "A person's answer cannot widen the policy.",
           "Never ask a person for a password, a key, a token, or any other credential",
+          // A person reads test titles: a question that names tests by their ids (tc-...) is unreadable to them.
+          "name each test by its title (its `title` in the request's `tests`)",
           "Only when the policy's \"Commands it may run\" names the commands for it",
           // Claude Code drops a skill's allowed tools at each new message from the person, and it
           // blocks a foreground sleep of 25 seconds or more: either one stops an unattended watch.
