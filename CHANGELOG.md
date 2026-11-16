@@ -43,77 +43,39 @@ All notable changes to Doable Agent Plugins are documented here.
   first request of each kind. It registers only the logins a `prepare` request asks for, and only
   through `add_test_account`; a login made only to reproduce a bug stays out of Doable. It never
   pushes, never touches production, and never puts a secret in a result.
-- `doable-chat` drives a Doable chat through Doable MCP: `start_chat`, `send_chat_message`,
-  `read_chat`, `answer_chat_questions`, `run_chat_proposal`, `get_chat_run` and `stop_chat`. It
-  starts runs only when someone asked for them, and debugs a failed run in the local code. Doable
-  names the machine a coding agent of the team, which works for a person of the organization: the
-  chat's agent gets a message under the heading
-  `<machine name>, a coding agent of the team, wrote:` and is told about a card answer as
-  `<machine name>, a coding agent of the team, answered`, and the Chat v2 page and `read_chat`
-  show `<machine name> (coding agent)`. "The code agent" names only the session that serves the
-  chat's code agent requests. The Skill expects the chat to do the work its messages ask for
-  (write, change and run tests, and ask the code agent to prepare data or to check state), as for
-  the person. What the machine says the product does or should do is the code's reading, never the
-  person's decision: a test that rests on a product decision nobody made goes to the person on a
-  card, and only a person decides a conflict or answers a write card. If the chat does not act on
-  a machine's message, the Skill tells the person and never writes as if it were the person. It
-  answers only a card that the code settles. It never answers a write card (a Jira ticket or a
-  result correction), a card that decides a conflict (Doable refuses a machine's answer to both)
-  or a question about what the product should do, and it never passes on the person's decision in
-  a message: it tells the person to answer on the Chat v2 page. While such a card holds the chat's
-  agent (kind `question` in `read_chat`'s `waiting_cards`), it sends no message to that chat,
-  because a message closes that card with no answers. An open card of auto mode (kind `open`) does
-  not hold the agent and stays open after a message, so it does not block one. In auto mode a write
-  card is such an open card too (`write: true`), and a restart drops a write card. A card that a restart of Doable left (kind `after_restart`) does not
-  hold the agent or change the status, but a message ends it with no answers. The answer to one
-  such card starts the agent's turn, and the agent's next card ends the others with no answers. So
-  the Skill reads the chat before each message; while one such card waits that only a person may
-  answer, it answers none of them and sends no message; when the code settles all of them, it works
-  out every answer first and sends them one right after another (each with at least one answer
-  that is not blank).
-  It never answers a card that Doable MCP marks `person_only` (a write card or a conflict card). A
-  stop closes the card that holds the agent and each open card with no answers, and leaves a card
-  of kind `after_restart`, so it does not call `stop_chat` while such a card of kind `question` or
-  `open` waits. When `start_chat` sends nothing because the suite's chat waits for a card's
-  answers, or shows a card that a restart left, it reads that chat, answers the cards in that same
-  order (none while a card waits that only a person may answer: it tells the person to answer that
-  card on the Chat v2 page and waits), then reads the chat again and sends with
-  `send_chat_message`. When a test looks wrong, it asks the
-  chat to put the question to its person.
 - The bundled MCP connection sends the machine name as the `X-Doable-Machine` header
-  (`DOABLE_MACHINE_NAME`, default `unnamed-machine`) in Claude Code and Cursor. Doable admits an
-  organization API key on the chat routes only with this header. A name is 1 to 64 letters,
-  digits, `.`, `_` or `-`. Doable MCP refuses any other name itself, with an error that names the
-  header and has no status, and Doable refuses it with `422`. The Skills stop on any error about
-  the machine name, whatever its status, and tell the person the rule.
-- `doable-code-agent` and `doable-chat` need an organization API key in `DOABLE_API_KEY`. Doable
-  MCP's code agent and chat tools refuse a personal API key and a person's Doable login token
-  before they call Doable, because Doable takes the caller of such a token for the person who owns
-  it. On that error (`This tool needs an organization API key`) the Skills tell the person to set
-  an organization API key and stop.
-- After a stop, the chat holds the results of test runs and the code agent's answers until the
-  next message, and Doable MCP's `read_chat` shows `held_for_person: true`. `doable-chat` then
-  does not wait for the chat's agent to report them (it reads a run's result with
-  `get_chat_run`), tells the person that the chat waits for their next message, and does not send
-  a message only to end the hold. Until the person asks it to go on, it also answers no card that a
-  restart left: those answers end the hold as a message does and start the turn that the person
-  stopped.
+  (`DOABLE_MACHINE_NAME`, default `unnamed-machine`) in Claude Code and Cursor. Doable shows it on
+  the code agent requests that the machine serves. A name is 1 to 64 letters, digits, `.`, `_` or
+  `-`. Doable MCP refuses any other name itself, with an error that names the header and has no
+  status, and Doable refuses it with `422`. The code agent Skill stops on any error about the
+  machine name, whatever its status, and tells the person the rule.
+- `doable-code-agent` needs an organization API key in `DOABLE_API_KEY`. Doable MCP's code agent
+  tools refuse a personal API key and a person's Doable login token before they call Doable,
+  because Doable takes the caller of such a token for the person who owns it. On that error
+  (`This tool needs an organization API key`) the Skill tells the person to set an organization
+  API key and stops.
+
+### Not in this release
+
+- The chat Skill (`doable-chat`), which let a machine write in a Doable chat (Chat v2), is not in
+  this release: Doable has turned off chat control from a machine. Its last version is kept on the
+  branch `parked/doable-chat` of this repository.
 
 ### Removed
 
 - `doable-test-feature` and its Codex metadata. Doable MCP no longer starts or lists runs
-  (`run_test_cases`, `get_run` and `list_runs` are gone); ask Doable's chat to test a feature with
-  `doable-chat` instead. The release verifier refuses a Skill that names a removed run tool.
+  (`run_test_cases`, `get_run` and `list_runs` are gone). The release verifier refuses a Skill
+  that names a removed run tool.
 
 ### Changed
 
 - PRIVACY.md: a code agent result may hold file paths, line numbers and code excerpts of 10 lines
   or fewer each, unless the machine's policy file forbids excerpts. It never holds a secret, a
   password or customer personal data. Code Context answers keep their boundary.
-- The connection recovery workflow covers `doable-code-agent` and `doable-chat`, which use their
-  first Doable call as the preflight.
-- The new Skills need a Doable MCP server with the code agent and chat tools and a Doable server
-  with the code agent turned on.
+- The connection recovery workflow covers `doable-code-agent`, which uses its first Doable call
+  as the preflight.
+- The new Skill needs a Doable MCP server with the code agent tools and a Doable server with the
+  code agent turned on.
 
 ## [0.2.18] - 2026-11-10
 

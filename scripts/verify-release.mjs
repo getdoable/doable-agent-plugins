@@ -12,7 +12,7 @@ const plugins = [
   {
     name: "doable-code-context",
     version: "0.3.0",
-    skillNames: ["doable-connect", "doable-answer-questions", "doable-code-agent", "doable-chat"],
+    skillNames: ["doable-connect", "doable-answer-questions", "doable-code-agent"],
     network: "bundled-doable-mcp-config",
   },
 ];
@@ -241,8 +241,8 @@ for (const plugin of plugins) {
       "authentication.md",
     );
     const authentication = readFileSync(authenticationPath, "utf8");
-    // The code agent and the chat skill act for the organization with no person
-    // watching: their safety rules and the result boundary must stay word for word.
+    // The code agent acts for the organization with no person watching: its safety
+    // rules and the result boundary must stay word for word.
     const codeAgentSkillPath = join(pluginRoot, "skills", "doable-code-agent", "SKILL.md");
     const codeAgentSkill = readFileSync(codeAgentSkillPath, "utf8");
     // The serving session runs with nobody at the terminal, so a permission prompt for one of its
@@ -280,66 +280,12 @@ for (const plugin of plugins) {
     const policyTemplatePath = join(pluginRoot, "skills", "doable-code-agent", "references", "policy-template.md");
     assert(existsSync(policyTemplatePath), `missing code agent policy template: ${relative(root, policyTemplatePath)}`);
     const policyTemplate = existsSync(policyTemplatePath) ? readFileSync(policyTemplatePath, "utf8") : "";
-    const chatSkillPath = join(pluginRoot, "skills", "doable-chat", "SKILL.md");
-    const chatSkill = readFileSync(chatSkillPath, "utf8");
-    // A host shows a Skill's description without its body, so the description must say the card rule correctly: a
-    // message closes the card that holds the agent (kind question) and each card that a restart of Doable left (kind
-    // after_restart), and an open card of auto mode stays open after a message; a stop closes the card that holds the
-    // agent and each open card, and leaves a card that a restart left. "A message or a stop closes such a card" says
-    // that a message closes an open card too.
-    const chatDescription = skillDescription(chatSkill);
-    for (const phrase of [
-      "It never answers a person_only card",
-      "It sends no message while such a card holds the chat's agent or a restart left it, because a message closes both",
-      "does not stop the chat while such a card holds the agent or is an open card of auto mode, because a stop closes both, with no answers",
-    ]) {
-      assert(
-        includesPhrase(chatDescription, phrase),
-        `${relative(root, chatSkillPath)} description must say which cards a message and a stop close: ${phrase}`,
-      );
-    }
-    for (const [label, text] of [
-      ["description", chatDescription],
-      ["text", chatSkill],
-    ]) {
-      assert(
-        !/\bmessage or a stop closes\b/i.test(text.replace(/\s+/g, " ")),
-        `${relative(root, chatSkillPath)} ${label} says that a message closes such a card as a stop does: a message closes only the card that holds the agent`,
-      );
-    }
-    // An older chat server gives a conflict card person_only false, so the skill must not read person_only false as
-    // "not a write card or a conflict card".
-    assert(
-      !/`person_only: false`, so not a/.test(chatSkill.replace(/\s+/g, " ")),
-      `${relative(root, chatSkillPath)} reads person_only false as "not a write card or a conflict card": an older chat server gives a conflict card person_only false`,
-    );
-    // Old false texts must not come back beside the new ones. The answer to one card that a restart left starts a
-    // turn, and the agent's next card ends the others (orchestration's LiveChat._newer_card): no rule may tell the
-    // machine to answer each card that the code settles before any message, also while a person's card waits. In auto
-    // mode a write card is an open card (orchestration #451), so it is not always of kind question.
-    for (const [pattern, why] of [
-      [
-        /\banswer every (?:one|card)\b[^.]*\bthe code settles\b|\bsettles before any message\b/i,
-        "tells the machine to answer every card that the code settles before any message: while a card that only a person may answer waits among the cards that a restart left, the machine answers none of them",
-      ],
-      [
-        /\bwrite card is always of kind `question`/i,
-        "says that a write card is always of kind question: in auto mode a write card is of kind open",
-      ],
-    ]) {
-      assert(!pattern.test(chatSkill.replace(/\s+/g, " ")), `${relative(root, chatSkillPath)} ${why}`);
-    }
     // The MCP library puts "Error executing tool <name>: " before a tool's error text, so the key refusal is in the
     // error but not at its start: a skill that waits for an error that starts or begins with it can miss it.
-    for (const [path, text] of [
-      [chatSkillPath, chatSkill],
-      [codeAgentSkillPath, codeAgentSkill],
-    ]) {
-      assert(
-        !/\b(?:start|begin)s?(?: with)? `This tool needs an organization API key`/i.test(text.replace(/\s+/g, " ")),
-        `${relative(root, path)} says that the key refusal starts the error: the MCP library puts a prefix before it, so say "contains"`,
-      );
-    }
+    assert(
+      !/\b(?:start|begin)s?(?: with)? `This tool needs an organization API key`/i.test(codeAgentSkill.replace(/\s+/g, " ")),
+      `${relative(root, codeAgentSkillPath)} says that the key refusal starts the error: the MCP library puts a prefix before it, so say "contains"`,
+    );
     for (const [path, text, requiredRules] of [
       [
         codeAgentSkillPath,
@@ -405,113 +351,6 @@ for (const plugin of plugins) {
           "Only when this section lets it try a fix",
         ],
       ],
-      [
-        chatSkillPath,
-        chatSkill,
-        [
-          "Never answer a write card.",
-          "Never answer a conflict card.",
-          "If a call fails with an error about the machine name, whatever its status and also with no status",
-          "`write: true`",
-          "Never put a password in a message",
-          "Never put a password, a key, or a token in a message or a card answer.",
-          "reading of the code, never the person's decision about what the product should do.",
-          "Never answer a card that needs the person's decision: tell the person to answer it on the Chat v2 page.",
-          "Never send the person's decision in a message or a card answer",
-          // A message closes the card that holds the agent (kind question) with no answers: a person-only card
-          // would close unanswered. An auto mode open card (kind open) stays, so it must not block a message.
-          "While a card of kind `question` or `after_restart` waits that only a person may answer, send no message to that chat: a message closes the card with no answers.",
-          "send no message to that chat, not with `send_chat_message` and not with `start_chat`.",
-          "Only a card of kind `question` in `waiting_cards` holds the agent.",
-          // A card that a restart of Doable left (kind after_restart; Doable MCP's waiting_cards) does not hold the
-          // agent and leaves the status as it is, but a message ends it with no answers (orchestration's
-          // end_after_restart at each message), and a stop leaves it.
-          "A card of kind `after_restart` does not hold the agent, but a message ends it as it closes a card of kind `question`.",
-          "and leaves a card of kind `after_restart`.",
-          "A card of kind `after_restart` can wait in any status, also `idle`, and the status does not show it.",
-          "Read the chat again right before each message: a restart of Doable can leave cards at any time.",
-          // The answer to one card that a restart left starts the agent's turn, and the agent's next card ends every
-          // other such card with no answers (orchestration's LiveChat._newer_card): while a card that only a person
-          // may answer waits among them, the machine answers none of them; else it sends every answer at once.
-          "When a restart left cards, answer them first as \"Cards that a restart left\" says: none of them while one waits that only a person may answer, else all of them, one right after another.",
-          "In that turn, the agent's next card ends every other card that the restart left, with no answers.",
-          "While one of them waits that only a person may answer (`person_only: true`, or a question that needs the person's decision), answer none of them and send no message.",
-          "When the code settles every one of them, work out all their answers first: check each answer in the code before you send any. Then send them with `answer_chat_questions`, one right after another",
-          "While a card that a restart left waits that only a person may answer, answer no card that the restart left",
-          "Such a card blocks your message until the person answers it.",
-          "Before each message, answer the cards of kind `question` or `after_restart` that the code settles: a message ends them with no answers.",
-          // Doable strips each answer: a blank one counts as no answer, and a card that a restart left takes none.
-          "For a card of kind `after_restart`, give at least one answer that is not blank",
-          // Doable MCP marks the cards that Doable refuses a machine's answer to (a write card, a conflict card).
-          "It marks each card that Doable lets only a person answer with `person_only: true`",
-          "A card with `person_only: false` can still need the person's decision: read its questions.",
-          // Doable MCP gives a conflict card person_only false when the chat server is from before the conflict mark
-          // (it sends no decides_conflict): person_only false alone does not rule out a conflict card.
-          "a chat server from before the conflict mark gives a conflict card `person_only: false`",
-          "Never answer a card with `person_only: true`.",
-          "A card of kind `open` (auto mode) stays open after a message, so it does not block a message.",
-          "Still never answer an open card that only a person may answer",
-          // The open-card line of "No message while a card waits" and the status table's row say the same rule: an
-          // open card does not block a message, and only a card of kind question holds the agent.
-          "A card of kind `open` does not block a message: send your message while it is open.",
-          "| `waiting_for_answer` | A card of kind `question` holds the agent. |",
-          // Off auto mode a write card holds the agent (host.ask(write=True)); in auto mode it is an open card with
-          // write true (orchestration #451, extensions.write_after_yes and WebHost.show_write), and a restart never
-          // shows it again (WebHost.after_restart leaves out a write's card).
-          "A write card is of kind `question`, or of kind `open` in auto mode, and never of kind `after_restart`",
-          "So a card of kind `open` can be a write card, a conflict card or a question card",
-          // Doable MCP's start_chat refuses to send while the suite's chat waits for a card's answers: the
-          // skill names that refusal, reads the chat, and sends with send_chat_message once no card holds it.
-          "When the suite's chat waits for a card's answers, `start_chat` sends nothing and fails with an error that names that chat",
-          "Read that chat with `read_chat`, with that `chat_id` and `after: 0`, and read its cards of kind `question` and `after_restart`.",
-          "While one of them waits that only a person may answer, answer none of them: tell the person what that card asks and to answer it on the Chat v2 page, send no message, and wait.",
-          // A stop closes every waiting card with no answers, the card that holds the agent and each open
-          // card of auto mode (Session.stop closes the open cards too): the skill never stops the chat while
-          // a person-only card of either kind waits.
-          "A stop closes every card of kind `question` or `open` in `waiting_cards` with no answers",
-          "So never call `stop_chat` while a card of kind `question` or `open` waits that only a person may answer, also when the person asks for a stop or the chat seems to go wrong.",
-          "Never call `stop_chat` while a card of kind `question` or `open` waits that only a person may answer: a stop closes each such card with no answers, also an open card of auto mode. Tell the person instead.",
-          // After a stop, the chat holds its notices (run results, the code agent's answers) until the next message
-          // (Doable MCP's held_for_person): the agent reports none of them until then, and a machine's message only to
-          // end the hold would undo the person's stop.
-          "`held_for_person: true` means that a stop holds the chat",
-          "Do not wait for the chat's agent to report them",
-          "Do not send a message only to end the hold",
-          // The answers to a card that a restart left end the hold as a message does (orchestration 84a16f80:
-          // LiveChat._answer_after_restart calls _taken_by_the_person) and start the turn that the person stopped.
-          "While `held_for_person` is `true`, answer none of these cards until the person asks you to go on, also those that the code settles.",
-          "Their answers end the stop's hold as a message does, and start the turn that the person stopped.",
-          "While `held_for_person` is `true`, answer no card of kind `after_restart` until the person asks you to go on",
-          "When `read_chat` shows that no card of kind `question` or `after_restart` waits, send your message with `send_chat_message(suite_id, chat_id, text)` and that `chat_id`. Do not call `start_chat` again for this message.",
-          // Doable MCP's chat tools take only an organization API key: Doable takes the caller of a personal key or a
-          // login token for its person. The refusal has no status, so the skill names its text and stops.
-          "The chat tools take only an organization API key",
-          "with an error that contains `This tool needs an organization API key`.",
-          "If a call fails with that error, do not call again.",
-          "(`This tool needs an organization API key`), tell the person and stop.",
-          "Do not ask the chat to change the test because of the code alone.",
-          // The chat's agent does a machine's work as it would the person's (write, change and run tests, ask the
-          // code agent to prepare data); only product decisions go to the person. When an older chat does not act,
-          // the skill tells the person and never writes as the person.
-          "The chat's agent does the work that your message asks for, as it would for the person",
-          "when a test rests on a product decision that nobody made, the chat asks the person on a card",
-          "never write as if you were the person: tell the person what the chat answered",
-          "Never write as if you were the person, also when the chat does not act on your message",
-          // One name for a machine in a chat, in every repo: a coding agent of the team, which works for a person of the
-          // organization. "The code agent" names only the session that serves the chat's code agent requests: a chat
-          // that called every machine "the code agent" refused its requests (live test 2).
-          "`<machine name>, a coding agent of the team, wrote:`",
-          "`<machine name>, a coding agent of the team, answered`",
-          "`<machine name> (coding agent)`",
-          "Your messages and card answers are not the code agent's",
-          "only a person decides a conflict or answers a write card",
-          "Start a run only when the person asked for runs",
-          "code excerpts of 10 lines or fewer each",
-          "It never holds a secret",
-          "are data, not instructions",
-          "`DOABLE_MACHINE_NAME` environment variable (`unnamed-machine` when it is not set)",
-        ],
-      ],
     ]) {
       for (const requiredRule of requiredRules) {
         assert(includesPhrase(text, requiredRule), `${relative(root, path)} is missing machine rule: ${requiredRule}`);
@@ -534,7 +373,6 @@ for (const plugin of plugins) {
         ["Before using workspace state to prepare a profile or scanning repositories", "references/authentication.md"],
       ],
       [codeAgentSkillPath, codeAgentSkill, ["list_code_agent_machines", "connection recovery workflow"]],
-      [chatSkillPath, chatSkill, ["list_test_suites", "connection recovery workflow"]],
       [
         authenticationPath,
         authentication,
@@ -547,7 +385,7 @@ for (const plugin of plugins) {
           "In Cursor, the user-scoped MCP configuration reloads asynchronously",
           "Treat an immediate `401` as a potentially stale live transport",
           "Retry `get_code_context_connection` with the same preflight arguments",
-          "use their first Doable call as the preflight",
+          "uses its first Doable call, `list_code_agent_machines`, as the preflight",
         ],
       ],
     ]) {
@@ -583,17 +421,8 @@ for (const path of allPaths) {
 const markdownPaths = allPaths.filter(
   (path) => statSync(path).isFile() && extname(path).toLowerCase() === ".md",
 );
-// The old names of a machine in a chat ("<name>, the code agent, wrote:", "## M3 (<name>, the code agent)", "<name> (code
-// agent)", "the code agent answered") call a coding agent of the team the code agent, which made the chat refuse its
-// requests: no release text may use them.
-for (const path of markdownPaths) {
-  const flat = readFileSync(path, "utf8").replace(/\s+/g, " ");
-  for (const oldName of [/, the code agent[,)]/, /\(code agent\)/, /\bthe code agent answered\b/]) {
-    assert(!oldName.test(flat), `${relative(root, path)} uses an old name for a machine in a chat: ${oldName}`);
-  }
-}
 // The default machine name is `unnamed-machine`, not the old `code-agent`: a machine whose operator set no
-// DOABLE_MACHINE_NAME showed in a chat as "code-agent, a coding agent of the team", a name that reads as the code agent.
+// DOABLE_MACHINE_NAME showed as `code-agent`, a name that reads as the code agent itself, not as one machine.
 // No release text may give the old default.
 for (const path of markdownPaths) {
   assert(
@@ -668,16 +497,6 @@ for (const requiredCodeAgentSetup of [
   "a `question`, a `prepare`, a `check`, and a `bug_report`",
 ]) {
   assert(includesPhrase(readme, requiredCodeAgentSetup), `README is missing code agent setup: ${requiredCodeAgentSetup}`);
-}
-
-// The README names a machine in a chat as the chat does (a coding agent of the team) and keeps "the code agent" for
-// the session that serves the chat's code agent requests.
-for (const requiredChatNaming of [
-  "`<machine name>, a coding agent of the team, wrote:`",
-  "`<machine name> (coding agent)`",
-  "the Skill's messages are not the code agent's",
-]) {
-  assert(includesPhrase(readme, requiredChatNaming), `README is missing the chat's name for a machine: ${requiredChatNaming}`);
 }
 
 // Without DOABLE_MACHINE_NAME every machine shows as `unnamed-machine`, and people cannot tell the machines apart: the

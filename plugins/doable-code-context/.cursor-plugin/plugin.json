@@ -2,7 +2,7 @@
   "name": "doable-code-context",
   "displayName": "Doable Code Context",
   "version": "0.3.0",
-  "description": "Connect private code to Doable through MCP: resolve grounded context requests, serve Doable code agent requests from a machine, and drive Doable chats.",
+  "description": "Connect private code to Doable through MCP: resolve grounded context requests and serve Doable code agent requests from a machine.",
   "author": {
     "name": "Doable AI"
   },
@@ -15,8 +15,7 @@
     "trd",
     "code-context",
     "agent-skills",
-    "code-agent",
-    "chat"
+    "code-agent"
   ],
   "category": "developer-tools",
   "tags": [

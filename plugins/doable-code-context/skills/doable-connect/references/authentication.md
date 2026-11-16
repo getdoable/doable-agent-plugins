@@ -2,7 +2,7 @@
 
 Use this workflow only after a live `get_code_context_connection` preflight fails. An MCP config entry, an environment-variable name, or an API-key-shaped value is diagnostic information; none proves that the active MCP connection has a valid credential.
 
-The `doable-code-agent` and `doable-chat` Skills use their first Doable call as the preflight (`list_code_agent_machines` and `list_test_suites`). When that call fails, follow the same steps, and in step 6 retry that call instead of `get_code_context_connection`. They have no Round, so the expected organization is the one the person names, or else the one the key belongs to.
+The `doable-code-agent` Skill uses its first Doable call, `list_code_agent_machines`, as the preflight. When that call fails, follow the same steps, and in step 6 retry that call instead of `get_code_context_connection`. It has no Round, so the expected organization is the one the person names, or else the one the key belongs to.
 
 ## Identify the expected organization
 

@@ -467,5 +467,5 @@ Then start the loop again.
   server still running for a request that has ended.
 - Write no text while the queue is empty. Write to the person only when a request ends or
   something needs them.
-- Do not answer a chat's cards or send chat messages from this skill. To drive a chat, use the
-  `doable-chat` skill in another session.
+- Do not answer a chat's cards or send chat messages. This skill only serves the requests a chat
+  sends.

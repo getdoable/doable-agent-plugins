@@ -7,18 +7,16 @@ Official agent plugins for [Doable](https://getdoable.ai), supporting Codex, Cla
 
 | Plugin | Version | Purpose | Network |
 | --- | --- | --- | --- |
-| `doable-code-context` | `0.3.0` | Resolve context requests, serve code agent requests, and drive Doable chats | Doable MCP |
+| `doable-code-context` | `0.3.0` | Resolve context requests and serve code agent requests | Doable MCP |
 
 ## Workflows
 
-The plugin has three workflows:
+The plugin has two workflows:
 
 - **Code Context**: answer the questions a Doable test spec request asks about the code
   (`doable-connect`, `doable-answer-questions`). Described next.
 - **Code agent**: a machine that holds the product's repositories serves the requests a Doable
   chat sends it (`doable-code-agent`). See [Run a Doable code agent](#run-a-doable-code-agent).
-- **Chat**: ask a Doable chat (Chat v2) to write and run tests from the coding agent
-  (`doable-chat`). See [Drive a Doable chat](#drive-a-doable-chat).
 
 ### Code Context
 
@@ -104,7 +102,6 @@ Natural-language requests activate the Skills. Explicit invocations are:
 - `/doable-code-context:doable-connect`
 - `/doable-code-context:doable-answer-questions`
 - `/doable-code-context:doable-code-agent`
-- `/doable-code-context:doable-chat`
 
 #### Check the version and update
 
@@ -150,11 +147,9 @@ every machine that uses the plugin, and give each machine its own name, such as 
 it is not set, the name is `unnamed-machine`, and people cannot tell such machines apart in Doable.
 A name is 1 to 64 characters, each a letter, a digit, `.`, `_`, or `-`. Doable MCP refuses any
 other name itself, with an error that names the `X-Doable-Machine` header and has no status, and
-Doable refuses it with `422`. The Skills then tell you the rule and stop.
-Doable shows this name on the chat messages, the card answers, and the code agent requests of that
-machine. In a chat, Doable names the machine a coding agent of the team, shown as
-`<machine name> (coding agent)` on the Chat v2 page. The Codex manifest does not send this header,
-so Doable MCP uses its own default name for a Codex session.
+Doable refuses it with `422`. The code agent Skill then tells you the rule and stops.
+Doable shows this name on the code agent requests that the machine serves. The Codex manifest does
+not send this header, so Doable MCP uses its own default name for a Codex session.
 
 ### Host credential loading
 
@@ -215,12 +210,12 @@ To set up a machine:
 1. Put the product's repositories in one folder, and start the coding agent there.
 2. Run Claude Code on the Claude plan (`claude login`). Remove `ANTHROPIC_API_KEY` from the
    environment of that session, or its usage is billed to the API.
-3. Export `DOABLE_API_KEY` (an organization API key from Doable Settings: the code agent and
-   chat tools refuse a personal API key and a Doable login token) and
+3. Export `DOABLE_API_KEY` (an organization API key from Doable Settings: the code agent tools
+   refuse a personal API key and a Doable login token) and
    `DOABLE_MACHINE_NAME` (the name Doable shows for this machine: 1 to 64 characters, each a
    letter, a digit, `.`, `_`, or `-`, such as `mac-mini-1`), then install the plugin as above.
-   Do not leave `DOABLE_MACHINE_NAME` unset: the machine then shows as `unnamed-machine` in the
-   chat and on its requests.
+   Do not leave `DOABLE_MACHINE_NAME` unset: the machine then shows as `unnamed-machine` on its
+   requests.
 4. Write the policy file `.doable/code-agent.md`: which repositories, environments, commands, and
    data sources the machine may use, what it must never touch, and whether code excerpts may
    leave the machine. On the first start (step 6), the Skill copies its template there and waits
@@ -321,50 +316,6 @@ The logins a `prepare` request asks for reach Doable only through the Doable MCP
 `add_test_account`; a login made only to reproduce a bug is not registered in Doable. It never
 pushes, never touches production, and never puts a secret in a result.
 
-## Drive a Doable chat
-
-The `doable-chat` Skill drives the Doable chat (Chat v2) of a test suite from the coding agent:
-it starts the chat, sends messages, reads replies and run results, answers the question cards it
-can answer from the code, starts the runs the chat proposes when you ask for runs, and debugs a
-failed run in the local code. For example:
-
-```text
-Ask Doable's chat to test the feature I just implemented, run the tests, and tell me why any test failed.
-```
-
-Doable names the machine a coding agent of the team, which works for a person of your
-organization. The chat's agent gets each of its messages under the heading
-`<machine name>, a coding agent of the team, wrote:`, and is told about its card answers as
-`<machine name>, a coding agent of the team, answered`. The Chat v2 page shows the machine as
-`<machine name> (coding agent)`. The chat's agent does the work that the Skill's messages ask for,
-as it would for you: it writes, changes, and runs tests, and asks the code agent to prepare data
-or to check state. "The code agent" is only the session that serves those requests (see
-[Run a Doable code agent](#run-a-doable-code-agent)): the Skill's messages are not the code agent's.
-
-What the machine says the product does or should do is its reading of the code, never your
-decision. A test that rests on a product decision nobody made goes to you on a card, and only a
-person decides a conflict or answers a write card. So the Skill answers only the cards whose
-questions the code settles. It never answers a write card (a Jira ticket or a correction of a run
-result), a card that decides a conflict between a run and the test spec, or a question about what
-the product should do, and it never passes on the person's decision in a message: it tells you to
-answer those on the Chat v2 page. Doable MCP marks a write card and a conflict card
-`person_only`. While such a card holds the chat's agent, it sends no message to that chat, because
-a message closes that card with no answers. A card that a restart of Doable left (kind
-`after_restart`) does not hold the agent, but a message ends it with no answers too. The answer to
-one such card starts the agent's turn, and the agent's next card ends the others. So while one
-waits that only you may answer, the Skill answers none of them and sends no message; when the code
-settles all of them, it works out every answer first and sends them one right after another. An
-open card of auto mode does not hold the agent and stays open after a
-message, so it does not block one. A stop closes the card that holds the agent and each open card
-with no answers, so the Skill does not stop the chat while such a card of either kind waits.
-After a stop, the chat holds the results of test runs and the code agent's answers until the next
-message (Doable MCP's `held_for_person`): the Skill then does not wait for the chat's report of
-them, and does not send a message only to end the hold.
-Doable refuses a machine's answer to a write card or a conflict card. Runs it starts count toward
-the organization's quota. The chat tools take only an organization API key: Doable MCP refuses a
-personal API key and a Doable login token, and the Skill then tells you to set an organization
-API key and stops.
-
 ## Shared grounding and privacy boundary
 
 The connected plugin:
@@ -393,7 +344,7 @@ See [CHANGELOG.md](CHANGELOG.md) for version history and [CONTRIBUTING.md](CONTR
 - Required skips return to platform-user review. Coding agents cannot defer or waive scope.
 - Active notifications, setup-time exhaustive knowledge mapping, and automatic historical-knowledge reuse are outside this MVP.
 - The code agent's watch lasts one agent turn. Nothing restarts it after a reboot, a sleep, or a plan limit.
-- The code agent and chat Skills need a Doable MCP server and a Doable server that have the code agent and chat tools.
+- The code agent Skill needs a Doable MCP server and a Doable server that have the code agent tools.
 
 ## Verify
 
@@ -402,7 +353,7 @@ npm test
 claude plugin validate ./plugins/doable-code-context
 ```
 
-The release verifier requires exactly four Skills and one dependency-free helper with no API-key or credential primitives. Its only network call is the direct submission of a privacy-checked context file, without redirects.
+The release verifier requires exactly three Skills and one dependency-free helper with no API-key or credential primitives. Its only network call is the direct submission of a privacy-checked context file, without redirects.
 
 Use [TESTING.md](TESTING.md) for the fresh-session acceptance matrix.
 
@@ -414,7 +365,6 @@ plugins/
     skills/doable-connect/
     skills/doable-answer-questions/
     skills/doable-code-agent/
-    skills/doable-chat/
     scripts/doable-code-context.mjs
 ```
 
