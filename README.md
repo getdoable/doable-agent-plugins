@@ -310,8 +310,11 @@ To set up a machine:
 
 The watch lasts one agent turn and writes nothing while no request comes. Nothing restarts it after
 a reboot, a sleep, or a plan limit. The machine serves one request at a time; requests that wait
-behind a busy machine do not expire. The machine asks a person only when the work cannot go on
-without one: Doable then shows the question on the Chat v2 page and sends a Slack message.
+behind a busy machine do not expire. A chat sends requests only while a machine of the organization
+is connected; with no machine connected, the chat's agent works as it does without a code agent.
+The machine never asks a person. When the work cannot go on without an answer that the code and
+the request do not give, it asks the chat's agent with the Doable MCP tool `ask_agent`. The agent
+answers from what the chat holds, or asks a person in the chat first.
 The logins a `prepare` request asks for reach Doable only through the Doable MCP tool
 `add_test_account`; a login made only to reproduce a bug is not registered in Doable. It never
 pushes, never touches production, and never puts a secret in a result.
@@ -344,7 +347,8 @@ See [CHANGELOG.md](CHANGELOG.md) for version history and [CONTRIBUTING.md](CONTR
 - Required skips return to platform-user review. Coding agents cannot defer or waive scope.
 - Active notifications, setup-time exhaustive knowledge mapping, and automatic historical-knowledge reuse are outside this MVP.
 - The code agent's watch lasts one agent turn. Nothing restarts it after a reboot, a sleep, or a plan limit.
-- The code agent Skill needs a Doable MCP server and a Doable server that have the code agent tools.
+- The code agent Skill needs a Doable MCP server and a Doable server that have the code agent tools,
+  with `ask_agent`.
 
 ## Verify
 

@@ -26,7 +26,7 @@ No Code Context payload (workspace profile or Round answer) may contain source c
 
 ## Doable code agent
 
-`doable-code-agent` serves the requests a Doable chat sends to a machine that holds the product's repositories. It works in those repositories and in the test environments that the machine's local policy file `.doable/code-agent.md` allows. The policy file stays on the machine and is ignored by Git. The repository content and anything the machine reads stay on the machine, except what a result, a progress text, or a question to a person carries.
+`doable-code-agent` serves the requests a Doable chat sends to a machine that holds the product's repositories. It works in those repositories and in the test environments that the machine's local policy file `.doable/code-agent.md` allows. The policy file stays on the machine and is ignored by Git. The repository content and anything the machine reads stay on the machine, except what a result, a progress text, or a question to the chat's agent carries.
 
 A result may hold:
 
@@ -36,9 +36,9 @@ A result may hold:
 - the usernames and Doable account ids of test logins the machine made, and the ids or values of test records it made;
 - the names of the data sources it read for a check, and when it read them.
 
-A result, a progress text, or a question to a person never holds passwords, API keys, session tokens or cookies, reset keys, private keys, connection strings, environment values, customer personal data, or whole files. A test login that a `prepare` request asks for reaches Doable only through the Doable MCP tool `add_test_account`, which sends the password to Doable's existing account route, where it is stored encrypted; the password is never in a request, a result, a chat message, or a file. A login made only to reproduce a bug is not registered in Doable; its password stays on the machine where the policy file says, or is not kept. Other secrets that an app hands out stay on the machine where the policy file says, or are not kept.
+A result, a progress text, or a question never holds passwords, API keys, session tokens or cookies, reset keys, private keys, connection strings, environment values, customer personal data, or whole files. A test login that a `prepare` request asks for reaches Doable only through the Doable MCP tool `add_test_account`, which sends the password to Doable's existing account route, where it is stored encrypted; the password is never in a request, a result, a chat message, or a file. A login made only to reproduce a bug is not registered in Doable; its password stays on the machine where the policy file says, or is not kept. Other secrets that an app hands out stay on the machine where the policy file says, or are not kept.
 
-Doable shows results, progress texts, and questions to a person to the chat's agent and to the organization's people on the Chat v2 page, and sends a Slack message for a question to a person. Because a question and its answer stay in the chat, the machine never asks a person for a password, a key, a token, or any other credential: it declines and says which access a person must add on the machine. The machine never pushes code, opens pull requests, deploys, or touches production.
+The chat's agent and the organization's people see the machine's results, progress texts, and questions on the Chat v2 page. The machine never asks a person: it asks the chat's agent, which answers from what the chat holds or asks a person in the chat. When the agent asks a person in a turn that the machine's question started, Doable can also send the agent's question on Slack, with a link to the chat, to the chat's person or else to the organization's default channel. Because a question and its answer stay in the chat, the machine never asks for a password, a key, a token, or any other credential: it declines and says which access a person must add on the machine. The machine never pushes code, opens pull requests, deploys, or touches production.
 
 ## Optional GitHub runner
 

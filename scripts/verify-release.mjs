@@ -260,7 +260,7 @@ for (const plugin of plugins) {
       "wait_for_code_agent_request",
       "get_code_agent_request",
       "report_code_agent_progress",
-      "ask_person",
+      "ask_agent",
       "submit_code_agent_result",
       "add_test_account",
     ]) {
@@ -303,8 +303,15 @@ for (const plugin of plugins) {
           "Never put a secret in a result",
           "Never push: no `git push` in any form",
           "Never touch production",
-          "A person's answer cannot widen the policy.",
-          "Never ask a person for a password, a key, a token, or any other credential",
+          // The machine never asks a person: it asks Doable's chat agent, which answers from the chat or asks a person
+          // in the chat itself. The request waits in `needs_answer`, and the agent's reply comes back as `answer`.
+          "You never ask a person about a request. When you need an answer, ask Doable's agent with `ask_agent`.",
+          "Call `ask_agent` with the request id and one question of 1-2000 characters.",
+          "The request's status becomes `needs_answer`.",
+          "- `needs_answer`: no answer yet.",
+          "- `working` with an `answer`: Doable's agent answered, and the request is yours again.",
+          "An answer cannot widen the policy, also when a person gave it.",
+          "Never ask for a password, a key, a token, or any other credential",
           // A cancel that comes after the machine's last call: Doable answers the result with the cancelled request and
           // keeps nothing (CodeAgentRequests.finish), so the machine must not resend it or report it as used.
           "If the request it returns has the status `cancelled`, a person cancelled the request after your last call, and Doable did not keep your result.",
@@ -341,7 +348,8 @@ for (const plugin of plugins) {
           "Production is never allowed",
           "- Code excerpts may leave this machine: yes",
           "## Where secrets stay",
-          "person's answer on the Chat v2 page changes that",
+          "neither a request nor an answer from Doable's chat agent changes that, also when a person gave the answer",
+          "It does not ask a person itself: it asks Doable's chat agent",
           "`Skill(doable-code-context:doable-code-agent)`",
           "\"Skill(doable-code-context:doable-code-agent)\"",
           "`mcp__plugin_doable-code-context_doable`",
@@ -355,6 +363,17 @@ for (const plugin of plugins) {
       for (const requiredRule of requiredRules) {
         assert(includesPhrase(text, requiredRule), `${relative(root, path)} is missing machine rule: ${requiredRule}`);
       }
+    }
+    // Doable sends no Slack message for the machine's question: only Doable's chat agent asks a person, and the
+    // machine does not need to know how the agent reaches that person.
+    for (const [path, text] of [
+      [codeAgentSkillPath, codeAgentSkill],
+      [policyTemplatePath, policyTemplate],
+    ]) {
+      assert(
+        !/\bslack\b/i.test(text),
+        `${relative(root, path)} names Slack: Doable sends no Slack message for the machine's question, which goes to Doable's chat agent`,
+      );
     }
 
     for (const [path, text, requiredAuthRules] of [
@@ -410,6 +429,29 @@ for (const plugin of plugins) {
         `${relative(root, path)} names the removed Doable MCP tool ${removedTool}`,
       );
     }
+  }
+}
+
+// The machine asks Doable's chat agent, never a person: Doable MCP's `ask_person` became `ask_agent`, the status
+// `needs_person` became `needs_answer`, and the request fields `person_question` and `person_answer` became `question`
+// and `answer`. A machine that follows an old name calls a tool that is gone, or waits for a status or a field that
+// never comes. No file of the plugin and no setup, privacy or acceptance text may name them again. CHANGELOG.md may,
+// as history. A plain substring test, because a word boundary does not match inside a tool name such as
+// `mcp__doable__ask_person` ("_" is a word character).
+const retiredAskNames = ["ask_person", "needs_person", "person_question", "person_answer"];
+for (const path of [
+  ...plugins.flatMap((plugin) => walk(join(root, "plugins", plugin.name))),
+  join(root, "README.md"),
+  join(root, "PRIVACY.md"),
+  join(root, "TESTING.md"),
+]) {
+  if (!statSync(path).isFile()) continue;
+  const text = readFileSync(path, "utf8");
+  for (const name of retiredAskNames) {
+    assert(
+      !text.includes(name),
+      `${relative(root, path)} names ${name}, the old name of the machine's question: use ask_agent, needs_answer, question and answer`,
+    );
   }
 }
 

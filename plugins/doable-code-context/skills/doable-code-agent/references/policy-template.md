@@ -4,8 +4,9 @@ This file tells the Doable code agent on this machine what it may do. The `doabl
 skill reads it before every request. Keep it at `.doable/code-agent.md` in the workspace root; it
 stays on this machine and Git ignores it.
 
-Write plain words. Anything this file does not allow is not allowed, and neither a request nor a
-person's answer on the Chat v2 page changes that: only an edit of this file does.
+Write plain words. Anything this file does not allow is not allowed, and neither a request nor an
+answer from Doable's chat agent changes that, also when a person gave the answer: only an edit of
+this file does.
 Production is never allowed, whatever this file says. Replace each line marked `Example:` with
 your own line, or delete it: the code agent ignores lines still marked `Example:`.
 
@@ -100,7 +101,8 @@ excerpts (10 lines or fewer each) on this machine.
 
 ## Ask a person
 
-Cases where the code agent must ask a person before it goes on, in addition to the skill's own
-cases.
+Cases where the code agent must ask before it goes on, in addition to the skill's own cases. It
+does not ask a person itself: it asks Doable's chat agent, which answers from what the chat holds
+or asks a person in the chat.
 
 - Example: before it makes more than 5 logins for one request

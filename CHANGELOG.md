@@ -19,18 +19,20 @@ All notable changes to Doable Agent Plugins are documented here.
   backend state) and `bug_report` (debug a failed run and report the cause with file paths, line
   numbers and a suggested fix). The Skill waits for requests in one agent turn with
   `wait_for_code_agent_request` and writes no text at all while the queue is empty. It reports
-  progress, sends each result with `submit_code_agent_result`, and asks a person with `ask_person`
-  only when the work cannot go on without one, never for a credential; the question names each
-  test by its title, never by its id. It checks a request that waits for a person after every
-  empty poll and at each progress report, continues an answered request with its `person_answer`
-  and never asks again, and retries a `404` on a request it holds for up to 5 minutes after a
+  progress and sends each result with `submit_code_agent_result`. It never asks a person: when the
+  work cannot go on without an answer that the code and the request do not give, it asks the
+  chat's agent one question with `ask_agent`, never for a credential, and the agent answers from
+  what the chat holds or asks a person in the chat first. The question names each test by its
+  title, never by its id. It checks a request that waits for an answer (`needs_answer`) after every
+  empty poll and at each progress report, continues an answered request with its `answer` and
+  never asks again, and retries a `404` on a request it holds for up to 5 minutes after a
   Doable restart, with `sleep 20` between tries (Claude Code blocks a longer `sleep`). When a
   person cancels a request after its last call, `submit_code_agent_result` returns the request as
   `cancelled` and Doable keeps nothing: the Skill does not send the result again and tells the
   person that Doable did not use it. The machine's local policy file `.doable/code-agent.md` says
-  which repositories, environments, commands and data sources it may use; neither a request nor a
-  person's answer widens it. The Skill copies a template from its `references/` on the first
-  start. Its frontmatter allows the Doable MCP tools it calls, and it loads itself again after
+  which repositories, environments, commands and data sources it may use; neither a request nor an
+  answer widens it, also when a person gave the answer. The Skill copies a template from its
+  `references/` on the first start. Its frontmatter allows the Doable MCP tools it calls, and it loads itself again after
   each new message from the person, because Claude Code then forgets those tools. For a session
   with nobody at the terminal, the README's setup lists what to allow in `.claude/settings.json`:
   the Skill itself (Claude Code asks before it loads a Skill that no rule allows), the Doable MCP
@@ -75,7 +77,10 @@ All notable changes to Doable Agent Plugins are documented here.
 - The connection recovery workflow covers `doable-code-agent`, which uses its first Doable call
   as the preflight.
 - The new Skill needs a Doable MCP server with the code agent tools and a Doable server with the
-  code agent turned on.
+  code agent turned on. The machine asks with `ask_agent`, which replaced Doable MCP's earlier
+  `ask_person`: a Doable MCP server that has only `ask_person` cannot take the machine's
+  questions. The release verifier refuses `ask_person`, the status `needs_person` and the fields
+  `person_question` and `person_answer` in the plugin, README.md, PRIVACY.md and TESTING.md.
 
 ## [0.2.18] - 2026-11-10
 
