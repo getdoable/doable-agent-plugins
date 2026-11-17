@@ -9,6 +9,79 @@ All notable changes to Doable Agent Plugins are documented here.
 - Verify template integrity and syntax in CI. Local plugin version remains 0.2.10.
 - Clarify the GitHub integration's repository metadata and model-provider boundary.
 
+## [0.3.0] - 2026-11-11
+
+### Added
+
+- `doable-code-agent` serves Doable code agent requests on a machine that holds the product's
+  repositories. A Doable chat (Chat v2) sends typed requests: `question` (answer from the code),
+  `prepare` (make state in a test environment and return the logins and ids), `check` (read
+  backend state) and `bug_report` (debug a failed run and report the cause with file paths, line
+  numbers and a suggested fix). The Skill waits for requests in one agent turn with
+  `wait_for_code_agent_request` and writes no text at all while the queue is empty. It reports
+  progress and sends each result with `submit_code_agent_result`. It never asks a person: when the
+  work cannot go on without an answer that the code and the request do not give, it asks the
+  chat's agent one question with `ask_agent`, never for a credential, and the agent answers from
+  what the chat holds or asks a person in the chat first. The question names each test by its
+  title, never by its id. It checks a request that waits for an answer (`needs_answer`) after every
+  empty poll and at each progress report, continues an answered request with its `answer` and
+  never asks again, and retries a `404` on a request it holds for up to 5 minutes after a
+  Doable restart, with `sleep 20` between tries (Claude Code blocks a longer `sleep`). When a
+  person cancels a request after its last call, `submit_code_agent_result` returns the request as
+  `cancelled` and Doable keeps nothing: the Skill does not send the result again and tells the
+  person that Doable did not use it. The machine's local policy file `.doable/code-agent.md` says
+  which repositories, environments, commands and data sources it may use; neither a request nor an
+  answer widens it, also when a person gave the answer. The Skill copies a template from its
+  `references/` on the first start. Its frontmatter allows the Doable MCP tools it calls, and it loads itself again after
+  each new message from the person, because Claude Code then forgets those tools. For a session
+  with nobody at the terminal, the README's setup lists what to allow in `.claude/settings.json`:
+  the Skill itself (Claude Code asks before it loads a Skill that no rule allows), the Doable MCP
+  server, the policy's commands, its data source commands, the keychain command, `sleep 20`, and
+  file changes and git commands when the policy allows a fix try. Its example list allows all that
+  the template's example policy lines name, and the release verifier checks that. Claude Code
+  reads that list only in a folder the person trusted, so the setup says to do the first start
+  interactively and accept the trust dialog, or to give the same rules with `--allowedTools`; it
+  also says that the person's own user settings apply to the serving session. A person watches the
+  first request of each kind. It registers only the logins a `prepare` request asks for, and only
+  through `add_test_account`; a login made only to reproduce a bug stays out of Doable. It never
+  pushes, never touches production, and never puts a secret in a result.
+- The bundled MCP connection sends the machine name as the `X-Doable-Machine` header
+  (`DOABLE_MACHINE_NAME`, default `unnamed-machine`) in Claude Code and Cursor. Doable shows it on
+  the code agent requests that the machine serves. A name is 1 to 64 letters, digits, `.`, `_` or
+  `-`. Doable MCP refuses any other name itself, with an error that names the header and has no
+  status, and Doable refuses it with `422`. The code agent Skill stops on any error about the
+  machine name, whatever its status, and tells the person the rule.
+- `doable-code-agent` needs an organization API key in `DOABLE_API_KEY`. Doable MCP's code agent
+  tools refuse a personal API key and a person's Doable login token before they call Doable,
+  because Doable takes the caller of such a token for the person who owns it. On that error
+  (`This tool needs an organization API key`) the Skill tells the person to set an organization
+  API key and stops.
+
+### Not in this release
+
+- The chat Skill (`doable-chat`), which let a machine write in a Doable chat (Chat v2), is not in
+  this release: Doable has turned off chat control from a machine. Its last version is kept on the
+  branch `parked/doable-chat` of this repository.
+
+### Removed
+
+- `doable-test-feature` and its Codex metadata. Doable MCP no longer starts or lists runs
+  (`run_test_cases`, `get_run` and `list_runs` are gone). The release verifier refuses a Skill
+  that names a removed run tool.
+
+### Changed
+
+- PRIVACY.md: a code agent result may hold file paths, line numbers and code excerpts of 10 lines
+  or fewer each, unless the machine's policy file forbids excerpts. It never holds a secret, a
+  password or customer personal data. Code Context answers keep their boundary.
+- The connection recovery workflow covers `doable-code-agent`, which uses its first Doable call
+  as the preflight.
+- The new Skill needs a Doable MCP server with the code agent tools and a Doable server with the
+  code agent turned on. The machine asks with `ask_agent`, which replaced Doable MCP's earlier
+  `ask_person`: a Doable MCP server that has only `ask_person` cannot take the machine's
+  questions. The release verifier refuses `ask_person`, the status `needs_person` and the fields
+  `person_question` and `person_answer` in the plugin, README.md, PRIVACY.md and TESTING.md.
+
 ## [0.2.18] - 2026-11-10
 
 ### Changed

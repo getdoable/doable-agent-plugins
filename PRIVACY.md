@@ -4,7 +4,7 @@ Repository inspection happens inside the coding agent selected by the customer a
 
 ## Doable Code Context
 
-`doable-code-context` performs remote operations only through the Doable MCP connection loaded by the coding-agent host. The plugin package declares the official endpoint and a credential-variable reference for Cursor and Claude Code; it contains no credential value. The coding-agent host owns the resolved credential. During recovery, the Skill may direct the host to configure a user-supplied key in its user-scoped MCP credential/configuration store, but the bundled helper never reads or persists it and no credential may enter the project workspace or a remote Doable payload.
+`doable-code-context` performs remote operations only through the Doable MCP connection loaded by the coding-agent host. The plugin package declares the official endpoint, a credential-variable reference, and a machine name header (`X-Doable-Machine`, from `DOABLE_MACHINE_NAME`, default `unnamed-machine`) for Cursor and Claude Code; it contains no credential value. Doable shows the machine name on the code agent requests that machine serves. The coding-agent host owns the resolved credential. During recovery, the Skill may direct the host to configure a user-supplied key in its user-scoped MCP credential/configuration store, but the bundled helper never reads or persists it and no credential may enter the project workspace or a remote Doable payload.
 
 Its local `.doable/workspace-candidate.json`, `.doable/workspace-private.json`, and `.doable/requests/` records may contain real repository identities, explicitly user-supplied artifact roots, local paths, Git provenance, exact evidence locators, and frozen Doable questions. They are written with private permissions and ignored by Git. Artifact roots are never serialized into the remote workspace profile.
 
@@ -20,9 +20,25 @@ Code evidence is always bound to an opaque repository reference and kept inside 
 
 The first profile upload and material role/surface/description changes require user approval. A specific round copy prompt authorizes pulling that frozen round and submitting its validated answers; idempotent retries do not create additional submissions.
 
-## Excluded data for the local MCP plugin
+## Excluded data for Code Context rounds
 
-No remote payload may contain source code or snippets, real repository or file identities, branches or commits, secrets or environment values, raw logs or attachments, private URLs, internal infrastructure topology, or real customer/business data.
+No Code Context payload (workspace profile or Round answer) may contain source code or snippets, real repository or file identities, branches or commits, secrets or environment values, raw logs or attachments, private URLs, internal infrastructure topology, or real customer/business data. Code agent results follow their own boundary below.
+
+## Doable code agent
+
+`doable-code-agent` serves the requests a Doable chat sends to a machine that holds the product's repositories. It works in those repositories and in the test environments that the machine's local policy file `.doable/code-agent.md` allows. The policy file stays on the machine and is ignored by Git. The repository content and anything the machine reads stay on the machine, except what a result, a progress text, or a question to the chat's agent carries.
+
+A result may hold:
+
+- an answer in plain words, and the steps to reproduce a bug;
+- file paths and line numbers in the machine's repositories;
+- code excerpts and suggested diffs of 10 lines or fewer each, unless the policy file says that code excerpts may not leave the machine;
+- the usernames and Doable account ids of test logins the machine made, and the ids or values of test records it made;
+- the names of the data sources it read for a check, and when it read them.
+
+A result, a progress text, or a question never holds passwords, API keys, session tokens or cookies, reset keys, private keys, connection strings, environment values, customer personal data, or whole files. A test login that a `prepare` request asks for reaches Doable only through the Doable MCP tool `add_test_account`, which sends the password to Doable's existing account route, where it is stored encrypted; the password is never in a request, a result, a chat message, or a file. A login made only to reproduce a bug is not registered in Doable; its password stays on the machine where the policy file says, or is not kept. Other secrets that an app hands out stay on the machine where the policy file says, or are not kept.
+
+The chat's agent and the organization's people see the machine's results, progress texts, and questions on the Chat v2 page. The machine never asks a person: it asks the chat's agent, which answers from what the chat holds or asks a person in the chat. When the agent asks a person in a turn that the machine's question started, Doable can also send the agent's question on Slack, with a link to the chat, to the chat's person or else to the organization's default channel. Because a question and its answer stay in the chat, the machine never asks for a password, a key, a token, or any other credential: it declines and says which access a person must add on the machine. The machine never pushes code, opens pull requests, deploys, or touches production.
 
 ## Optional GitHub runner
 
