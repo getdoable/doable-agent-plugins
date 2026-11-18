@@ -7,7 +7,7 @@ Official agent plugins for [Doable](https://getdoable.ai), supporting Codex, Cla
 
 | Plugin | Version | Purpose | Network |
 | --- | --- | --- | --- |
-| `doable-code-context` | `0.3.0` | Resolve context requests and serve code agent requests | Doable MCP |
+| `doable-code-context` | `0.3.1` | Resolve context requests and serve code agent requests | Doable MCP |
 
 ## Workflows
 
@@ -360,6 +360,9 @@ claude plugin validate ./plugins/doable-code-context
 The release verifier requires exactly three Skills and one dependency-free helper with no API-key or credential primitives. Its only network call is the direct submission of a privacy-checked context file, without redirects.
 
 Use [TESTING.md](TESTING.md) for the fresh-session acceptance matrix.
+
+[docs/code-context-round-limits.md](docs/code-context-round-limits.md) lists how long each text of a Round may be
+before the helper refuses it, next to what Doable sends. Read it before changing either side.
 
 ## Repository layout
 

@@ -1347,3 +1347,167 @@ test("submit sends the context file with the Round's one-time token and falls ba
   assert.match(recordOutput, /^Round submitted: DQ-DIRECT1 revision 1$/m);
   assert.equal(readdirSync(requestDirectory).filter((name) => name.startsWith("receipt-r1-")).length, 2);
 });
+
+// What Doable's base question asks for (`answer_requirements`), in characters, measured on
+// 2026-11-18 from pull responses built by the server's own code. The helper's bound was 3,000
+// until 0.3.1 and refused the first four. When the server's text changes, update these numbers
+// and docs/code-context-round-limits.md; the headroom check below fails when the bound is no
+// longer at least twice the longest.
+const ANSWER_REQUIREMENTS_SENT_TODAY = {
+  "first test spec, smoke": 3_059,
+  "first test spec, deeper": 3_576,
+  "follow-up baseline": 3_631,
+  "Chat v2 first pass": 4_296,
+  "chat request follow-up": 1_927,
+  "Chat v2 quick round": 1_722,
+};
+const ANSWER_REQUIREMENTS_LIMIT = 20_000;
+
+test("record-round accepts the answer requirements Doable sends, with room to grow", async (t) => {
+  const testRoot = mkdtempSync(join(tmpdir(), "doable-round-limits-"));
+  t.after(() => rmSync(testRoot, { recursive: true, force: true }));
+  mkdirSync(join(testRoot, ".doable"));
+  const statePath = join(testRoot, ".doable", "workspace-private.json");
+  writeFileSync(statePath, JSON.stringify({
+    schemaVersion: "1", workspace: { localId: "local-fixture", serverId: "workspace-safe" },
+    organization: { id: "org-safe" }, repositories: [],
+    privateFingerprintKey: "local-test-only",
+    sync: { profileFingerprint: "fixture" }, profile: { profileFingerprint: "fixture" },
+  }));
+  const environment = { TEST_WORKSPACE: testRoot };
+  const responsePath = join(testRoot, "round.json");
+  const text = (length) => "Map what the request covers. ".repeat(Math.ceil(length / 29)).slice(0, length - 1) + ".";
+  // The shape of a pull response for a Round with one open base question.
+  const record = (index, length) => {
+    const code = `DQ-LIMIT${index}`;
+    writeFileSync(responsePath, JSON.stringify({
+      round_id: `round-limit-${index}`, round_code: code, connection_round_code: code,
+      round_use: "pre_create", test_suite_public_id: null, workspace_id: "workspace-safe",
+      status: "open_for_agent", next_action: "answer", revision: 1, feature_scope: "Gift cards",
+      target_app: null, investigation: "full",
+      questions: [{
+        id: "question-base", purpose: "base_context",
+        question: "Inspect the current workspace for this testing request: Gift cards",
+        why: "This is the user's investigation brief.",
+        answer_requirements: text(length),
+        required: true, scope_hints: { surfaces: [], repo_refs: [] },
+      }],
+      journey_map: { requested: true, how: "Declare each journey once.", may_skip: "" },
+      established_context: [],
+      situation: "No test spec exists yet: the request is all Doable knows.",
+    }));
+    return runHelperResult(["record-round", "--code", code, "--response", responsePath, "--state", statePath], environment);
+  };
+
+  let index = 0;
+  for (const [round, length] of Object.entries(ANSWER_REQUIREMENTS_SENT_TODAY)) {
+    index += 1;
+    const result = await record(index, length);
+    assert.equal(result.code, 0, `${round} (${length} characters): ${result.stderr}`);
+    assert.match(result.stdout, /^Next action: answer$/m);
+    // The agent reads the requirements from the Round file, so the whole text is kept.
+    const recorded = JSON.parse(
+      readFileSync(join(testRoot, ".doable", "requests", `DQ-LIMIT${index}`, "round-r1.json"), "utf8"),
+    );
+    assert.equal(recorded.questions[0].answerRequirements.length, length);
+  }
+
+  const longest = Math.max(...Object.values(ANSWER_REQUIREMENTS_SENT_TODAY));
+  assert.ok(
+    ANSWER_REQUIREMENTS_LIMIT >= 2 * longest,
+    `the helper's bound (${ANSWER_REQUIREMENTS_LIMIT}) must stay at least twice the longest text Doable sends (${longest})`,
+  );
+
+  // The bound itself: it only stops a malformed response.
+  assert.equal((await record(7, ANSWER_REQUIREMENTS_LIMIT)).code, 0);
+  const over = await record(8, ANSWER_REQUIREMENTS_LIMIT + 1);
+  assert.equal(over.code, 1);
+  assert.match(over.stderr, /questions\[0\] answer requirements must be 0-20000 characters/);
+
+  // The numbers in the helper, in this test and in the doc both sides read are the same.
+  const limitsDoc = readFileSync(join(root, "docs", "code-context-round-limits.md"), "utf8");
+  assert.ok(limitsDoc.includes(ANSWER_REQUIREMENTS_LIMIT.toLocaleString("en-US")), "the doc must state the helper's bound");
+  assert.ok(limitsDoc.includes(longest.toLocaleString("en-US")), "the doc must state the longest text Doable sends");
+});
+
+test("a repository folder named repo can be mapped, and the word still cannot leave in text", async (t) => {
+  const testRoot = mkdtempSync(join(tmpdir(), "doable-repo-folder-"));
+  t.after(() => rmSync(testRoot, { recursive: true, force: true }));
+  // Every repo_ref starts with `repo_`; before 0.3.1 this folder name matched that prefix.
+  const repository = join(testRoot, "repo");
+  mkdirSync(repository);
+  execFileSync("git", ["init", "-q", repository]);
+  execFileSync("git", ["-C", repository, "config", "user.email", "test@example.invalid"]);
+  execFileSync("git", ["-C", repository, "config", "user.name", "Test"]);
+  const sourcePath = join(repository, "form.js");
+  writeFileSync(sourcePath, "export const label = 'Save';\n");
+  execFileSync("git", ["-C", repository, "add", "form.js"]);
+  execFileSync("git", ["-C", repository, "commit", "-qm", "fixture"]);
+  const environment = { TEST_WORKSPACE: testRoot };
+  const handshakePath = join(testRoot, "mcp-handshake.json");
+  writeFileSync(handshakePath, JSON.stringify({ organization: { id: "org-safe", display_name: "Example Org" }, workspace: null }));
+  const candidatePath = join(testRoot, "workspace-candidate.json");
+  const workspaceCandidate = (safeDescription) => ({
+    workspaceLabel: "private local workspace",
+    safeDisplayName: "Commerce administration",
+    repositories: [{
+      path: repository, name: "repo", productRole: "staff-console", surfaces: ["promotion-management"],
+      userFacing: true, safeDescription,
+    }],
+  });
+  const statePath = join(testRoot, ".doable", "workspace-private.json");
+  const prepareArgs = ["prepare-workspace", "--candidate", candidatePath, "--handshake", handshakePath, "--state", statePath, "--round-code", "DQ-7F3K"];
+
+  // The folder name is still private: text that holds it is refused.
+  writeFileSync(candidatePath, JSON.stringify(workspaceCandidate("The repo for staff promotion management.")));
+  const leaking = await runHelperResult(prepareArgs, environment);
+  assert.equal(leaking.code, 1);
+  assert.match(leaking.stderr, /repository description exposes local repository provenance/);
+
+  writeFileSync(candidatePath, JSON.stringify(workspaceCandidate("Staff-facing management for promotions.")));
+  await runHelper(prepareArgs, environment);
+  const profilePayloadPath = join(testRoot, "mcp-profile-payload.json");
+  await runHelper(["build-workspace-profile", "--state", statePath, "--output", profilePayloadPath, "--approved"], environment);
+  const envelope = JSON.parse(readFileSync(profilePayloadPath, "utf8"));
+  assert.match(envelope.profile.repositories[0].repo_ref, /^repo_[a-f0-9]{16}$/);
+  const profileResponsePath = join(testRoot, "mcp-profile-response.json");
+  writeFileSync(profileResponsePath, JSON.stringify({ workspace: { id: "workspace-safe", client_workspace_id: envelope.workspace_ref } }));
+  await runHelper(["record-workspace-sync", "--state", statePath, "--payload", profilePayloadPath, "--response", profileResponsePath], environment);
+
+  // An answer with code evidence from that repository carries its repo_ref and validates.
+  const responsePath = join(testRoot, "round.json");
+  writeFileSync(responsePath, JSON.stringify({
+    round_id: "round-repo-folder", round_code: "DQ-7F3K", workspace_id: "workspace-safe", status: "open_for_agent",
+    revision: 1, feature_scope: "Staff promotion creation",
+    questions: [{ id: "question-save-label", purpose: "base_context", question: "What label submits the promotion form?", why: "" }],
+  }));
+  await runHelper(["record-round", "--code", "DQ-7F3K", "--response", responsePath, "--state", statePath], environment);
+  const privateState = JSON.parse(readFileSync(statePath, "utf8"));
+  const answerPath = join(testRoot, ".doable", "requests", "DQ-7F3K", "context-local-r1.json");
+  const answer = JSON.parse(readFileSync(answerPath, "utf8"));
+  answer.answers[0] = {
+    questionId: "question-save-label",
+    status: "answered",
+    findings: [{
+      findingRef: "f_savecode01",
+      statement: "The promotion creation form has a submit control labeled ‘Save’.",
+      truthPlane: "implemented_behavior",
+      sourceType: "code",
+      observableAnchors: ["Save"],
+      evidenceRefIds: ["ev_savelabel"],
+    }],
+    humanClarifications: [],
+  };
+  answer.evidence = [{
+    id: "ev_savelabel", repoRef: privateState.repositories[0].repoRef, kind: "code", path: sourcePath,
+    symbol: "label", startLine: 1, endLine: 1, revision: privateState.repositories[0].revision,
+  }];
+  writeFileSync(answerPath, `${JSON.stringify(answer, null, 2)}\n`);
+  await runHelper(["validate-submission", "--state", statePath, "--candidate", answerPath], environment);
+
+  answer.answers[0].findings[0].statement = "The repo form has a submit control labeled ‘Save’.";
+  writeFileSync(answerPath, `${JSON.stringify(answer, null, 2)}\n`);
+  const leakingAnswer = await runHelperResult(["validate-submission", "--state", statePath, "--candidate", answerPath], environment);
+  assert.equal(leakingAnswer.code, 1);
+  assert.match(leakingAnswer.stderr, /exposes local repository provenance/);
+});
