@@ -9,6 +9,28 @@ All notable changes to Doable Agent Plugins are documented here.
 - Verify template integrity and syntax in CI. Local plugin version remains 0.2.10.
 - Clarify the GitHub integration's repository metadata and model-provider boundary.
 
+## [0.3.1] - 2026-11-18
+
+### Fixed
+
+- `record-round` accepts the Rounds Doable sends today. The helper refused a question whose answer
+  requirements were longer than 3,000 characters with `questions[0] answer requirements must be
+  0-3000 characters`, and Doable's base question now asks for 3,059 to 4,296 characters: every
+  Round with an open base question failed to record, and only request rounds passed. The bound is
+  now 20,000 characters. Doable's server sets no maximum on this text, so the bound only stops a
+  malformed response.
+- A repository whose folder or name is literally `repo` can be mapped. `prepare-workspace` failed
+  with `remote payload.repositories[0].repo_ref exposes local repository provenance`, because
+  every `repo_ref` starts with the helper's own `repo_` prefix. The privacy check now reads the
+  part of a `repo_ref` after that prefix. Text that holds the folder's name is refused as before.
+
+### Added
+
+- `docs/code-context-round-limits.md` lists the helper's bound on each text of a Round next to
+  what Doable sends, and what to check before a change on either side. A test pins the helper to
+  the answer requirements Doable sends today and fails when the bound is less than twice the
+  longest.
+
 ## [0.3.0] - 2026-11-11
 
 ### Added

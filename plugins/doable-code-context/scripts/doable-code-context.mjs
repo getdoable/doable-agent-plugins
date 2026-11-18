@@ -18,7 +18,7 @@ import {
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { execFileSync } from "node:child_process";
 
-const CLIENT = Object.freeze({ name: "doable-code-context", version: "0.3.0" });
+const CLIENT = Object.freeze({ name: "doable-code-context", version: "0.3.1" });
 const STATE_SCHEMA_VERSION = "1";
 const SUBMISSION_SCHEMA_VERSION = "1";
 
@@ -39,6 +39,18 @@ const SOURCE_TYPES = new Set([
 const ANSWER_STATUSES = new Set(["answered", "skipped"]);
 const ROUND_CODE_RE = /^DQ-[A-Z0-9]{4,16}$/;
 const OPAQUE_REPO_RE = /^repo_[a-z0-9]{8,64}$/;
+const OPAQUE_REPO_PREFIX = "repo_";
+// Doable sets no maximum on the text of a Round's questions, and the answer requirements of
+// its base question grow with its releases: 4,296 characters at the longest on 2026-11-18.
+// These bounds only stop a malformed response. Keep each far above what Doable sends: a bound
+// near the server's text refuses every Round on the day that text grows, as the earlier
+// 3,000-character bound on answer requirements did for every base question.
+// docs/code-context-round-limits.md records these numbers for both sides, and a test pins them.
+const ROUND_TEXT_LIMITS = Object.freeze({
+  question: 4_000,
+  why: 2_000,
+  answerRequirements: 20_000,
+});
 const EVIDENCE_ID_RE = /^ev_[a-z0-9]{8,80}$/;
 const FINDING_REF_RE = /^f_[a-z0-9]{8,80}$/;
 const JOURNEY_REF_RE = /^j_[a-z0-9_]{1,40}$/;
@@ -273,7 +285,7 @@ function readMcpResponse(path, label) {
 }
 
 function newRepoRef() {
-  return `repo_${randomBytes(8).toString("hex")}`;
+  return `${OPAQUE_REPO_PREFIX}${randomBytes(8).toString("hex")}`;
 }
 
 function validateSafeSlug(value, label) {
@@ -585,7 +597,12 @@ function assertRemotePayloadSafe(value, state, label = "remote payload", key = "
       assertRemotePayloadSafe(childValue, state, `${label}.${childKey}`, childKey);
     }
   } else if (typeof value === "string") {
-    assertSafeText(value, label, state, { max: 8_000 });
+    // Every repo_ref carries the helper's own `repo_` prefix, which names nothing local. Check
+    // the part after it: with the prefix, a repository folder or name that is literally `repo`
+    // matched every reference, and its workspace could not be prepared at all.
+    const text =
+      key === "repo_ref" && OPAQUE_REPO_RE.test(value) ? value.slice(OPAQUE_REPO_PREFIX.length) : value;
+    assertSafeText(text, label, state, { max: 8_000 });
   }
 }
 
@@ -814,7 +831,7 @@ function normalizeEstablishedQuestion(question, index) {
   return {
     id: string(question.id || question.question_id, `established_context[${index}] id`, { max: 160 }),
     purpose,
-    question: string(question.question, `established_context[${index}] question`, { max: 4_000 }),
+    question: string(question.question, `established_context[${index}] question`, { max: ROUND_TEXT_LIMITS.question }),
     status,
     skipReason: string(question.skip_reason ?? question.skipReason ?? "", `established_context[${index}] skip reason`, { min: 0, max: 2_000 }),
     answer: answer
@@ -994,12 +1011,12 @@ function normalizeRound(data, state, requestedCode) {
     return {
       id: string(question.id || question.question_id, `questions[${index}] id`, { max: 160 }),
       purpose,
-      question: string(question.question, `questions[${index}] question`, { max: 4_000 }),
-      why: string(question.why, `questions[${index}] why`, { min: 0, max: 2_000 }),
+      question: string(question.question, `questions[${index}] question`, { max: ROUND_TEXT_LIMITS.question }),
+      why: string(question.why, `questions[${index}] why`, { min: 0, max: ROUND_TEXT_LIMITS.why }),
       answerRequirements: string(
         question.answer_requirements ?? question.answerRequirements ?? "",
         `questions[${index}] answer requirements`,
-        { min: 0, max: 3_000 },
+        { min: 0, max: ROUND_TEXT_LIMITS.answerRequirements },
       ),
       required: question.required !== false,
       scopeHints: {
