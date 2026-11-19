@@ -323,8 +323,11 @@ A session that nobody watches needs these three rules:
 
 After them, add one quoted rule for each command that your rules let the session run, for example
 `"Bash(npm test *)"` or `"Bash(curl *)"`. Put `--allowedTools` last, because it reads every word
-after it as a rule. `dontAsk` refuses every other tool and command with no prompt: the session
-goes on without it, or declines the request. Then paste the start prompt, and leave. In Codex and
+after it as a rule. The session needs no rule to search the code: Claude Code runs read-only
+commands in the session's folder, such as `grep`, `rg`, `find`, `git ls-files` and `cat`, with no
+rule. Do not add a rule such as `"Bash(rg *)"`, because it also lets `rg --pre` run any program.
+`dontAsk` refuses every other tool and command with no prompt, and a read outside the session's
+folder: the session goes on without it, or declines the request. Then paste the start prompt, and leave. In Codex and
 Cursor, allow the Doable MCP tools and the same commands in that host's settings.
 
 Your own Claude Code settings apply to this session too: your user settings
