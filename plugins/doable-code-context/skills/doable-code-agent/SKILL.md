@@ -99,9 +99,15 @@ Repeat:
    instead, and after every empty poll check each of them as "Check the requests that wait for an
    answer" says.
 
-When a call fails, Doable MCP puts the status in the error text, for example
-`doable_not_found: Doable returned 404: ...`. An error that Doable MCP makes itself can have no
-status. To wait before you call again, run the shell command `sleep 20`, exactly so: the host
+When a call fails, the error text is a code and Doable's reason, with no HTTP status, for example
+`doable_error: CA-12 is not queued (working).` This skill names each case by its status. The
+codes are: `doable_auth_error` for `401`, `doable_forbidden` for `403`, `doable_not_found` for
+`404`, `doable_rate_limited` for `429`, `doable_server_error` for a `5xx` error, `doable_timeout`
+and `doable_unreachable` for a timeout and a network error, and `doable_error` for another
+refusal, such as a `409` (the reason says that the request is not queued, or that the username
+is already an account) or a `422` (the reason names the field). An error that Doable MCP makes itself
+has none of these codes, so it has no status. To wait before you call again, run the shell
+command `sleep 20`, exactly so: the host
 blocks a `sleep` of 25 seconds or more, and the README's start command for a session with nobody
 at the terminal allows `sleep 20`. Act on the error by the first item that fits:
 
