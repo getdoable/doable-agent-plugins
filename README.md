@@ -207,11 +207,12 @@ file allows and declines the rest. For example:
 | Backend state to read | Reads backend state, read only. | The state it found, and where and when it read it. |
 | A failed run to debug | Reproduces the failure, finds the root cause, suggests a fix. | The cause, file paths and line numbers, the steps, and the fix. It never pushes. |
 
-At each start, the Skill writes a capability summary from the policy file: a few plain lines, 600
-characters or fewer, that say what the machine does. It shows the summary to you in its start line
-and sends it to Doable, which shows it to the chat's agent and on the chat's page. The summary
-holds no secret, no name or value of an environment variable, no command line, no host name and no
-connection string. A change of the policy file reaches Doable at the next start.
+At each start and resume, the Skill writes a capability summary from the policy file: a few plain
+lines, 600 characters or fewer, that say what the machine does. It shows the summary to you in its
+start line and sends it to Doable, which shows it to the chat's agent and on the chat's page. The
+summary holds no secret, no name or value of an environment variable, no command line, no host
+name and no connection string. A change of the policy file reaches Doable at the next start or
+resume.
 
 To set up a machine:
 
@@ -227,9 +228,9 @@ To set up a machine:
 4. Write the policy file `.doable/code-agent.md`: what the machine does, which repositories,
    environments, commands, and data sources it may use, what it must never touch, and whether
    code excerpts may leave the machine. On the first start (step 6), the Skill copies its
-   template there and waits until you say that the policy is ready. Do that first start interactively, in the normal
-   permission mode: a mode that does not prompt (step 5) refuses the copy, and the first
-   interactive start is also where you trust the folder (step 5).
+   template there and waits until you say that the policy is ready. Do that first start
+   interactively, in the normal permission mode: a mode that does not prompt (step 5) refuses
+   the copy, and the first interactive start is also where you trust the folder (step 5).
 5. Let the session work with nobody at the terminal: a permission prompt stops the watch until
    someone answers it. In Claude Code, allow in the workspace's `.claude/settings.json`:
    - the Skill itself, `Skill(doable-code-context:doable-code-agent)`. After each new message from

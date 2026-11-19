@@ -48,6 +48,8 @@ All notable changes to Doable Agent Plugins are documented here.
 - The Skill needs a Doable MCP server whose `wait_for_code_agent_request` takes `capabilities`
   and a Doable server that takes it. An older Doable server refuses the field with `422`, so
   install this release only after both are deployed.
+  Against an older server, the Skill stops at its first `wait_for_code_agent_request` call and tells
+  the person that this release needs a newer Doable server.
 
 ## [0.3.0] - 2026-11-11
 

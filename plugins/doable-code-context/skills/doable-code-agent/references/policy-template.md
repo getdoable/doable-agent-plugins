@@ -87,9 +87,9 @@ Things the code agent must never change or call, even to read.
 
 Where to keep a secret that an app hands out and that is not the login password (for example a
 reset key, or an API key of a test login). The passwords of logins a request asks the code agent
-to make for the tests go to Doable through `add_test_account` only. A login made only to reproduce a bug is not
-registered in Doable: its password is kept here, or not at all. If this section names no place,
-the code agent does not keep these secrets.
+to make for the tests go to Doable through `add_test_account` only. A login made only to reproduce
+a bug is not registered in Doable: its password is kept here, or not at all. If this section names
+no place, the code agent does not keep these secrets.
 
 - Example: the macOS keychain, service `doable-code-agent`, one item for each username
 

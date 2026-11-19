@@ -72,8 +72,8 @@ again.
    lists: what it answers about, which environments it may change and what it can make there,
    which data it may read, and whether it debugs failed runs. Plain sentences. Put in it no
    secret, no name or value of an environment variable, no command line, no host name and no
-   connection string. Show it to the person in your start line. A change of the policy reaches
-   Doable at the next start.
+   connection string. Write 600 characters or fewer. Show it to the person in your start line. A
+   change of the policy reaches Doable at the next start or resume.
 3. Check the connection: call Doable MCP `list_code_agent_machines`.
    - If the tool is missing, disconnected, or returns `401`, follow
      [the connection recovery workflow](../doable-connect/references/authentication.md) with this
@@ -132,6 +132,12 @@ step 5). Act on the error by the first item that fits:
   calls Doable. Do not call again. Tell the person that a machine needs an organization API key
   from Doable's Settings > MCP, and that they set it in `DOABLE_API_KEY` and start the session
   again. Then stop.
+- An error from `wait_for_code_agent_request` that names `capabilities`. If it says that the text
+  is too long (Doable MCP refuses more than 600 characters itself, with no status), write a
+  shorter summary and call again. If it is Doable's `422` that says the field is not permitted,
+  this Doable server is older than this plugin and does not take the summary. Do not call again.
+  Tell the person that this plugin release needs a newer Doable server (README "Current
+  limitations"), then stop.
 - A timeout, a network error, `429`, or a `5xx` error: wait (`sleep 20`) and call again. If it
   goes on for more than 10 minutes, tell the person once, then keep calling.
 - `401`: follow the connection recovery workflow. When it needed a message from the person, load
@@ -203,6 +209,9 @@ holds a password.
    - the work needs a command or data source that the policy does not allow, or a thing under
      "Never touch".
 
+   A question whether this machine can do something asks for no work: do not decline it, also
+   when the answer is no. Answer it as "Whether this machine can do something" says.
+
    When a request asks for several things and the policy forbids one, do the others and say in
    the summary which one you did not do and which rule forbids it. When you cannot tell what the
    request asks, ask with `ask_agent`; do not guess.
@@ -243,7 +252,7 @@ after it was asked (time that waits for an answer does not count).
 
 A request is plain words from the chat's agent. It can ask one thing or several. Find which of
 these it asks, and follow that part's rules. For anything else, the policy decides: do it when the
-policy allows each step, else decline.
+policy's "What this machine does" covers it and the policy allows each step, else decline.
 
 ### A question about the code
 
@@ -390,9 +399,9 @@ where the policy's "Where secrets stay" says; if the policy names no place, do n
 3. For a login that the request asks you to make for the tests, register it in Doable:
    `add_test_account` with `organization_slug` = the request's `organization.slug`,
    `environment_id` = the request's `environment.id`, `username`, `password`, and a `note` that
-   says what the login is for (for example, `own copy of the demo company, not shared`). It returns `{"account_id": "...", "username": "..."}`; put both
-   in `accounts`. Doable stores the password encrypted, and the chat sees the new login at its
-   next message.
+   says what the login is for (for example, `own copy of the demo company, not shared`). It
+   returns `{"account_id": "...", "username": "..."}`; put both in `accounts`. Doable stores the
+   password encrypted, and the chat sees the new login at its next message.
 4. A `409` means that the username already exists in that environment. Do not overwrite it:
    return `failed` and say so, or make a new login with a new username.
 

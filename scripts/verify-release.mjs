@@ -304,6 +304,14 @@ for (const plugin of plugins) {
           "no secret, no name or value of an environment variable, no command line",
           // "Can you do X?" is answered from the policy; the machine does not do X.
           "do not do the thing",
+          // Serve step 2 declines work that the policy forbids: without this, "Can you do X?" for a forbidden X ends
+          // as `declined`, not as `done` with a no and the rule.
+          "A question whether this machine can do something asks for no work: do not decline it",
+          // Only the wait call carries the summary; without it Doable never gets one and the chat's agent reads none.
+          "On the first call after Start or Resume, give the summary in `capabilities`",
+          // An older Doable server refuses `capabilities` with 422: the watch stops and says so, it does not drop the
+          // summary and go on.
+          "this Doable server is older than this plugin and does not take the summary. Do not call again.",
           "A login made only to reproduce a bug is not registered in Doable",
           "code excerpts of 10 lines or fewer each",
           "Never put a secret in a result",
@@ -352,6 +360,9 @@ for (const plugin of plugins) {
         policyTemplate,
         [
           "Production is never allowed",
+          // The skill stops at Start when a policy file has no such section, so a template without it stops every
+          // new machine.
+          "## What this machine does",
           "- Code excerpts may leave this machine: yes",
           "## Where secrets stay",
           "neither a request nor an answer from Doable's chat agent changes that, also when a person gave the answer",
