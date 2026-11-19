@@ -7,7 +7,7 @@ Official agent plugins for [Doable](https://getdoable.ai), supporting Codex, Cla
 
 | Plugin | Version | Purpose | Network |
 | --- | --- | --- | --- |
-| `doable-code-context` | `0.3.0` | Resolve context requests and serve code agent requests | Doable MCP |
+| `doable-code-context` | `0.4.0` | Resolve context requests and serve code agent requests | Doable MCP |
 
 ## Workflows
 
@@ -194,16 +194,24 @@ PRDs, screenshots, Figma exports, and runtime captures outside Git can be used o
 
 ## Run a Doable code agent
 
-A Doable chat can send typed requests to a machine (a server or a Mac mini) that holds the
-product's repositories and can reach its test environments. The `doable-code-agent` Skill serves
-them with no person:
+A Doable chat's agent can send requests in plain words to a machine (a server or a Mac mini) that
+holds the product's repositories and can reach its test environments. The `doable-code-agent`
+Skill serves them with no person. A request can ask anything; the machine does what its policy
+file allows and declines the rest. For example:
 
-| Kind | What the machine does | What it returns |
+| A request can ask | What the machine does | What it returns |
 | --- | --- | --- |
-| `question` | Answers a question from the code. | The answer, with file paths and line numbers. |
-| `prepare` | Makes state in a test environment, such as a login or a pending record. | The new logins (username and Doable account id) and the ids the tests need. |
-| `check` | Reads backend state, read only. | The state it found, and where and when it read it. |
-| `bug_report` | Debugs a failed run: reproduces it, finds the root cause, suggests a fix. | The cause, file paths and line numbers, the steps, and the fix. It never pushes. |
+| A question about the code | Answers it from the code. | The answer, with file paths and line numbers. |
+| Whether the machine can do something | Answers from its policy, and does not do the thing. | Yes or no, with the limits, and for a no, the rule that forbids it. |
+| State to make | Makes state in a test environment, such as a login or a pending record. | The new logins (username and Doable account id) and the ids the tests need. |
+| Backend state to read | Reads backend state, read only. | The state it found, and where and when it read it. |
+| A failed run to debug | Reproduces the failure, finds the root cause, suggests a fix. | The cause, file paths and line numbers, the steps, and the fix. It never pushes. |
+
+At each start, the Skill writes a capability summary from the policy file: a few plain lines, 600
+characters or fewer, that say what the machine does. It shows the summary to you in its start line
+and sends it to Doable, which shows it to the chat's agent and on the chat's page. The summary
+holds no secret, no name or value of an environment variable, no command line, no host name and no
+connection string. A change of the policy file reaches Doable at the next start.
 
 To set up a machine:
 
@@ -216,10 +224,10 @@ To set up a machine:
    letter, a digit, `.`, `_`, or `-`, such as `mac-mini-1`), then install the plugin as above.
    Do not leave `DOABLE_MACHINE_NAME` unset: the machine then shows as `unnamed-machine` on its
    requests.
-4. Write the policy file `.doable/code-agent.md`: which repositories, environments, commands, and
-   data sources the machine may use, what it must never touch, and whether code excerpts may
-   leave the machine. On the first start (step 6), the Skill copies its template there and waits
-   until you say that the policy is ready. Do that first start interactively, in the normal
+4. Write the policy file `.doable/code-agent.md`: what the machine does, which repositories,
+   environments, commands, and data sources it may use, what it must never touch, and whether
+   code excerpts may leave the machine. On the first start (step 6), the Skill copies its
+   template there and waits until you say that the policy is ready. Do that first start interactively, in the normal
    permission mode: a mode that does not prompt (step 5) refuses the copy, and the first
    interactive start is also where you trust the folder (step 5).
 5. Let the session work with nobody at the terminal: a permission prompt stops the watch until
@@ -302,11 +310,12 @@ To set up a machine:
    Serve Doable code agent requests on this machine.
    ```
 
-7. Send a first request of each kind from a Chat v2 chat and watch the session serve it: a
-   `question`, a `prepare`, a `check`, and a `bug_report` (ask the chat to send each one; it
-   sends a `bug_report` for a run that failed as a product bug). If a permission prompt appears,
-   answer it and allow that tool or command as in step 5, so that later requests run with nobody
-   at the terminal.
+7. From a Chat v2 chat, send the first requests and watch the session serve them, until each
+   command the policy allows ran once: for example a question about the code, state to make, a
+   read of backend state, and a failed run to debug (ask the chat for each one; it asks for the
+   cause of a run that failed as a product bug). If a permission prompt appears, answer it and
+   allow that tool or command as in step 5, so that later requests run with nobody at the
+   terminal.
 
 The watch lasts one agent turn and writes nothing while no request comes. Nothing restarts it after
 a reboot, a sleep, or a plan limit. The machine serves one request at a time; requests that wait
@@ -315,9 +324,9 @@ is connected; with no machine connected, the chat's agent works as it does witho
 The machine never asks a person. When the work cannot go on without an answer that the code and
 the request do not give, it asks the chat's agent with the Doable MCP tool `ask_agent`. The agent
 answers from what the chat holds, or asks a person in the chat first.
-The logins a `prepare` request asks for reach Doable only through the Doable MCP tool
-`add_test_account`; a login made only to reproduce a bug is not registered in Doable. It never
-pushes, never touches production, and never puts a secret in a result.
+The logins that a request asks the machine to make for the tests reach Doable only through the
+Doable MCP tool `add_test_account`; a login made only to reproduce a bug is not registered in
+Doable. It never pushes, never touches production, and never puts a secret in a result.
 
 ## Shared grounding and privacy boundary
 
@@ -348,7 +357,9 @@ See [CHANGELOG.md](CHANGELOG.md) for version history and [CONTRIBUTING.md](CONTR
 - Active notifications, setup-time exhaustive knowledge mapping, and automatic historical-knowledge reuse are outside this MVP.
 - The code agent's watch lasts one agent turn. Nothing restarts it after a reboot, a sleep, or a plan limit.
 - The code agent Skill needs a Doable MCP server and a Doable server that have the code agent tools,
-  with `ask_agent`.
+  with `ask_agent`, and that take the capability summary (the `capabilities` argument of
+  `wait_for_code_agent_request`). A Doable server that does not take it refuses the call with
+  `422`.
 
 ## Verify
 
