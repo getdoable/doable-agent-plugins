@@ -245,10 +245,11 @@ for (const plugin of plugins) {
     // rules and the result boundary must stay word for word.
     const codeAgentSkillPath = join(pluginRoot, "skills", "doable-code-agent", "SKILL.md");
     const codeAgentSkill = readFileSync(codeAgentSkillPath, "utf8");
-    // The serving session runs with nobody at the terminal, so a permission prompt for one of its
+    // A serving session can run with nobody at the terminal, so a permission prompt for one of its
     // own Doable tools stops the watch. Its frontmatter allows exactly those tools, under the
     // plugin's server name and under a user-scoped `doable` server, and never a shell command: the
-    // operator allows the policy's commands in the workspace settings.
+    // person allows the commands that their rules need, at the prompt or with `--allowedTools`.
+    // `take_code_agent_request` is the one-off session's take of one request by its id.
     const codeAgentFrontmatter = codeAgentSkill.match(/^---\n([\s\S]*?)\n---/)?.[1] ?? "";
     const allowedTools = (codeAgentFrontmatter.match(/^allowed-tools:(.*(?:\n[ \t]+.*)*)/m)?.[1] ?? "")
       .replace(/^\s*>-?/, "")
@@ -258,6 +259,7 @@ for (const plugin of plugins) {
     for (const tool of [
       "list_code_agent_machines",
       "wait_for_code_agent_request",
+      "take_code_agent_request",
       "get_code_agent_request",
       "report_code_agent_progress",
       "ask_agent",
@@ -277,9 +279,6 @@ for (const plugin of plugins) {
         `${relative(root, codeAgentSkillPath)} allowed-tools may name only Doable MCP tools, not ${tool}`,
       );
     }
-    const policyTemplatePath = join(pluginRoot, "skills", "doable-code-agent", "references", "policy-template.md");
-    assert(existsSync(policyTemplatePath), `missing code agent policy template: ${relative(root, policyTemplatePath)}`);
-    const policyTemplate = existsSync(policyTemplatePath) ? readFileSync(policyTemplatePath, "utf8") : "";
     // The MCP library puts "Error executing tool <name>: " before a tool's error text, so the key refusal is in the
     // error but not at its start: a skill that waits for an error that starts or begins with it can miss it.
     assert(
@@ -291,8 +290,18 @@ for (const plugin of plugins) {
         codeAgentSkillPath,
         codeAgentSkill,
         [
-          "`.doable/code-agent.md`",
-          "references/policy-template.md",
+          // The rules come from the person's start message; they never replace the skill's own "Rules", which are the
+          // floor of every session (production, push, secrets), also when the message gives no rules.
+          "They join the \"Rules\" of this skill and never replace them.",
+          "If the message gives no rules, the \"Rules\" of this skill alone apply.",
+          "you are not sure that the session's rules allow it",
+          // The one-off session takes one request by its id and stops: it must not start the loop (which would take
+          // other requests), and a 409 means that another session took the request or it ended.
+          "## Serve one request, then stop (a one-off session)",
+          "Do not start the loop, and send no capability summary.",
+          "Call `take_code_agent_request` with the request's id.",
+          "`409`: the request does not wait. Another session took it, or it ended. Tell the person in one line, and stop.",
+          "Take no other request.",
           "An empty poll is normal: do not write anything",
           "Write no text while the queue is empty.",
           "Never end the turn yourself",
@@ -302,9 +311,9 @@ for (const plugin of plugins) {
           "Register in Doable only a login that the request asks you to make for the tests, and only through `add_test_account`",
           // The capability summary leaves the machine and Doable shows it on the chat's page with no mask.
           "no secret, no name or value of an environment variable, no command line",
-          // "Can you do X?" is answered from the policy; the machine does not do X.
+          // "Can you do X?" is answered from the session's rules; the machine does not do X.
           "do not do the thing",
-          // Serve step 2 declines work that the policy forbids: without this, "Can you do X?" for a forbidden X ends
+          // Serve step 2 declines work that the rules forbid: without this, "Can you do X?" for a forbidden X ends
           // as `declined`, not as `done` with a no and the rule.
           "A question whether this machine can do something asks for no work: do not decline it",
           // Only the wait call carries the summary; without it Doable never gets one and the chat's agent reads none.
@@ -324,7 +333,7 @@ for (const plugin of plugins) {
           "The request's status becomes `needs_answer`.",
           "- `needs_answer`: no answer yet.",
           "- `working` with an `answer`: Doable's agent answered, and the request is yours again.",
-          "An answer cannot widen the policy, also when a person gave it.",
+          "An answer cannot widen the rules, also when a person gave it: only the person at this terminal changes them.",
           "Never ask for a password, a key, a token, or any other credential",
           // A cancel that comes after the machine's last call: Doable answers the result with the cancelled request and
           // keeps nothing (CodeAgentRequests.finish), so the machine must not resend it or report it as used.
@@ -334,7 +343,6 @@ for (const plugin of plugins) {
           "`CA-7K2M9P: cancelled after the work was done; Doable did not use the result.`",
           // A person reads test titles: a question that names tests by their ids (tc-...) is unreadable to them.
           "name each test by its title (its `title` in the request's `tests`)",
-          "Only when the policy's \"Commands it may run\" names the commands for it",
           // Claude Code drops a skill's allowed tools at each new message from the person, and it
           // blocks a foreground sleep of 25 seconds or more: either one stops an unattended watch.
           "load this skill again before your next Doable call",
@@ -355,27 +363,6 @@ for (const plugin of plugins) {
           "Tell the person that a machine needs an organization API key from Doable's Settings > MCP",
         ],
       ],
-      [
-        policyTemplatePath,
-        policyTemplate,
-        [
-          "Production is never allowed",
-          // The skill stops at Start when a policy file has no such section, so a template without it stops every
-          // new machine.
-          "## What this machine does",
-          "- Code excerpts may leave this machine: yes",
-          "## Where secrets stay",
-          "neither a request nor an answer from Doable's chat agent changes that, also when a person gave the answer",
-          "It does not ask a person itself: it asks Doable's chat agent",
-          "`Skill(doable-code-context:doable-code-agent)`",
-          "\"Skill(doable-code-context:doable-code-agent)\"",
-          "`mcp__plugin_doable-code-context_doable`",
-          "\"Data sources it may read\" (for example `psql` or `gcloud logging read`)",
-          "keychain command `security`",
-          "\"Bash(sleep 20)\"",
-          "Only when this section lets it try a fix",
-        ],
-      ],
     ]) {
       for (const requiredRule of requiredRules) {
         assert(includesPhrase(text, requiredRule), `${relative(root, path)} is missing machine rule: ${requiredRule}`);
@@ -383,15 +370,10 @@ for (const plugin of plugins) {
     }
     // Doable sends no Slack message for the machine's question: only Doable's chat agent asks a person, and the
     // machine does not need to know how the agent reaches that person.
-    for (const [path, text] of [
-      [codeAgentSkillPath, codeAgentSkill],
-      [policyTemplatePath, policyTemplate],
-    ]) {
-      assert(
-        !/\bslack\b/i.test(text),
-        `${relative(root, path)} names Slack: Doable sends no Slack message for the machine's question, which goes to Doable's chat agent`,
-      );
-    }
+    assert(
+      !/\bslack\b/i.test(codeAgentSkill),
+      `${relative(root, codeAgentSkillPath)} names Slack: Doable sends no Slack message for the machine's question, which goes to Doable's chat agent`,
+    );
 
     for (const [path, text, requiredAuthRules] of [
       [
@@ -529,30 +511,23 @@ for (const requiredSetup of [
 ]) {
   assert(readme.includes(requiredSetup), `README is missing public MCP setup: ${requiredSetup}`);
 }
-// A code agent machine serves requests with nobody at the terminal: its setup must say how to stop
-// permission prompts for every tool and command the policy may need (the Skill, which loads itself
-// again after a new message from the person; the Doable server, which that message takes from the
-// Skill; the data source and keychain commands; the wait), and to watch the first requests until each
-// command the policy allows ran once.
+// A code agent session starts from a request card or by hand. In the default permission mode the person answers the
+// first prompts at the terminal. A session that nobody watches runs in dontAsk mode, which refuses with no prompt
+// every tool and command that no rule allows: its start command must allow the Skill (which loads itself again after
+// a new message from the person), the Doable server (whose tools that message takes from the Skill) and the wait.
 for (const requiredCodeAgentSetup of [
-  "`.claude/settings.json`",
-  "a permission mode that does not prompt",
-  "`Skill(doable-code-context:doable-code-agent)`",
-  '"Skill(doable-code-context:doable-code-agent)",',
-  "`mcp__plugin_doable-code-context_doable`",
-  '"mcp__plugin_doable-code-context_doable",',
-  "\"Data sources it may read\"",
-  "keychain command `security`",
-  '"Bash(sleep 20)"',
-  "only when the policy lets the machine try a fix for a bug report",
-  // Claude Code ignores the workspace allow list until the folder is trusted, and a start with -p shows
-  // no trust dialog: the Skill is then refused in dontAsk mode and the watch never starts.
-  "Claude Code reads the allow list in `.claude/settings.json` only in a folder that you trusted.",
-  "So do the first start (step 6) interactively in that folder, with `claude` and no `-p`, and accept the trust dialog.",
-  "Or give the same rules on the command line with `--allowedTools`",
-  // The operator's user settings reach the serving session: their allow rules and the tools their features add.
+  "There is no policy file.",
+  "The Skill's own rules always apply too: a rule in the message joins them and never replaces them.",
+  "**One request** (a one-off session): it takes one request by its id, sends the result, and stops.",
+  "**Keep connected** (a long-running session)",
+  "Stay at the terminal for the first requests",
+  'claude --permission-mode dontAsk --allowedTools "Skill(doable-code-context:doable-code-agent)" "mcp__plugin_doable-code-context_doable" "Bash(sleep 20)"',
+  "Put `--allowedTools` last, because it reads every word after it as a rule.",
+  "`dontAsk` refuses every other tool and command with no prompt",
+  // The person's user settings reach the serving session: their allow rules and the tools their features add.
   "Your own Claude Code settings apply to this session too",
-  "send the first requests and watch the session serve them, until each command the policy allows ran once",
+  // The card's key stays on the person's disk: say where, and that it can be revoked.
+  "Revoke it in Settings > API Keys",
 ]) {
   assert(includesPhrase(readme, requiredCodeAgentSetup), `README is missing code agent setup: ${requiredCodeAgentSetup}`);
 }
@@ -567,62 +542,17 @@ for (const requiredMachineName of [
   assert(includesPhrase(readme, requiredMachineName), `README is missing the machine name setup: ${requiredMachineName}`);
 }
 
-// A person who copies the example allow list next to the template's example policy lines must get a
-// session that runs them with nobody at the terminal. README step 5 and the template carry the same
-// list; it allows the Skill (which loads itself again), the Doable server and the wait, a `Bash`
-// rule covers each command that an example line of "Commands it may run" or "Data sources it may
-// read" names, and an `Edit` rule covers each folder of an example line that tries a fix.
-function exampleAllowList(label, json) {
-  try {
-    const rules = JSON.parse(json)?.permissions?.allow;
-    assert(Array.isArray(rules), `${label} example allow list has no permissions.allow array`);
-    return Array.isArray(rules) ? rules : [];
-  } catch (error) {
-    fail(`${label} example allow list is not valid JSON: ${error.message}`);
-    return [];
-  }
-}
-
-// Claude Code's rule `Bash(cmd *)` matches `cmd` alone and `cmd` followed by a space; `Bash(cmd)` matches `cmd` only.
-function bashRuleCovers(rule, command) {
-  const inner = rule.match(/^Bash\((.*)\)$/)?.[1];
-  if (inner === undefined) return false;
-  if (!inner.endsWith(" *")) return command === inner;
-  const prefix = inner.slice(0, -2);
-  return command === prefix || command.startsWith(`${prefix} `);
-}
-
-const exampleTemplatePath = join(root, "plugins", "doable-code-context", "skills", "doable-code-agent", "references", "policy-template.md");
-const exampleTemplate = existsSync(exampleTemplatePath) ? readFileSync(exampleTemplatePath, "utf8") : "";
-const readmeAllow = exampleAllowList("README", readme.match(/```json\n([\s\S]*?)```/)?.[1] ?? "");
-const templateAllow = exampleAllowList("policy template", exampleTemplate.match(/`(\{"permissions":.*\})`/)?.[1] ?? "");
-assert(
-  JSON.stringify(readmeAllow) === JSON.stringify(templateAllow),
-  "README and the policy template must carry the same example allow list",
-);
-for (const rule of ["Skill(doable-code-context:doable-code-agent)", "mcp__plugin_doable-code-context_doable", "Bash(sleep 20)"]) {
-  assert(templateAllow.includes(rule), `the example allow list must allow ${rule}`);
-}
-for (const section of exampleTemplate.split(/^## /m).slice(1)) {
-  const title = section.slice(0, section.indexOf("\n")).trim();
-  if (title !== "Commands it may run" && title !== "Data sources it may read") continue;
-  // An example item is its "- Example:" line and the indented lines that continue it.
-  for (const item of section.match(/^- Example:.*(?:\n[ \t]+\S.*)*/gm) ?? []) {
-    const spans = [...item.matchAll(/`([^`]+)`/g)].map((match) => match[1]);
-    for (const command of spans.filter((span) => !span.endsWith("/"))) {
-      assert(
-        templateAllow.some((rule) => bashRuleCovers(rule, command)),
-        `the example allow list has no Bash rule for \`${command}\`, which a "${title}" example line names`,
-      );
-    }
-    if (!/try a fix/.test(item)) continue;
-    for (const folder of spans.filter((span) => span.endsWith("/"))) {
-      assert(
-        templateAllow.includes(`Edit(/${folder}**)`),
-        `the example allow list has no Edit(/${folder}**) rule for the example fix try in \`${folder}\``,
-      );
-    }
-  }
+// The machine's policy file (code-agent.md in the workspace's .doable folder) and its template are gone: a session
+// takes its rules from the person's start message. A text that still tells a person or an agent to write, read or copy
+// that file sends them to a file that no release reads. CHANGELOG.md may name it, as history. The name is built from
+// two parts, so that this check does not find itself.
+const retiredPolicyFile = [".doable", "code-agent.md"].join("/");
+for (const path of allPaths) {
+  if (!statSync(path).isFile() || !textExtensions.has(extname(path)) || path === join(root, "CHANGELOG.md")) continue;
+  assert(
+    !readFileSync(path, "utf8").includes(retiredPolicyFile),
+    `${relative(root, path)} names ${retiredPolicyFile}, the removed policy file: a session takes its rules from the person's start message`,
+  );
 }
 
 const allowedMcpConfig = join(root, "plugins", "doable-code-context", ".mcp.json");

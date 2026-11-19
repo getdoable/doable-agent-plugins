@@ -15,8 +15,8 @@ The plugin has two workflows:
 
 - **Code Context**: answer the questions a Doable test spec request asks about the code
   (`doable-connect`, `doable-answer-questions`). Described next.
-- **Code agent**: a machine that holds the product's repositories serves the requests a Doable
-  chat sends it (`doable-code-agent`). See [Run a Doable code agent](#run-a-doable-code-agent).
+- **Code agent**: a Claude Code session that holds the product's repositories serves the requests
+  a Doable chat sends it (`doable-code-agent`). See [Run a Doable code agent](#run-a-doable-code-agent).
 
 ### Code Context
 
@@ -194,30 +194,83 @@ PRDs, screenshots, Figma exports, and runtime captures outside Git can be used o
 
 ## Run a Doable code agent
 
-A Doable chat's agent can send requests in plain words to a machine (a server or a Mac mini) that
-holds the product's repositories and can reach its test environments. The `doable-code-agent`
-Skill serves them with no person. A request can ask anything; the machine does what its policy
-file allows and declines the rest. For example:
+A Doable chat's agent can send requests in plain words to a Claude Code session that holds the
+product's repositories and can reach its test environments. The `doable-code-agent` Skill serves
+them. A request can ask anything; the session does what its rules allow and declines the rest.
+For example:
 
-| A request can ask | What the machine does | What it returns |
+| A request can ask | What the session does | What it returns |
 | --- | --- | --- |
 | A question about the code | Answers it from the code. | The answer, with file paths and line numbers. |
-| Whether the machine can do something | Answers from its policy, and does not do the thing. | Yes or no, with the limits, and for a no, the rule that forbids it. |
+| Whether the session can do something | Answers from its rules, and does not do the thing. | Yes or no, with the limits, and for a no, the rule that forbids it. |
 | State to make | Makes state in a test environment, such as a login or a pending record. | The new logins (username and Doable account id) and the ids the tests need. |
 | Backend state to read | Reads backend state, read only. | The state it found, and where and when it read it. |
 | A failed run to debug | Reproduces the failure, finds the root cause, suggests a fix. | The cause, file paths and line numbers, the steps, and the fix. It never pushes. |
 
-At each start and resume, the Skill writes a capability summary from the policy file's section
-"What this machine does": a few plain lines, 600 characters or fewer, that say what the machine
-does. It shows the summary to you in its
-start line and sends it to Doable, which shows it to the chat's agent and on the chat's page. The
-summary holds no secret, no name or value of an environment variable, no command line, no host
-name and no connection string. A change of the policy file reaches Doable at the next start or
-resume.
+Each request shows as a card on the chat's page. A session serves requests in one of two ways:
 
-To set up a machine:
+- **One request** (a one-off session): it takes one request by its id, sends the result, and
+  stops. It never counts as connected.
+- **Keep connected** (a long-running session): it waits for requests in one long agent turn and
+  serves each one, until you stop it. While it waits, Doable counts it as connected and sends it
+  each new request with no person.
 
-1. Put the product's repositories in one folder, and start the coding agent there.
+When no long-running session is connected, the request's card shows `Needs a session` and the
+texts to start one. The request waits up to 30 minutes in total for a session to take it. Then it
+ends, and the chat's agent works as it does without a code agent.
+
+### The session's rules
+
+The rules come from the message that starts the session. There is no policy file. The card's
+prompts hold four rules: work only in test environments, and treat a host as production when you
+cannot tell; never push, and try a fix only on a new local branch; never put a password, key,
+token, or other secret in a result, a progress line, a question, or the capability summary; and
+when you are not sure that a request or a step is allowed, decline it and say why.
+
+Add your own lines before you paste, for example `Staging is https://staging.example.com.` or
+`Do not make more than 5 logins.` The Skill's own rules always apply too: a rule in the message
+joins them and never replaces them. To change the rules, send a new message in that session.
+Neither a request nor an answer from the chat's agent changes them.
+
+At each start and resume, a long-running session writes a capability summary: a few plain lines,
+600 characters or fewer, from the repositories in its folder and from its rules. It shows the
+summary to you in its start line and sends it to Doable, which shows it to the chat's agent and on
+the chat's page. The summary holds no secret, no name or value of an environment variable, no
+command line, no host name and no connection string. A one-off session sends no summary.
+
+### From the card
+
+Install the plugin as above, and run Claude Code on the Claude plan (`claude login`). Remove
+`ANTHROPIC_API_KEY` from the environment of the session, or its usage is billed to the API. On a
+card that shows `Needs a session`, choose one of the two ways with the switch:
+
+- **One request**: press `Copy prompt`, and paste the prompt into Claude Code in the folder that
+  holds your repositories. The session takes this request, sends the result, and stops.
+- **Keep connected**: press `Copy command`, and run the command in the folder that holds your
+  repositories. Then press `Copy start prompt`, and paste the prompt into Claude Code. The session
+  takes this request when it starts to wait. If the card does not change in a minute, press
+  `Try again`.
+
+The command has this form, with a new organization API key and a machine name made from your
+email address:
+
+```bash
+export DOABLE_API_KEY='<organization API key>' DOABLE_MACHINE_NAME='<name>-claude'
+claude
+```
+
+It starts Claude Code in its default permission mode. Stay at the terminal for the first
+requests: Claude Code asks before it runs a new command. For each command that you accept, choose
+the answer that always allows it.
+
+The page makes one new organization API key, named `Code Context · <suite>`, each time it loads
+with such a card. Revoke it in Settings > API Keys when you no longer need it. The one-off prompt
+holds the key, so the key stays in that session's transcript on your computer. The command holds
+it too, so it stays in your shell history.
+
+### By hand
+
+1. Put the product's repositories in one folder.
 2. Run Claude Code on the Claude plan (`claude login`). Remove `ANTHROPIC_API_KEY` from the
    environment of that session, or its usage is billed to the API.
 3. Export `DOABLE_API_KEY` (an organization API key from Doable Settings: the code agent tools
@@ -226,111 +279,74 @@ To set up a machine:
    letter, a digit, `.`, `_`, or `-`, such as `mac-mini-1`), then install the plugin as above.
    Do not leave `DOABLE_MACHINE_NAME` unset: the machine then shows as `unnamed-machine` on its
    requests.
-4. Write the policy file `.doable/code-agent.md`: what the machine does (its section
-   "What this machine does"), which repositories, environments, commands, and data sources it
-   may use, what it must never touch, and whether code excerpts may leave the machine. A policy file made from
-   the 0.3.0 template has "Request kinds" instead: the Skill stops at the start until you add
-   "What this machine does". On the first start (step 6), the Skill copies its
-   template there and waits until you say that the policy is ready. Do that first start
-   interactively, in the normal permission mode: a mode that does not prompt (step 5) refuses
-   the copy, and the first interactive start is also where you trust the folder (step 5).
-5. Let the session work with nobody at the terminal: a permission prompt stops the watch until
-   someone answers it. In Claude Code, allow in the workspace's `.claude/settings.json`:
-   - the Skill itself, `Skill(doable-code-context:doable-code-agent)`. After each new message from
-     a person, for example "continue" after a plan limit, the Skill loads itself again, and Claude
-     Code asks before it loads a Skill that no rule allows;
-   - the Doable MCP server, `mcp__plugin_doable-code-context_doable` (or `mcp__doable` if you set
-     up a user-scoped `doable` server instead). The Skill allows its Doable tools while it runs,
-     but Claude Code forgets that at each new message from a person. This rule allows every Doable
-     tool in this workspace;
-   - each command that the policy's "Commands it may run" names;
-   - the command of each source in the policy's "Data sources it may read", for example `psql` or
-     `gcloud logging read`;
-   - the keychain command `security`, when the policy's "Where secrets stay" names the macOS
-     keychain;
-   - `sleep 20`, the wait before the Skill calls Doable again after an error (Claude Code blocks a
-     `sleep` of 25 seconds or more);
-   - only when the policy lets the machine try a fix for a bug report: file changes in the folder
-     that the policy names for it, and the git commands of the fix try, such as `git switch`,
-     `git add`, and `git commit`. One `Edit(...)` rule covers the Edit and the Write tool.
-
-   For example, this list allows all that the template's example policy lines name:
-
-   ```json
-   {
-     "permissions": {
-       "allow": [
-         "Skill(doable-code-context:doable-code-agent)",
-         "mcp__plugin_doable-code-context_doable",
-         "Bash(npm test *)",
-         "Bash(npm run dev *)",
-         "Bash(curl *)",
-         "Bash(psql *)",
-         "Bash(gcloud logging read *)",
-         "Bash(security add-generic-password *)",
-         "Bash(sleep 20)",
-         "Bash(git switch *)",
-         "Bash(git add *)",
-         "Bash(git commit *)",
-         "Edit(/web/**)"
-       ]
-     }
-   }
-   ```
-
-   Or, after the first start, start the session in a permission mode that does not prompt, such
-   as `claude --permission-mode dontAsk`, which refuses a tool or command that is not allowed
-   instead of asking. An allow rule only stops the prompt: the policy file still says what the
-   machine may do. In Codex and Cursor, allow the Doable MCP tools and the same commands in that
-   host's settings.
-
-   Claude Code reads the allow list in `.claude/settings.json` only in a folder that you trusted.
-   In a folder that is not trusted, it prints `Ignoring ... permissions.allow entries from
-   .claude/settings.json: this workspace has not been trusted`, and a mode that does not prompt
-   then refuses the Skill itself, so the watch cannot start. A start that is not interactive, such
-   as `claude -p`, shows no trust dialog. So do the first start (step 6) interactively in that
-   folder, with `claude` and no `-p`, and accept the trust dialog. Or give the same rules on the
-   command line with `--allowedTools`, one quoted rule each. Put `--allowedTools` last, because it
-   reads every word after it as a rule. This example shows only some of the rules: give all the
-   rules of your list.
-
-   ```bash
-   claude -p "Serve Doable code agent requests on this machine." --permission-mode dontAsk \
-     --allowedTools "Skill(doable-code-context:doable-code-agent)" \
-     "mcp__plugin_doable-code-context_doable" "Bash(sleep 20)" "Bash(npm test *)"
-   ```
-
-   Your own Claude Code settings apply to this session too: your user settings
-   (`~/.claude/settings.json`), with their allow rules and the features they turn on, your
-   user-level plugins and MCP servers, and the connectors of your Claude login. An allow rule in
-   your user settings lets the machine use that tool or command with no prompt, so read your user
-   allow list before you leave the machine. A feature that your user settings turn on can make the
-   machine try its tool: for example, when they turn on multi-agent workflows, the machine may try
-   the Workflow tool. A mode that does not prompt refuses a tool that no rule allows, and the
-   machine goes on without it.
-6. Ask the agent:
+4. Start `claude` in that folder, and send the card's start prompt, with your own lines added
+   under its rules:
 
    ```text
-   Serve Doable code agent requests on this machine.
+   Serve Doable requests in this folder with the `doable-code-agent` skill of the doable-code-context plugin, until I stop you.
+
+   Rules for this session:
+   - Work only in test environments (staging, development, local). Never call, sign in to or change a production system. If you cannot tell whether a host is production, treat it as production.
+   - Never push: no git push, pull request, merge, deploy or release. Try a fix only on a new local branch.
+   - Never put a password, key, token or other secret in a result, a progress line, a question or your capability summary.
+   - When you are not sure that a request or a step is allowed, do not do it: decline the request and say why.
+
+   Before the first request, look at this folder and write your capability summary, 600 characters or fewer: which repositories you can answer about, and what you do under these rules. Show it to me, then send it to Doable with your first wait.
    ```
 
-7. From a Chat v2 chat, send the first requests and watch the session serve them, until each
-   command the policy allows ran once: for example a question about the code, state to make, a
-   read of backend state, and a failed run to debug (ask the chat for each one; it asks for the
-   cause of a run that failed as a product bug). If a permission prompt appears, answer it and
-   allow that tool or command as in step 5, so that later requests run with nobody at the
-   terminal.
+5. From a Chat v2 chat, send the first requests and stay at the terminal: answer each permission
+   prompt of Claude Code until each command that the work needs ran once. For example, ask for a
+   question about the code, state to make, a read of backend state, and a failed run to debug
+   (ask the chat for each one; it asks for the cause of a run that failed as a product bug).
+
+### With nobody at the terminal
+
+In the default permission mode, a permission prompt stops the watch until someone answers it. For
+a machine that nobody watches, start the long-running session in the `dontAsk` permission mode,
+and allow its tools on the command line:
+
+```bash
+claude --permission-mode dontAsk --allowedTools "Skill(doable-code-context:doable-code-agent)" "mcp__plugin_doable-code-context_doable" "Bash(sleep 20)"
+```
+
+A session that nobody watches needs these three rules:
+
+- `Skill(doable-code-context:doable-code-agent)`: the Skill itself. After each new message from a
+  person, for example "continue" after a plan limit, the Skill loads itself again, and Claude Code
+  asks before it loads a Skill that no rule allows.
+- `mcp__plugin_doable-code-context_doable`: every tool of the Doable MCP server (or `mcp__doable`
+  if you set up a user-scoped `doable` server instead). The Skill allows its Doable tools while it
+  runs, but Claude Code forgets that at each new message from a person.
+- `Bash(sleep 20)`: the wait before the Skill calls Doable again after an error. Claude Code blocks
+  a `sleep` of 25 seconds or more.
+
+After them, add one quoted rule for each command that your rules let the session run, for example
+`"Bash(npm test *)"` or `"Bash(curl *)"`. Put `--allowedTools` last, because it reads every word
+after it as a rule. `dontAsk` refuses every other tool and command with no prompt: the session
+goes on without it, or declines the request. Then paste the start prompt, and leave. In Codex and
+Cursor, allow the Doable MCP tools and the same commands in that host's settings.
+
+Your own Claude Code settings apply to this session too: your user settings
+(`~/.claude/settings.json`), with their allow rules and the features they turn on, your
+user-level plugins and MCP servers, and the connectors of your Claude login. An allow rule in
+your user settings lets the session use that tool or command with no prompt, so read your user
+allow list before you leave the machine. A feature that your user settings turn on can make the
+session try its tool: for example, when they turn on multi-agent workflows, the session may try
+the Workflow tool. `dontAsk` refuses a tool that no rule allows, and the session goes on without
+it.
+
+### What a session does
 
 The watch lasts one agent turn and writes nothing while no request comes. Nothing restarts it after
-a reboot, a sleep, or a plan limit. The machine serves one request at a time; requests that wait
-behind a busy machine do not expire. A chat sends requests only while a machine of the organization
-is connected; with no machine connected, the chat's agent works as it does without a code agent.
-The machine never asks a person. When the work cannot go on without an answer that the code and
-the request do not give, it asks the chat's agent with the Doable MCP tool `ask_agent`. The agent
-answers from what the chat holds, or asks a person in the chat first.
-The logins that a request asks the machine to make for the tests reach Doable only through the
-Doable MCP tool `add_test_account`; a login made only to reproduce a bug is not registered in
-Doable. It never pushes, never touches production, and never puts a secret in a result.
+a reboot, a sleep, or a plan limit. A session serves one request at a time; requests that wait
+behind a busy session do not expire. The session never asks a person. When the work cannot go on
+without an answer that the code and the request do not give, it asks the chat's agent with the
+Doable MCP tool `ask_agent`. The agent answers from what the chat holds, or asks a person in the
+chat first. The logins that a request asks the session to make for the tests reach Doable only
+through the Doable MCP tool `add_test_account`; a login made only to reproduce a bug is not
+registered in Doable. It never pushes, never touches production, and never puts a secret in a
+result. Doable refuses a result, a progress text, a question, or a capability summary that holds a
+Doable API key.
 
 ## Shared grounding and privacy boundary
 
@@ -345,7 +361,7 @@ The connected plugin:
 Through Code Context, Doable never receives source code or snippets, real repository names or paths, branches, commits, the code graph, secrets or environment values, private URLs, raw logs, internal topology, or real customer data.
 
 A code agent result may hold file paths, line numbers, and code excerpts of 10 lines or fewer
-each, unless the machine's policy file forbids excerpts. It never holds passwords, keys, tokens,
+each, unless the session's rules forbid excerpts. It never holds passwords, keys, tokens,
 session cookies, or customer personal data.
 
 See [PRIVACY.md](PRIVACY.md) for the exact per-plugin boundary.
@@ -361,9 +377,10 @@ See [CHANGELOG.md](CHANGELOG.md) for version history and [CONTRIBUTING.md](CONTR
 - Active notifications, setup-time exhaustive knowledge mapping, and automatic historical-knowledge reuse are outside this MVP.
 - The code agent's watch lasts one agent turn. Nothing restarts it after a reboot, a sleep, or a plan limit.
 - The code agent Skill needs a Doable MCP server and a Doable server that have the code agent tools,
-  with `ask_agent`, and that take the capability summary (the `capabilities` argument of
-  `wait_for_code_agent_request`). A Doable server that does not take it refuses the call with
-  `422`.
+  with `ask_agent` and `take_code_agent_request`, and that take the capability summary (the
+  `capabilities` argument of `wait_for_code_agent_request`). A Doable server that does not take it
+  refuses the call with `422`. A one-off session on a Doable MCP server without
+  `take_code_agent_request` tells you so and stops.
 
 ## Verify
 
