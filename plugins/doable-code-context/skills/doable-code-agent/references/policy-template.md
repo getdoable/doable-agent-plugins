@@ -18,18 +18,19 @@ the code in these folders.
 - Example: `web/` - the customer web app at https://staging.example.com
 - Example: `api/` - the backend API behind the web app
 
-## Request kinds
+## What this machine does
 
-Which kinds of request this machine serves. Write `yes` or `no` after each one.
+Plain lines. The skill declines what no line covers, and sends a short summary of this section to
+Doable.
 
-- question: yes
-- prepare: yes
-- check: yes
-- bug_report: yes
+- Example: Answers questions about: web/, api/
+- Example: Makes test logins and records: yes, in staging, through its sign-up page and its public API
+- Example: Reads backend data: yes, staging, read only
+- Example: Debugs failed runs: yes; tries a fix: yes, on a new local branch in web/
 
 ## Environments it may change
 
-Test environments where the code agent may make data (logins, records) for a `prepare` request or
+Test environments where the code agent may make data (logins, records) to make state for tests or
 to reproduce a bug. For each one, give its address and how the code agent may make data there.
 
 - Example: https://staging.example.com - through its sign-up page and its public API; new logins and records only
@@ -69,7 +70,7 @@ https://github.com/getdoable/doable-agent-plugins#run-a-doable-code-agent.
 
 ## Data sources it may read
 
-For `check` requests. Name each source and how to read it, never its secret.
+To read backend state. Name each source and how to read it, never its secret.
 
 - Example: the staging database, read only, with `psql "$STAGING_READONLY_DATABASE_URL"`
 - Example: the staging logs, with `gcloud logging read --project example-staging`
@@ -85,8 +86,8 @@ Things the code agent must never change or call, even to read.
 ## Where secrets stay
 
 Where to keep a secret that an app hands out and that is not the login password (for example a
-reset key, or an API key of a test login). The passwords of logins that a `prepare` request asks
-for go to Doable through `add_test_account` only. A login made only to reproduce a bug is not
+reset key, or an API key of a test login). The passwords of logins a request asks the code agent
+to make for the tests go to Doable through `add_test_account` only. A login made only to reproduce a bug is not
 registered in Doable: its password is kept here, or not at all. If this section names no place,
 the code agent does not keep these secrets.
 
