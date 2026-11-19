@@ -120,10 +120,11 @@ at the terminal allows `sleep 20`. Act on the error by the first item that fits:
   again. Then stop.
 - An error from `wait_for_code_agent_request` that names `capabilities`. If it says that the text
   is too long (Doable MCP refuses more than 600 characters itself, with no status), write a
-  shorter summary and call again. If it is Doable's `422` that says the field is not permitted,
-  this Doable server is older than this plugin and does not take the summary. Do not call again.
-  Tell the person that this plugin release needs a newer Doable server (README "Current
-  limitations"), then stop.
+  shorter summary and call again. If it says that the text holds a Doable API key, write the
+  summary again without the key and call again. If it is Doable's `422` that says the field is
+  not permitted, this Doable server is older than this plugin and does not take the summary. Do
+  not call again. Tell the person that this plugin release needs a newer Doable server (README
+  "Current limitations"), then stop.
 - A timeout, a network error, `429`, or a `5xx` error: wait (`sleep 20`) and call again. If it
   goes on for more than 10 minutes, tell the person once, then keep calling.
 - `401`: follow the connection recovery workflow. When it needed a message from the person, load
