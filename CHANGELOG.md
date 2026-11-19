@@ -9,47 +9,86 @@ All notable changes to Doable Agent Plugins are documented here.
 - Verify template integrity and syntax in CI. Local plugin version remains 0.2.10.
 - Clarify the GitHub integration's repository metadata and model-provider boundary.
 
-## [0.4.0] - 2026-11-18
+## [0.4.0] - 2026-11-19
+
+This release holds two changes: requests in plain words with a capability summary, and one path to
+the code agent from each request's card, with the session's rules in its start prompt instead of a
+policy file.
 
 ### Changed
 
 - A code agent request is plain words with no kind. `doable-code-agent` reads what the request
-  asks and checks it against the policy file. It can ask a question about the code, whether the
-  machine can do something, state to make, backend state to read, or a failed run to debug, and
-  these are examples, not a list of what is allowed. The Skill declines the work that no line of
-  the policy's new section "What this machine does" covers. When a request asks for several
-  things and the policy forbids one, it does the others and names the part it did not do and the
+  asks and checks it against the session's rules. It can ask a question about the code, whether
+  the machine can do something, state to make, backend state to read, or a failed run to debug,
+  and these are examples, not a list of what is allowed. When a request asks for several things
+  and the rules forbid one, the Skill does the others and names the part it did not do and the
   rule. When it cannot tell what a request asks, it asks the chat's agent with `ask_agent`.
-- A question whether the machine can do something gets an answer from the policy and the
+- The session's rules come from the person's start message: the card's prompts hold four rules
+  (only test environments, and a host that cannot be told from production counts as production;
+  no push, and a fix try only on a new local branch; no secret in a result, a progress line, a
+  question or the capability summary; decline when not sure), and the person can add lines before
+  the paste. They join the Skill's own "Rules" and never replace them; with no rules in the
+  message, the Skill's "Rules" alone apply. Only a new message in the session changes them, never
+  a request or an answer from the chat's agent.
+- The Skill declines work that needs a production system, a push, or a secret in a result, and
+  work that it is not sure the rules allow. The decline names the rule in plain words.
+- A question whether the machine can do something gets an answer from the rules and the
   repositories, with the outcome `done`. The machine does not do the thing.
-- State to make fails when the request names no test and does not say what the state is for.
-- The Skill registers in Doable only a login that the request asks it to make for the tests.
-- The policy template's section "Request kinds" becomes "What this machine does". At the start, a
-  policy file that has no such section (one made from the 0.3.0 template) stops the Skill until
-  the person adds the section.
+- State to make uses the request's environment only when its hosts are not production, and fails
+  when the request names no test and does not say what the state is for.
+- The Skill registers in Doable only a login that the request asks it to make for the tests. It
+  keeps no password of a login made to reproduce a bug, and no other secret that an app hands out.
+- A result may always hold code excerpts of 10 lines or fewer each. A person who wants none writes
+  that in the start prompt. A result never holds a Doable API key: Doable refuses a text that
+  holds one, and the Skill sends the text again without the key.
 - The lines to the person and the result layouts name no kind, for example
   `CA-7K2M9P: done, made one login and one pending time-off request.`
-- README.md, PRIVACY.md and TESTING.md describe requests by the work they ask for. TESTING.md adds
-  the scenarios "Can this machine do X?" and "Capability summary".
+- README.md: "Run a Doable code agent" describes the two ways (from the card, and by hand), the
+  session's rules, and one start command for a session with nobody at the terminal
+  (`--permission-mode dontAsk` with the Skill, the Doable MCP server and `sleep 20` allowed by
+  `--allowedTools`). The `.claude/settings.json` allow list and its example are gone.
+- PRIVACY.md and TESTING.md describe requests by the work they ask for, the session's rules, and
+  the one-off session. TESTING.md adds the scenarios "Can this machine do X?", "Capability
+  summary", "A one-off session", "A one-off that loses the take", "A one-off that asks" and
+  "A Doable API key in a text".
 
 ### Added
 
-- At each start and resume, `doable-code-agent` writes a capability summary from the policy file:
-  a few plain lines, 600 characters or fewer, with no secret, no name or value of an environment
-  variable, no command line, no host name and no connection string. It shows the summary to the
-  person in its start line and sends it in `capabilities` with its first
-  `wait_for_code_agent_request` call. Doable shows it to the chat's agent and on the chat's page.
-  When an answer has `capabilities_missing: true` (Doable restarted and lost it), the Skill sends
-  it once more with the next call. The release verifier requires the summary's no-secret rule,
-  the rule that the machine does not do what a "can you" question names, and the logins rule.
+- A one-off session: when the person's message names one request ("Take request CA-7K2M9P", the
+  prompt that a request card copies), `doable-code-agent` takes that request by its id with
+  `take_code_agent_request`, serves it, sends the result, and ends its turn. It does not start the
+  loop and sends no capability summary. A `409` means that another session took the request or
+  that it ended: the Skill says so in one line and stops. A `404` with an API key for the request's
+  organization in the person's message makes it connect with that key and try once more. A `503`
+  or another `5xx` error, `429`, a timeout or a network error makes it try again for up to 5
+  minutes. When it asks Doable's agent, it waits for the answer for up to 30 minutes, then stops.
+  `allowed-tools` adds `take_code_agent_request` under both server names.
+- At each start and resume, a long-running session writes a capability summary from the
+  repositories in its folder and from its rules: a few plain lines, 600 characters or fewer, with
+  no secret, no name or value of an environment variable, no command line, no host name and no
+  connection string. It shows the summary to the person in its start line and sends it in
+  `capabilities` with its first `wait_for_code_agent_request` call. Doable shows it to the chat's
+  agent and on the chat's page. When an answer has `capabilities_missing: true` (Doable restarted
+  and lost it), the Skill sends it once more with the next call.
+- The release verifier requires the summary's no-secret rule, the rule that the machine does not
+  do what a "can you" question names, the logins rule, the rule that the start message never
+  replaces the Skill's "Rules", the one-off section and `take_code_agent_request` in
+  `allowed-tools`. It refuses any file but CHANGELOG.md that names the removed policy file.
+
+### Removed
+
+- The machine's policy file `.doable/code-agent.md` and its template
+  (`skills/doable-code-agent/references/policy-template.md`). The Skill no longer reads, copies or
+  asks for the file, and an existing file has no effect. Move what it said into the start prompt.
 
 ### Compatibility
 
-- The Skill needs a Doable MCP server whose `wait_for_code_agent_request` takes `capabilities`
-  and a Doable server that takes it. An older Doable server refuses the field with `422`, so
-  install this release only after both are deployed.
-  Against an older server, the Skill stops at its first `wait_for_code_agent_request` call and tells
-  the person that this release needs a newer Doable server.
+- The Skill needs a Doable MCP server whose `wait_for_code_agent_request` takes `capabilities` and
+  that has `take_code_agent_request`, and a Doable server that takes both. An older Doable server
+  refuses `capabilities` with `422`, so install this release only after both are deployed.
+  Against an older server, the Skill stops at its first `wait_for_code_agent_request` call and
+  tells the person that this release needs a newer Doable server. A one-off session on a Doable
+  MCP server without `take_code_agent_request` tells the person so and stops.
 
 ## [0.3.0] - 2026-11-11
 
