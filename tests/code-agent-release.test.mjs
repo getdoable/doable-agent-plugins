@@ -38,6 +38,12 @@ test('the release verifier refuses a code agent skill without the one-off sessio
     assert.notEqual(noOneOff.status, 0, 'a skill without the one-off section must fail');
     assert.match(noOneOff.stderr, /missing machine rule: ## Serve one request, then stop \(a one-off session\)/);
 
+    // A one-off session that follows "Serve one request" to its "go back to the loop" would take other requests.
+    const oneOffBackToLoop = verifyWith(directory, skill, (text) =>
+      text.replace('Where another\n   part of this skill says "go back to the loop", do this instead.', ''));
+    assert.notEqual(oneOffBackToLoop.status, 0, 'a one-off section that does not replace "go back to the loop" must fail');
+    assert.match(oneOffBackToLoop.stderr, /missing machine rule: Where another part of this skill says "go back to the loop"/);
+
     const noTakeTool = verifyWith(directory, skill, (text) =>
       text.replace('  mcp__doable__take_code_agent_request\n', ''));
     assert.notEqual(noTakeTool.status, 0, 'a skill that does not allow take_code_agent_request must fail');

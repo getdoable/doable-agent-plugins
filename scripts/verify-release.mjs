@@ -302,6 +302,9 @@ for (const plugin of plugins) {
           "Call `take_code_agent_request` with the request's id.",
           "`409`: the request does not wait. Another session took it, or it ended. Tell the person in one line, and stop.",
           "Take no other request.",
+          // "Serve one request" and "When a call fails" end a request (a cancel, a 409, a dropped request) with "go back
+          // to the loop": without this line a one-off session goes on to the loop and takes other requests.
+          "Where another part of this skill says \"go back to the loop\", do this instead.",
           "An empty poll is normal: do not write anything",
           "Write no text while the queue is empty.",
           "Never end the turn yourself",

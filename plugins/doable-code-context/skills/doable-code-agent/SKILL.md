@@ -154,24 +154,27 @@ CA-7K2M9P". Do not start the loop, and send no capability summary.
      one line, and stop.
    - `404`: Doable has no such request for the organization of your connection. If the person's
      message gives an API key for the request's organization and you did not connect with it yet,
-     connect with it as the connection recovery workflow says, and call once more. Else tell the
-     person, and stop.
+     connect with it as the connection recovery workflow says, and call once more through that new
+     connection. Make every later Doable call for this request through it too: the old connection
+     belongs to another organization. Else tell the person, and stop.
    - `503` or another `5xx` error, `429`, a timeout or a network error: wait (`sleep 20`) and call
      again, for up to 5 minutes. If a later call answers `409`, stop: Doable may have given you the
      request in a call whose answer was lost, and it gives the request back to the queue after 10
-     minutes.
+     minutes. If the calls still fail after 5 minutes, tell the person that Doable does not answer
+     now, and stop.
    - The tool is missing: the Doable MCP server is older than this plugin. Tell the person, and
      stop.
    - Another error (about the machine name, the API key, or a `401`): act on it as "When a call
-     fails" says.
+     fails" says. After a `401` and its recovery, call `take_code_agent_request` again.
 4. Serve it as "Serve one request" says. The person is at the terminal, so a permission prompt is
    theirs to answer.
 5. If you ask Doable's agent, wait for the answer with `get_code_agent_request` and
    `wait_seconds: 50`, again and again, for up to 30 minutes. When the answer comes, report
    progress at once. With no answer by then, tell the person that the request waits for Doable's
    answer and that the card's prompt takes it again later, and stop.
-6. After the result, or when the request ends with no result (a cancel, a `409`), write one line
-   to the person and end the turn. Take no other request.
+6. After the result, or when the request ends with no result (a cancel, a `409`) or you drop it
+   (a `404` that lasts 5 minutes), write one line to the person and end the turn. Where another
+   part of this skill says "go back to the loop", do this instead. Take no other request.
 
 ## Serve one request
 

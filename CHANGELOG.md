@@ -59,9 +59,11 @@ policy file.
   `take_code_agent_request`, serves it, sends the result, and ends its turn. It does not start the
   loop and sends no capability summary. A `409` means that another session took the request or
   that it ended: the Skill says so in one line and stops. A `404` with an API key for the request's
-  organization in the person's message makes it connect with that key and try once more. A `503`
-  or another `5xx` error, `429`, a timeout or a network error makes it try again for up to 5
-  minutes. When it asks Doable's agent, it waits for the answer for up to 30 minutes, then stops.
+  organization in the person's message makes it connect with that key and try once more through
+  that connection. A `503` or another `5xx` error, `429`, a timeout or a network error makes it
+  try again for up to 5 minutes, then stop. When it asks Doable's agent, it waits for the answer
+  for up to 30 minutes, then stops. Where the Skill says "go back to the loop", a one-off session
+  ends its turn.
   `allowed-tools` adds `take_code_agent_request` under both server names.
 - At each start and resume, a long-running session writes a capability summary from the
   repositories in its folder and from its rules: a few plain lines, 600 characters or fewer, with

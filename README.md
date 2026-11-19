@@ -216,8 +216,9 @@ Each request shows as a card on the chat's page. A session serves requests in on
   each new request with no person.
 
 When no long-running session is connected, the request's card shows `Needs a session` and the
-texts to start one. The request waits up to 30 minutes in total for a session to take it. Then it
-ends, and the chat's agent works as it does without a code agent.
+texts to start one. The request waits up to 30 minutes in total for a session to take it, and
+`Try again` on the card starts the 30 minutes again. Then it ends, and the chat's agent works as it
+does without a code agent.
 
 ### The session's rules
 
@@ -339,11 +340,11 @@ it.
 
 The watch lasts one agent turn and writes nothing while no request comes. Nothing restarts it after
 a reboot, a sleep, or a plan limit. A session serves one request at a time; requests that wait
-behind a busy session do not expire. The session never asks a person. When the work cannot go on
-without an answer that the code and the request do not give, it asks the chat's agent with the
-Doable MCP tool `ask_agent`. The agent answers from what the chat holds, or asks a person in the
-chat first. The logins that a request asks the session to make for the tests reach Doable only
-through the Doable MCP tool `add_test_account`; a login made only to reproduce a bug is not
+behind a busy long-running session do not expire. The session never asks a person. When the work
+cannot go on without an answer that the code and the request do not give, it asks the chat's agent
+with the Doable MCP tool `ask_agent`. The agent answers from what the chat holds, or asks a person
+in the chat first. The logins that a request asks the session to make for the tests reach Doable
+only through the Doable MCP tool `add_test_account`; a login made only to reproduce a bug is not
 registered in Doable. It never pushes, never touches production, and never puts a secret in a
 result. Doable refuses a result, a progress text, a question, or a capability summary that holds a
 Doable API key.
