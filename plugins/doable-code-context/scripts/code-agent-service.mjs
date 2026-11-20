@@ -8,6 +8,9 @@
 // Usage:
 //   DOABLE_API_KEY=... node code-agent-service.mjs setup --folder DIR --machine NAME --prompt-file FILE [--allow RULE]...
 //   node code-agent-service.mjs status|stop|start|remove --machine NAME
+//
+// For development, DOABLE_CODE_AGENT_PLUGIN_DIR at setup makes the serving session load the plugin from that folder
+// (`claude --plugin-dir`) in place of the installed plugin.
 
 import { execFileSync, spawn } from "node:child_process";
 import { accessSync, chmodSync, constants, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -69,8 +72,9 @@ export function findClaude(env) {
   fail("Claude Code (`claude`) is not on PATH. Install it, sign in on the Claude plan, and run setup again.");
 }
 
-export function runScript({ dir, folder, claude, rules, path, wake }) {
+export function runScript({ dir, folder, claude, rules, path, wake, pluginDir = null }) {
   const allowed = rules.map(shellQuote).join(" ");
+  const plugin = pluginDir ? `--plugin-dir ${shellQuote(pluginDir)} ` : "";
   const wakeLock = wake ? "/usr/bin/caffeinate -i -s " : "";
   return `#!/bin/bash
 # Written by doable-code-context's code-agent-service.mjs. It serves Doable requests in ${folder}
@@ -88,7 +92,7 @@ while [ ! -e "$dir/stopped" ]; do
     mv -f "$dir/session.jsonl" "$dir/session.1.jsonl"
   fi
   echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) the serving session starts" >> "$dir/service.log"
-  ${wakeLock}${shellQuote(claude)} -p --permission-mode dontAsk --output-format stream-json --verbose --allowedTools ${allowed} < "$dir/prompt.md" >> "$dir/session.jsonl" 2>&1
+  ${wakeLock}${shellQuote(claude)} -p ${plugin}--permission-mode dontAsk --output-format stream-json --verbose --allowedTools ${allowed} < "$dir/prompt.md" >> "$dir/session.jsonl" 2>&1
   echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) the serving session ended with code $?" >> "$dir/service.log"
   [ -e "$dir/stopped" ] && break
   sleep ${RESTART_WAIT_S}
@@ -182,7 +186,15 @@ export function setup(options, env, print = console.log) {
   writeFileSync(join(dir, "prompt.md"), `${prompt}\n`, { mode: 0o600 });
   const folderPath = resolve(folder);
   const wake = process.platform === "darwin" && existsSync("/usr/bin/caffeinate");
-  const script = runScript({ dir, folder: folderPath, claude: findClaude(env), rules: [...BASE_RULES, ...allow], path: env.PATH || "", wake });
+  const script = runScript({
+    dir,
+    folder: folderPath,
+    claude: findClaude(env),
+    rules: [...BASE_RULES, ...allow],
+    path: env.PATH || "",
+    wake,
+    pluginDir: env.DOABLE_CODE_AGENT_PLUGIN_DIR || null,
+  });
   writeFileSync(join(dir, "run.sh"), script, { mode: 0o700 });
   chmodSync(join(dir, "run.sh"), 0o700);
   writeFileSync(join(dir, "config.json"), `${JSON.stringify({ folder: folderPath, machine, allow }, null, 2)}\n`, { mode: 0o600 });
