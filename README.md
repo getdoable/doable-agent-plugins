@@ -7,7 +7,7 @@ Official agent plugins for [Doable](https://getdoable.ai), supporting Codex, Cla
 
 | Plugin | Version | Purpose | Network |
 | --- | --- | --- | --- |
-| `doable-code-context` | `0.4.2` | Resolve context requests and serve code agent requests | Doable MCP |
+| `doable-code-context` | `0.5.0` | Resolve context requests and serve code agent requests | Doable MCP |
 
 ## Workflows
 
@@ -211,9 +211,9 @@ Each request shows as a card on the chat's page. A session serves requests in on
 
 - **One request** (a one-off session): it takes one request by its id, sends the result, and
   stops. It never counts as connected.
-- **Keep connected** (a long-running session): it waits for requests in one long agent turn and
-  serves each one, until you stop it. While it waits, Doable counts it as connected and sends it
-  each new request with no person.
+- **Always on** (a long-running session): it runs in the background on this machine, waits for
+  requests and serves each one, until you stop it. While it waits, Doable counts it as connected
+  and sends it each new request with no person.
 
 When no long-running session is connected, the request's card shows `Needs a session` and the
 texts to start one. The request waits up to 30 minutes in total for a session to take it, and
@@ -222,8 +222,7 @@ does without a code agent.
 
 ### The session's rules
 
-The rules come from the message that starts the session. There is no policy file. The card's
-prompts hold eight rules: never touch production, which includes a local copy that uses a
+The rules come from the message that starts the session. The card's prompts hold eight rules: never touch production, which includes a local copy that uses a
 production database or service and a host that the session cannot tell from production; in a
 request's test environment, or on a local copy of the app, make, change and delete the logins and
 data that its goal needs, also when the request did not ask for that work, and list all of it in
@@ -249,38 +248,47 @@ command line, no host name and no connection string. A one-off session sends no 
 
 ### From the card
 
-Install the plugin as above, and run Claude Code on the Claude plan (`claude login`). Remove
-`ANTHROPIC_API_KEY` from the environment of the session, or its usage is billed to the API. On a
-card that shows `Needs a session`, choose one of the two ways with the switch:
+Run Claude Code on the Claude plan (`claude auth login`). Remove `ANTHROPIC_API_KEY` from the
+environment of the session, or its usage is billed to the API. On a card that shows
+`Needs a session`, choose one of the two ways with the switch, press `Copy prompt`, and paste the
+prompt into Claude Code in the folder that holds your repositories:
 
-- **One request**: press `Copy prompt`, and paste the prompt into Claude Code in the folder that
-  holds your repositories. The session takes this request, sends the result, and stops.
-- **Keep connected**: press `Copy command`, and run the command in the folder that holds your
-  repositories. Then press `Copy start prompt`, and paste the prompt into Claude Code. The session
-  takes this request when it starts to wait. If the card does not change in a minute, press
-  `Try again`.
+- **One request**: the session takes this request, sends the result, and stops. Stay at the
+  terminal: Claude Code asks before it runs a new command. Install the plugin as above first.
+- **Always on**: the session sets up this machine, and you answer its permission prompts. It
+  installs or updates this plugin, asks you which commands the agent may run (it suggests them
+  from your repositories), and runs this plugin's `scripts/code-agent-service.mjs setup`. The
+  script keeps the key in a file that only you can read (`~/.doable/code-agent/<machine>/env`),
+  starts the serving session in the background in the `dontAsk` permission mode with the three
+  rules below and your commands, starts it again 5 minutes after it stops (for example at a plan
+  limit), keeps a Mac awake while it runs, and on a Mac starts it at each login. On a machine that
+  an older plugin set up, it also deletes that plugin's policy file. The serving session takes
+  this request when it starts to wait. If the card does not change in a minute, press `Try again`.
+  Then you can close the setup session.
 
-The command has this form, with a new organization API key and a machine name made from your
-email address:
+Manage an Always on agent with the same script, from the plugin's folder that
+`claude plugin list --json` names (`installPath`):
 
 ```bash
-export DOABLE_API_KEY='<organization API key>' DOABLE_MACHINE_NAME='<name>-claude'
-claude
+node <installPath>/scripts/code-agent-service.mjs status --machine <machine>
+node <installPath>/scripts/code-agent-service.mjs stop --machine <machine>
+node <installPath>/scripts/code-agent-service.mjs start --machine <machine>
+node <installPath>/scripts/code-agent-service.mjs remove --machine <machine>
 ```
 
-It starts Claude Code in its default permission mode. Stay at the terminal for the first
-requests: Claude Code asks before it runs a new command. For each command that you accept, choose
-the answer that always allows it.
+`status` shows whether it is on, its last activity, and the end of its log; the serving session's
+output is in `~/.doable/code-agent/<machine>/session.jsonl`. `remove` stops it and deletes its
+files and its key. After a plugin update, run `stop` and `start`, so that the serving session loads
+the new plugin.
 
 The page makes one new organization API key, named `Code Context · <suite>`, each time it loads
-with such a card. Revoke it in Settings > API Keys when you no longer need it. The one-off prompt
-holds the key, so the key stays in that session's transcript on your computer. The command holds
-it too, so it stays in your shell history.
+with such a card. Revoke it in Settings > API Keys when you no longer need it. Both prompts hold
+the key, so the key stays in the transcript of the session that you pasted it into.
 
 ### By hand
 
 1. Put the product's repositories in one folder.
-2. Run Claude Code on the Claude plan (`claude login`). Remove `ANTHROPIC_API_KEY` from the
+2. Run Claude Code on the Claude plan (`claude auth login`). Remove `ANTHROPIC_API_KEY` from the
    environment of that session, or its usage is billed to the API.
 3. Export `DOABLE_API_KEY` (an organization API key from Doable Settings: the code agent tools
    refuse a personal API key and a Doable login token) and

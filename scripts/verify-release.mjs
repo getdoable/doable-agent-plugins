@@ -11,7 +11,7 @@ const semver = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:
 const plugins = [
   {
     name: "doable-code-context",
-    version: "0.4.2",
+    version: "0.5.0",
     skillNames: ["doable-connect", "doable-answer-questions", "doable-code-agent"],
     network: "bundled-doable-mcp-config",
   },
@@ -529,11 +529,14 @@ for (const requiredSetup of [
 // every tool and command that no rule allows: its start command must allow the Skill (which loads itself again after
 // a new message from the person), the Doable server (whose tools that message takes from the Skill) and the wait.
 for (const requiredCodeAgentSetup of [
-  "There is no policy file.",
   "The Skill's own rules always apply too: a rule in the message joins them and never replaces them.",
   "**One request** (a one-off session): it takes one request by its id, sends the result, and stops.",
-  "**Keep connected** (a long-running session)",
-  "Stay at the terminal for the first requests",
+  "**Always on** (a long-running session)",
+  // The Always on prompt sets the machine up with the service script; the README says what it does and how to stop it.
+  "runs this plugin's `scripts/code-agent-service.mjs setup`",
+  "starts it again 5 minutes after it stops",
+  "code-agent-service.mjs stop --machine <machine>",
+  "Stay at the terminal: Claude Code asks before it runs a new command.",
   'claude --permission-mode dontAsk --allowedTools "Skill(doable-code-context:doable-code-agent)" "mcp__plugin_doable-code-context_doable" "Bash(sleep 20)"',
   "Put `--allowedTools` last, because it reads every word after it as a rule.",
   "`dontAsk` refuses every other tool and command with no prompt",

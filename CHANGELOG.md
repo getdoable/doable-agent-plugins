@@ -9,6 +9,26 @@ All notable changes to Doable Agent Plugins are documented here.
 - Verify template integrity and syntax in CI. Local plugin version remains 0.2.10.
 - Clarify the GitHub integration's repository metadata and model-provider boundary.
 
+## [0.5.0] - 2026-11-20
+
+### Added
+
+- **Always on, from one prompt.** The request card's `Always on` option (it was `Keep connected`)
+  gives one prompt in place of a command and a start prompt. Pasted into Claude Code in the folder
+  with the repositories, it installs or updates this plugin, asks the person which commands the
+  agent may run, and runs the new `scripts/code-agent-service.mjs setup`. The script keeps the key
+  in `~/.doable/code-agent/<machine>/env` (mode 600), starts the serving session in the background
+  in the `dontAsk` mode with the three rules and the person's commands, starts it again 5 minutes
+  after it stops, keeps a Mac awake with `caffeinate`, and on a Mac starts it at each login with a
+  launchd job. `status`, `stop`, `start` and `remove` manage it.
+- Setup deletes the policy file of plugin 0.3.0 from the folder, so that nobody thinks that it
+  still applies.
+
+### Changed
+
+- README: the card's two ways are `One request` and `Always on`; the sign-in command is
+  `claude auth login` (Claude Code has no `claude login`).
+
 ## [0.4.2] - 2026-11-20
 
 Both watches wait inside one tool call instead of polling.
