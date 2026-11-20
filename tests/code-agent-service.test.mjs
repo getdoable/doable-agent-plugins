@@ -6,7 +6,7 @@ import { dirname, join, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { launchdPlist, parseArgs, remove, serviceDir, setup, stop } from "../plugins/doable-code-context/scripts/code-agent-service.mjs";
+import { launchdPlist, parseArgs, remove, sawFirstWait, serviceDir, setup, stop } from "../plugins/doable-code-context/scripts/code-agent-service.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const script = join(root, "plugins", "doable-code-context", "scripts", "code-agent-service.mjs");
@@ -55,6 +55,8 @@ test("the start script runs the serving session in dontAsk mode with the three r
   assert.match(run, /while \[ ! -e "\$dir\/stopped" \]; do/);
   assert.match(run, /sleep 300/);
   assert.match(run, /unset ANTHROPIC_API_KEY/);
+  // The session's output can hold a test login's password: the files that the script makes are the owner's only.
+  assert.match(run, /^umask 077$/m);
   assert.match(run, new RegExp(`cd '${m.folder.replaceAll("/", "\\/")}' \\|\\| exit 1`));
   // The script is valid bash.
   execFileSync("bash", ["-n", join(serviceDir(m.env, "mac-mini-1"), "run.sh")]);
@@ -101,6 +103,18 @@ test("the launchd job starts the start script at login, with no KeepAlive, so th
   assert.match(plist, /<string>\/bin\/bash<\/string><string>\/srv\/agent\/\.doable\/code-agent\/mac-mini-1\/run\.sh<\/string>/);
   assert.match(plist, /<key>RunAtLoad<\/key><true\/>/);
   assert.ok(!plist.includes("KeepAlive"));
+});
+
+test("setup says connected only after the serving session calls the wait tool, not when its tool list names the tool", () => {
+  // The first line of `claude -p --output-format stream-json` lists every tool by name (seen in the live check of
+  // 2026-11-19: the script said "connected" before the session waited).
+  const toolList = JSON.stringify({ type: "system", subtype: "init", tools: ["Bash", "mcp__plugin_doable-code-context_doable__wait_for_code_agent_request"] });
+  const call = JSON.stringify({
+    type: "assistant",
+    message: { content: [{ type: "tool_use", id: "toolu_1", name: "mcp__plugin_doable-code-context_doable__wait_for_code_agent_request", input: { wait_seconds: 50 } }] },
+  });
+  assert.equal(sawFirstWait(toolList), false);
+  assert.equal(sawFirstWait(`${toolList}\n${call}\n`), true);
 });
 
 test("the command line takes repeated --allow options and refuses an unknown option", () => {

@@ -80,6 +80,8 @@ export function runScript({ dir, folder, claude, rules, path, wake, pluginDir = 
 # Written by doable-code-context's code-agent-service.mjs. It serves Doable requests in ${folder}
 # until \`code-agent-service.mjs stop\` writes the stop file. Do not edit it: setup writes it again.
 set -u
+# The session's output can hold a test login's password (in a command): its files are the owner's only.
+umask 077
 dir=${shellQuote(dir)}
 . "$dir/env"
 unset ANTHROPIC_API_KEY
@@ -149,12 +151,18 @@ function launch(env, machine, dir) {
   return "started in the background; after a reboot, run `start` again";
 }
 
+// Whether the serving session's output holds a call of the wait tool. Its first line lists every tool by name, so a
+// match on the name alone says "connected" before the session waits (seen in the live check of 2026-11-19).
+export function sawFirstWait(output) {
+  return /"name":\s*"[^"]*wait_for_code_agent_request"/.test(output);
+}
+
 function waitForFirstWait(env, dir) {
   const seconds = env.DOABLE_CODE_AGENT_WAIT_S === undefined ? 120 : Number(env.DOABLE_CODE_AGENT_WAIT_S);
   const log = join(dir, "session.jsonl");
   const until = Date.now() + seconds * 1000;
   while (Date.now() < until) {
-    if (existsSync(log) && readFileSync(log, "utf8").includes("wait_for_code_agent_request")) return true;
+    if (existsSync(log) && sawFirstWait(readFileSync(log, "utf8"))) return true;
     execFileSync("sleep", ["5"]);
   }
   return false;
