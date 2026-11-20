@@ -1131,6 +1131,44 @@ test("record-round keeps the Round's app under test and accepts a Round without 
   }
 });
 
+test("record-round prints the watch version and records nothing for an unchanged watch read", async (t) => {
+  const testRoot = mkdtempSync(join(tmpdir(), "doable-watch-"));
+  t.after(() => rmSync(testRoot, { recursive: true, force: true }));
+  mkdirSync(join(testRoot, ".doable"));
+  const statePath = join(testRoot, ".doable", "workspace-private.json");
+  writeFileSync(statePath, JSON.stringify({
+    schemaVersion: "1", workspace: { localId: "local-fixture", serverId: "workspace-safe" },
+    organization: { id: "org-safe" }, repositories: [],
+    privateFingerprintKey: "local-test-only",
+    sync: { profileFingerprint: "fixture" }, profile: { profileFingerprint: "fixture" },
+  }));
+  const responsePath = join(testRoot, "watch-round.json");
+  const roundPath = join(testRoot, ".doable", "requests", "DQ-WAIT1", "round-r2.json");
+  const environment = { TEST_WORKSPACE: testRoot };
+  const args = ["record-round", "--code", "DQ-WAIT1", "--response", responsePath, "--state", statePath];
+  writeFileSync(responsePath, JSON.stringify({
+    round_id: "wait-round", round_code: "DQ-WAIT1", round_use: "follow_up", workspace_id: "workspace-safe",
+    test_suite_public_id: "ts-safe", status: "ready_to_create", next_action: "wait", revision: 2,
+    feature_scope: "Team scheduling", questions: [],
+    watch_version: "0123456789abcdef",
+  }));
+
+  const full = await runHelper(args, environment);
+  assert.match(full, /^Next action: wait$/m);
+  assert.match(full, /^Watch version: 0123456789abcdef$/m);
+  const recorded = readFileSync(roundPath, "utf8");
+
+  writeFileSync(responsePath, JSON.stringify({
+    unchanged: true, watch_version: "0123456789abcdef", round_id: "wait-round", revision: 2,
+    status: "ready_to_create", next_action: "wait", message: "Nothing changed.",
+  }));
+  const unchanged = await runHelper(args, environment);
+  assert.match(unchanged, /^Unchanged: the Round did not change; nothing recorded\.$/m);
+  assert.match(unchanged, /^Next action: wait$/m);
+  assert.match(unchanged, /^Watch version: 0123456789abcdef$/m);
+  assert.equal(readFileSync(roundPath, "utf8"), recorded);
+});
+
 function runHelperResult(args, env) {
   return new Promise((resolvePromise, reject) => {
     const child = spawn(process.execPath, [helper, ...args], {

@@ -933,6 +933,10 @@ function normalizeDirectSubmission(value, roundId) {
   return { url: url.href, token, expiresAt };
 }
 
+function optionalWatchVersion(value) {
+  return typeof value === "string" && /^[0-9a-f]{1,64}$/.test(value) ? value : null;
+}
+
 function normalizeRound(data, state, requestedCode) {
   const round = data.round || data;
   const id = string(round.round_id || round.id, "round id", { max: 160 });
@@ -1034,6 +1038,8 @@ function normalizeRound(data, state, requestedCode) {
   const action = ["answer", "wait", "stop"].includes(serverAction)
     ? serverAction
     : watchAction(roundUse, status, questions);
+  // Doable MCP adds a watch version to each full read; an older server sends none.
+  const watchVersion = optionalWatchVersion(data.watch_version ?? round.watch_version);
   const journeyMap = round.journey_map ?? round.journeyMap;
   // The Round's questions and its journey-map instructions are the contract for what to
   // return and how deep to go. The packet may still carry an investigation tier for older
@@ -1063,6 +1069,7 @@ function normalizeRound(data, state, requestedCode) {
     testSuitePublicId,
     status,
     action,
+    watchVersion,
     // Carried into the frozen snapshot so the submission can be gated on it.
     journeyMapRequested: journeyMap?.requested === true,
     // Kept verbatim so the agent reads the server's journey-map instructions from the Round file.
@@ -1121,11 +1128,17 @@ function recordRound(options) {
   );
   assert(state.sync?.profileFingerprint === state.profile?.profileFingerprint, "workspace profile is not synced; complete Doable setup first");
   assert(state.workspace.serverId, "workspace has no server binding; sync the workspace profile first");
-  const round = normalizeRound(
-    readMcpResponse(responsePath, "MCP code-context round"),
-    state,
-    code,
-  );
+  const response = readMcpResponse(responsePath, "MCP code-context round");
+  // A watch read with unchanged_since that found no change: a short result with no Round in it.
+  // Nothing to record; the agent keeps the Round it has and pulls again.
+  if (response?.unchanged === true) {
+    console.log("Unchanged: the Round did not change; nothing recorded.");
+    console.log("Next action: wait");
+    const version = optionalWatchVersion(response.watch_version);
+    if (version) console.log(`Watch version: ${version}`);
+    return;
+  }
+  const round = normalizeRound(response, state, code);
   const requestDirectory = join(dirname(statePath), "requests", round.code);
   const roundPath = join(requestDirectory, `round-r${round.revision}.json`);
   ensurePrivateIgnore(statePath);
@@ -1172,6 +1185,9 @@ function recordRound(options) {
   }
   console.log(`Status: ${round.status}`);
   console.log(`Next action: ${round.action}`);
+  if (round.watchVersion) {
+    console.log(`Watch version: ${round.watchVersion}`);
+  }
   console.log(`Scope: ${round.featureScope}`);
   if (round.situation) {
     console.log(`Situation: ${round.situation}`);

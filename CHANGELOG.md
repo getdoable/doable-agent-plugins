@@ -9,7 +9,7 @@ All notable changes to Doable Agent Plugins are documented here.
 - Verify template integrity and syntax in CI. Local plugin version remains 0.2.10.
 - Clarify the GitHub integration's repository metadata and model-provider boundary.
 
-## [0.5.0] - 2026-11-19
+## [0.5.0] - 2026-11-20
 
 ### Added
 
@@ -28,6 +28,24 @@ All notable changes to Doable Agent Plugins are documented here.
 
 - README: the card's two ways are `One request` and `Always on`; the sign-in command is
   `claude auth login` (Claude Code has no `claude login`).
+
+## [0.4.2] - 2026-11-20
+
+Both watches wait inside one tool call instead of polling.
+
+### Changed
+
+- `doable-answer-questions`: while a Round waits, the Skill calls `get_code_context_round` with
+  `unchanged_since` (the `Watch version` that `record-round` prints) and `wait_seconds: 290`, with
+  no sleep between the calls. While nothing changes, Doable MCP returns a short
+  `{"unchanged": true}` result in place of the whole Round, and the Skill does not record it. A
+  new question reaches the agent within about 5 seconds. With an older Doable MCP server the Skill
+  polls as before.
+- `doable-code-agent`: the loop calls `wait_for_code_agent_request` with `wait_seconds: 290`, so an
+  empty queue costs about 12 calls an hour in place of about 70. A host that stops a tool call
+  after about 60 seconds, and an older Doable MCP server, keep `wait_seconds: 50`.
+- The helper's `record-round` prints the Round's `Watch version`, and records nothing for an
+  `unchanged` result.
 
 ## [0.4.1] - 2026-11-19
 
