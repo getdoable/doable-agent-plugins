@@ -1,6 +1,6 @@
 {
   "name": "doable-code-context",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Connect private code to Doable through MCP: resolve grounded context requests and serve Doable code agent requests from a machine.",
   "author": {
     "name": "Doable AI",
