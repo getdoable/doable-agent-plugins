@@ -100,9 +100,11 @@ again. When the person's message names one request to take, do not start the wat
 
 Repeat:
 
-1. Call `wait_for_code_agent_request` with `wait_seconds: 50`. It returns
+1. Call `wait_for_code_agent_request` with `wait_seconds: 290`. In a host that stops a tool call
+   after about 60 seconds, use `wait_seconds: 50`. If the call refuses 290 as more than 60 (an
+   older Doable MCP server), use `wait_seconds: 50` for the rest of the watch. It returns
    `{"request": <a request, or null>, "capabilities_missing": <true or false>}`: a request at once
-   when a request of your organization is queued, else `null` after about 50 seconds. A request it
+   when a request of your organization is queued, else `null` after about `wait_seconds`. A request it
    returns is now yours (status `working`). On the first call after Start or Resume, give the
    summary in `capabilities`. On later calls, leave it out, except when the answer has
    `capabilities_missing: true` (Doable restarted and lost it): then give it once with the next

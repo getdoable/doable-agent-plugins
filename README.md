@@ -7,7 +7,7 @@ Official agent plugins for [Doable](https://getdoable.ai), supporting Codex, Cla
 
 | Plugin | Version | Purpose | Network |
 | --- | --- | --- | --- |
-| `doable-code-context` | `0.4.1` | Resolve context requests and serve code agent requests | Doable MCP |
+| `doable-code-context` | `0.4.2` | Resolve context requests and serve code agent requests | Doable MCP |
 
 ## Workflows
 

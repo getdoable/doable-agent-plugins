@@ -11,7 +11,7 @@ const semver = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:
 const plugins = [
   {
     name: "doable-code-context",
-    version: "0.4.1",
+    version: "0.4.2",
     skillNames: ["doable-connect", "doable-answer-questions", "doable-code-agent"],
     network: "bundled-doable-mcp-config",
   },
