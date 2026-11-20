@@ -323,7 +323,12 @@ test environments and the team's work tools, inside "Rules", and stop when the g
   cannot ask about what it does not know exists (for example a feature flag that hides the
   feature, a role that the flow needs, a known issue in a ticket). Put it under **Also found**.
 - When you cannot read a source or do work that the goal needs, go on without it and name it
-  under **Not known** (see "Result format"). Doable's agent passes this to the person.
+  under **Not known** (see "Result format"). Doable's agent passes this to the person. Say that
+  a tool is missing or refused only after the call that this work needs failed. In a permission
+  mode that does not ask, a refusal reads "Permission to use Bash has been denied", but it refuses
+  only that one call (its command, or a path outside this folder), not the tool: another command,
+  for example a `curl` call to the test environment's API, can still be allowed. So make the call
+  that the work needs before you say that you cannot.
 - What the chat knows can be inexact (for example an old name for a feature, or a ticket key with
   a typing error). When what you find says otherwise, say so in the answer.
 
@@ -532,7 +537,11 @@ person can find it. Do not keep its password.
 
 Never write a password in a result, a record, a progress text, a chat message, a file, or a commit,
 and never repeat it in your text to the person. Do not keep other secrets that an app hands out
-(a reset key, an API key of the test login). Never make a login in production.
+(a reset key, an API key of the test login). An answer that holds such a secret (for example the
+reply of an API that makes a login) stays in the command's output: do not save it to a file, for
+example with `curl -o`, because a mode that does not ask can refuse the command that deletes the
+file. If a file with a secret stays on this machine, say so under **Not known**, with its path, so
+that a person deletes it. Never make a login in production.
 
 ## Ask Doable's agent
 
