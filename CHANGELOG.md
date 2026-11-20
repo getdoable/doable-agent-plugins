@@ -9,6 +9,23 @@ All notable changes to Doable Agent Plugins are documented here.
 - Verify template integrity and syntax in CI. Local plugin version remains 0.2.10.
 - Clarify the GitHub integration's repository metadata and model-provider boundary.
 
+## [0.4.1] - 2026-11-19
+
+Two fixes from the production live check of 0.4.0 (suite ts-yfbbtplb in teamspire-agent-tests).
+
+### Fixed
+
+- A session with nobody at the terminal said that it had no shell tool after Claude Code refused
+  one command (a read outside its folder), and so it did not make a login that the work needed:
+  Claude Code's text "Permission to use Bash has been denied" names the tool, but it refuses only
+  that call. `doable-code-agent` now says a tool is missing or refused only after the call that
+  the work needs failed. In the live check, the session then made the login with `curl`, checked
+  it, and registered it.
+- The same session saved an API's reply with a new login's password and key to a file, could not
+  delete it (the mode refused `rm`), and its result said that it kept no key. The skill now keeps
+  such a reply in the command's output, never in a file, and names under **Not known** a file with
+  a secret that stays.
+
 ## [0.4.0] - 2026-11-19
 
 This release holds three changes: requests in plain words with a capability summary; one path to
