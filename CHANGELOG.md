@@ -9,6 +9,55 @@ All notable changes to Doable Agent Plugins are documented here.
 - Verify template integrity and syntax in CI. Local plugin version remains 0.2.10.
 - Clarify the GitHub integration's repository metadata and model-provider boundary.
 
+## [0.6.0] - 2026-11-20
+
+Two Doable MCP tools serve requests, and a person's own Claude Code can ask the code agent too.
+Release it in the same hour as the Doable MCP release that has the new tools. Stop each machine's
+0.5.0 session before that release: a 0.5.0 session that still runs after it keeps taking requests
+that it cannot end, Doable shows the machine as connected, and each such request ends lost after
+about 30 minutes. After the release, update the plugin, add the exception for a new login's
+password to the session's prompt, and start the session (README, "Update from 0.5.0"). Update a
+machine that you cannot stop before the release at once after it.
+
+### Changed
+
+- `doable-code-agent` serves requests with two Doable MCP tools: `wait_for_code_agent_request`
+  (the loop) and the new `update_code_agent_request` (progress, a question, a read of a request,
+  and the result). Its `allowed-tools` names only these two. `take_code_agent_request`,
+  `get_code_agent_request`, `report_code_agent_progress`, `ask_agent`, `submit_code_agent_result`,
+  `add_test_account` and `list_code_agent_machines` leave Doable MCP in the same release.
+- The connection check is the first `wait_for_code_agent_request`, with `wait_seconds: 0` and the
+  capability summary. A request that it returns is served at once.
+- Logins: the session makes the login in the app with a new username that holds the date and
+  time, and puts its username, password and note in the result's `logins`. For a chat's request,
+  Doable saves it in the suite's test accounts with the password encrypted, and shows only the
+  username. A password goes in no other place. On `username_exists`, the session makes a login with
+  a new username and sends the result again; on `no_environment` or `logins_not_saved_here`, it
+  sends the result again with no logins and names each login in the summary as "not in Doable".
+- A question waits up to 50 seconds for its answer (`update_code_agent_request` with `question`).
+  With no answer by then, the session serves other requests and checks the question as before.
+- A request can come from a person's Claude Code (Doable MCP's `ask_code_agent`): `asked_by` is
+  `claude_code`, `asked_by_user` is the person's email (`null` when it asked with an organization
+  API key, which names no person), and it has no suite, chat or environment.
+  Its asker gets only the result. Its test environment is one that the request names, when the
+  session's rules or the repositories show that it is not production.
+- `scripts/code-agent-service.mjs`: the four rules of a serving session name the two tools, not
+  the whole Doable MCP server, so that a session in the `dontAsk` mode cannot call
+  `ask_code_agent`. `start` writes the start script again with the rules of the installed release,
+  so `stop` and `start` after a plugin update apply them; setup keeps in `config.json` what the
+  start script needs. On a machine that 0.5.0 set up, `start` takes the `PATH` and the `claude`
+  command from the start script that setup wrote (from its environment only when that script has
+  none), and prints a line that reminds the person of the password exception in the prompt.
+- README: Always on is set up by hand with the setup command; the start prompt is in its own part,
+  and its secret rule lets a new test login's password go in that login of the result; a new part
+  "Update from 0.5.0".
+
+### Removed
+
+- The one-off session, which took one request by its id, and the request card's texts in README,
+  TESTING and PRIVACY (`Needs a session`, `One request`, `Try again`, the copied prompts and their
+  key).
+
 ## [0.5.0] - 2026-11-20
 
 ### Added
