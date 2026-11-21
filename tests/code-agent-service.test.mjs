@@ -6,7 +6,7 @@ import { dirname, join, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { launchdPlist, parseArgs, remove, sawFirstWait, serviceDir, setup, stop } from "../plugins/doable-code-context/scripts/code-agent-service.mjs";
+import { launchdPlist, parseArgs, remove, sawFirstWait, serviceDir, setup, start, stop } from "../plugins/doable-code-context/scripts/code-agent-service.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const script = join(root, "plugins", "doable-code-context", "scripts", "code-agent-service.mjs");
@@ -47,11 +47,19 @@ test("setup keeps the key only in a file that only its owner can read, and never
   assert.ok(!readFileSync(join(dir, "run.sh"), "utf8").includes(KEY));
 });
 
-test("the start script runs the serving session in dontAsk mode with the three rules and the person's rules, and starts it again", () => {
+// The --allowedTools rules of this release: the Skill, the two Doable MCP tools that serve requests (never the whole
+// server, whose ask_code_agent is the asking tool of a person's Claude Code), and the wait after an error.
+const BASE_RULES_IN_RUN =
+  "'Skill\\(doable-code-context:doable-code-agent\\)' 'mcp__plugin_doable-code-context_doable__wait_for_code_agent_request' " +
+  "'mcp__plugin_doable-code-context_doable__update_code_agent_request' 'Bash\\(sleep 20\\)'";
+
+test("the start script runs the serving session in dontAsk mode with the four rules and the person's rules, and starts it again", () => {
   const m = machine();
   setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, allow: ["Bash(npm test *)", "Bash(curl https://staging.example.com/*)"] }, m.env, () => {});
   const run = readFileSync(join(serviceDir(m.env, "mac-mini-1"), "run.sh"), "utf8");
-  assert.match(run, /'\/opt\/claude'\\''s bin\/claude' -p --permission-mode dontAsk --output-format stream-json --verbose --allowedTools 'Skill\(doable-code-context:doable-code-agent\)' 'mcp__plugin_doable-code-context_doable' 'Bash\(sleep 20\)' 'Bash\(npm test \*\)' 'Bash\(curl https:\/\/staging\.example\.com\/\*\)' < "\$dir\/prompt\.md"/);
+  assert.match(run, new RegExp(`'\\/opt\\/claude'\\\\''s bin\\/claude' -p --permission-mode dontAsk --output-format stream-json --verbose --allowedTools ${BASE_RULES_IN_RUN} 'Bash\\(npm test \\*\\)' 'Bash\\(curl https:\\/\\/staging\\.example\\.com\\/\\*\\)' < "\\$dir\\/prompt\\.md"`));
+  // A rule for the whole Doable MCP server would let the serving session call ask_code_agent.
+  assert.ok(!run.includes("'mcp__plugin_doable-code-context_doable' "), run);
   assert.match(run, /while \[ ! -e "\$dir\/stopped" \]; do/);
   assert.match(run, /sleep 300/);
   assert.match(run, /unset ANTHROPIC_API_KEY/);
@@ -95,6 +103,35 @@ test("stop writes the stop file that ends the restart loop, and remove deletes t
   remove("mac-mini-1", m.env, (line) => printed.push(line));
   assert.equal(existsSync(dir), false);
   assert.match(printed[0], /Revoke the key in Doable's Settings > API Keys/);
+});
+
+test("start writes the start script again with this release's rules, also on a machine that plugin 0.5.0 set up", () => {
+  // A machine updates by a plugin update, then stop and start: the start script that an older setup wrote must not
+  // keep its rules, such as plugin 0.5.0's rule for the whole Doable MCP server.
+  const m = machine();
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, allow: ["Bash(npm test *)"] }, m.env, () => {});
+  const dir = serviceDir(m.env, "mac-mini-1");
+  const later = { ...m.env, DOABLE_CLAUDE_BIN: "/srv/other/claude" };
+
+  // A machine that this release set up: start keeps what setup saved, also when the environment of start differs.
+  writeFileSync(join(dir, "run.sh"), "#!/bin/bash\n# an older start script\n");
+  stop("mac-mini-1", m.env, () => {});
+  start("mac-mini-1", later, () => {});
+  let run = readFileSync(join(dir, "run.sh"), "utf8");
+  assert.match(run, new RegExp(`'\\/opt\\/claude'\\\\''s bin\\/claude' -p --permission-mode dontAsk .* --allowedTools ${BASE_RULES_IN_RUN} 'Bash\\(npm test \\*\\)' <`));
+  execFileSync("bash", ["-n", join(dir, "run.sh")]);
+
+  // A machine that plugin 0.5.0 set up: its config.json has only the folder, the machine and the person's rules, and
+  // its start script allows the whole server. Start takes the rest from its environment and keeps it.
+  writeFileSync(join(dir, "config.json"), `${JSON.stringify({ folder: m.folder, machine: "mac-mini-1", allow: ["Bash(npm test *)"] })}\n`);
+  writeFileSync(join(dir, "run.sh"), "#!/bin/bash\nclaude -p --permission-mode dontAsk --allowedTools 'mcp__plugin_doable-code-context_doable' 'Bash(sleep 20)'\n");
+  stop("mac-mini-1", m.env, () => {});
+  start("mac-mini-1", later, () => {});
+  run = readFileSync(join(dir, "run.sh"), "utf8");
+  assert.match(run, new RegExp(`'\\/srv\\/other\\/claude' -p --permission-mode dontAsk .* --allowedTools ${BASE_RULES_IN_RUN} 'Bash\\(npm test \\*\\)' <`));
+  assert.ok(!run.includes("'mcp__plugin_doable-code-context_doable' "), run);
+  assert.match(run, new RegExp(`cd '${m.folder.replaceAll("/", "\\/")}' \\|\\| exit 1`));
+  assert.equal(JSON.parse(readFileSync(join(dir, "config.json"), "utf8")).claude, "/srv/other/claude");
 });
 
 test("the launchd job starts the start script at login, with no KeepAlive, so that a stop stays stopped", () => {
