@@ -36,7 +36,9 @@ machine that you cannot stop before the release at once after it.
   sends the result again with no logins and names each login in the summary as "not in Doable".
 - A question waits up to 50 seconds for its answer (`update_code_agent_request` with `question`).
   With no answer by then, the session serves other requests and checks the question as before.
-- A request can come from a person's Claude Code (Doable MCP's `ask_code_agent`): `asked_by` is
+- A request can come from a person's Claude Code (Doable MCP's `ask_code_agent`, which only the
+  organization's own members may use: Doable refuses a system admin who is not a member, a member
+  with the support role, and their keys, with `not_a_member`): `asked_by` is
   `claude_code`, `asked_by_user` is the person's email (`null` when it asked with an organization
   API key, which names no person), and it has no suite, chat or environment.
   Its asker gets only the result. Its test environment is one that the request names, when the

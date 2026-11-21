@@ -515,8 +515,9 @@ Do not keep its password.
      with that username. Do not change that account. Make a new login with a new username in the
      app, put it in place of the refused one, and send the result again.
    - `no_environment` (the chat's suite had no environment when the request was asked) or
-     `logins_not_saved_here` (this Doable cannot save logins): send the result again with no
-     `logins`, and name each login in the summary with "not in Doable", with no password.
+     `logins_not_saved_here` (this Doable server cannot store a login's password): send the
+     result again with no `logins`, and name each login in the summary with "not in Doable", with
+     no password.
 
 Never write a password in a summary, a record, a progress text, a question, a chat message, a
 file, or a commit, and never repeat it in your text to the person. Do not keep other secrets that
