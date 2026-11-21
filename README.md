@@ -205,7 +205,7 @@ one of two askers:
   organization API key, or the personal API key (with read and write) of a member of the
   organization. Only the organization's own members may ask: Doable refuses (`not_a_member`) a
   Doable system admin who is not a member, a member with the support role, an organization API
-  key that one of them made, and a personal key whose user is not a member. Such a person can ask
+  key whose stored owner is one of them, and a personal key whose user is not a member. Such a person can ask
   in a Doable chat of one of the organization's suites, which keeps a record that the organization
   can see. The tool waits for the answer, and only the asker can read the request and its
   result: the person who asked, or for an organization API key, that key. Doable keeps such a
