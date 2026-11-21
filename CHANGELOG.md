@@ -12,8 +12,12 @@ All notable changes to Doable Agent Plugins are documented here.
 ## [0.6.0] - 2026-11-20
 
 Two Doable MCP tools serve requests, and a person's own Claude Code can ask the code agent too.
-Release it in the same hour as the Doable MCP release that has the new tools: from that release, a
-machine on 0.5.0 serves no request until it is updated (README, "Update from 0.5.0").
+Release it in the same hour as the Doable MCP release that has the new tools. Stop each machine's
+0.5.0 session before that release: a 0.5.0 session that still runs after it keeps taking requests
+that it cannot end, Doable shows the machine as connected, and each such request ends lost after
+about 30 minutes. After the release, update the plugin, add the exception for a new login's
+password to the session's prompt, and start the session (README, "Update from 0.5.0"). Update a
+machine that you cannot stop before the release at once after it.
 
 ### Changed
 
@@ -33,14 +37,17 @@ machine on 0.5.0 serves no request until it is updated (README, "Update from 0.5
 - A question waits up to 50 seconds for its answer (`update_code_agent_request` with `question`).
   With no answer by then, the session serves other requests and checks the question as before.
 - A request can come from a person's Claude Code (Doable MCP's `ask_code_agent`): `asked_by` is
-  `claude_code`, `asked_by_user` is the person's email, and it has no suite, chat or environment.
+  `claude_code`, `asked_by_user` is the person's email (`null` when it asked with an organization
+  API key, which names no person), and it has no suite, chat or environment.
   Its asker gets only the result. Its test environment is one that the request names, when the
   session's rules or the repositories show that it is not production.
 - `scripts/code-agent-service.mjs`: the four rules of a serving session name the two tools, not
   the whole Doable MCP server, so that a session in the `dontAsk` mode cannot call
   `ask_code_agent`. `start` writes the start script again with the rules of the installed release,
   so `stop` and `start` after a plugin update apply them; setup keeps in `config.json` what the
-  start script needs.
+  start script needs. On a machine that 0.5.0 set up, `start` takes the `PATH` and the `claude`
+  command from the start script that setup wrote (from its environment only when that script has
+  none), and prints a line that reminds the person of the password exception in the prompt.
 - README: Always on is set up by hand with the setup command; the start prompt is in its own part,
   and its secret rule lets a new test login's password go in that login of the result; a new part
   "Update from 0.5.0".

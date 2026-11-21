@@ -449,7 +449,8 @@ for (const plugin of plugins) {
   }
 }
 
-// The machine asks Doable's chat agent, never a person: Doable MCP's `ask_person` became `ask_agent`, the status
+// The machine asks the request's asker, never a person: Doable MCP's `ask_person` became `ask_agent` and then a
+// `question` of `update_code_agent_request`, the status
 // `needs_person` became `needs_answer`, and the request fields `person_question` and `person_answer` became `question`
 // and `answer`. A machine that follows an old name calls a tool that is gone, or waits for a status or a field that
 // never comes. No file of the plugin and no setup, privacy or acceptance text may name them again. CHANGELOG.md may,
@@ -467,7 +468,7 @@ for (const path of [
   for (const name of retiredAskNames) {
     assert(
       !text.includes(name),
-      `${relative(root, path)} names ${name}, the old name of the machine's question: use ask_agent, needs_answer, question and answer`,
+      `${relative(root, path)} names ${name}, an old name of the machine's question: ask with update_code_agent_request and its question, and use the status needs_answer and the fields question and answer`,
     );
   }
 }
@@ -581,10 +582,12 @@ for (const requiredCodeAgentSetup of [
   "Your own Claude Code settings apply to this session too",
   // The setup keeps the key on the person's disk: say where, and that it can be revoked.
   "Revoke it in Settings > API Keys",
-  // A machine on 0.5.0 serves no request after the Doable MCP release: it updates by a plugin update, then `stop` and
-  // `start` (which writes the start script again with this release's rules), and its start prompt's secret rule needs
-  // the exception for a new login's password.
+  // A 0.5.0 session that still runs after the Doable MCP release keeps taking requests that it cannot end, and each one
+  // ends lost: the machine stops before that release. Then it updates by a plugin update, the exception for a new
+  // login's password in its start prompt's secret rule, and `start` (which writes the start script again with this
+  // release's rules).
   "### Update from 0.5.0",
+  "Before the Doable MCP release, stop the 0.5.0 session",
   "claude plugin update doable-code-context@doable --scope user",
   "code-agent-service.mjs start --machine <machine>",
   "`start` writes the start script again with this release's four rules",

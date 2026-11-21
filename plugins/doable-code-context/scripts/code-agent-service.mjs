@@ -128,13 +128,37 @@ export function launchdPlist({ machine, dir }) {
 }
 
 // What the start script runs with, besides the rules: setup takes it from its environment and keeps it in config.json.
-function runEnvironment(env) {
+// `kept` holds the values that an older start script gives (scriptEnvironment): they win over the environment.
+function runEnvironment(env, kept = {}) {
   return {
-    claude: findClaude(env),
-    path: env.PATH || "",
+    claude: kept.claude ?? findClaude(env),
+    path: kept.path ?? (env.PATH || ""),
     wake: process.platform === "darwin" && existsSync("/usr/bin/caffeinate"),
-    pluginDir: env.DOABLE_CODE_AGENT_PLUGIN_DIR || null,
+    pluginDir: kept.pluginDir !== undefined ? kept.pluginDir : env.DOABLE_CODE_AGENT_PLUGIN_DIR || null,
   };
+}
+
+// A value as shellQuote writes it: in single quotes, with each single quote of the value written as '\''.
+const SHELL_QUOTED = String.raw`'[^']*'(?:\\''[^']*')*`;
+
+function shellUnquote(quoted) {
+  return quoted.slice(1, -1).replaceAll(`'\\''`, "'");
+}
+
+// What a start script that runScript wrote runs with: the PATH of its `export PATH=` line, and the claude command and
+// the development plugin folder of its session's command line. A value that the script does not hold is left out.
+function scriptEnvironment(script) {
+  const kept = {};
+  const path = script.match(new RegExp(`^export PATH=(${SHELL_QUOTED})$`, "m"));
+  if (path) kept.path = shellUnquote(path[1]);
+  const session = script.match(
+    new RegExp(`^\\s*(?:/usr/bin/caffeinate -i -s )?(${SHELL_QUOTED}) -p (?:--plugin-dir (${SHELL_QUOTED}) )?--permission-mode dontAsk `, "m"),
+  );
+  if (session) {
+    kept.claude = shellUnquote(session[1]);
+    kept.pluginDir = session[2] === undefined ? null : shellUnquote(session[2]);
+  }
+  return kept;
 }
 
 // The start script, from config.json and this release's BASE_RULES.
@@ -156,16 +180,23 @@ function writeConfig(dir, config) {
   writeFileSync(join(dir, "config.json"), `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
 }
 
-// config.json of a machine that setup set up. Plugin 0.5.0's setup kept only the folder, the machine and the person's
-// rules: the rest comes from this environment, as setup takes it, and is kept from now on.
+// config.json of a machine that setup set up, and whether plugin 0.5.0's setup wrote it. That setup kept only the
+// folder, the machine and the person's rules. It wrote the rest into the start script, from the person's terminal, and
+// the shell that runs start can have another PATH (for example over SSH). So the rest comes from that start script,
+// else from this environment, and is kept from now on.
 function savedConfig(dir, env) {
   const config = JSON.parse(readFileSync(join(dir, "config.json"), "utf8"));
-  if (!("claude" in config)) {
-    Object.assign(config, runEnvironment(env));
-    writeConfig(dir, config);
-  }
-  return config;
+  if ("claude" in config) return { config, fromOlderSetup: false };
+  const runFile = join(dir, "run.sh");
+  const kept = existsSync(runFile) ? scriptEnvironment(readFileSync(runFile, "utf8")) : {};
+  Object.assign(config, runEnvironment(env, kept));
+  writeConfig(dir, config);
+  return { config, fromOlderSetup: true };
 }
+
+// The sentence of the README's start prompt that lets a new test login's password go in the result. A 0.5.0 prompt's
+// secret rule has no such exception, so its session cannot hand a new login to Doable.
+const PASSWORD_EXCEPTION = "The one exception: the password of a new test login goes in that login of the result.";
 
 function plistPath(env, machine) {
   return join(env.DOABLE_LAUNCH_AGENTS_DIR || join(homedir(), "Library", "LaunchAgents"), `${launchdLabel(machine)}.plist`);
@@ -289,8 +320,14 @@ export function start(machine, env, print = console.log) {
   checkMachine(machine);
   const dir = serviceDir(env, machine);
   if (!existsSync(join(dir, "config.json"))) fail(`No code agent "${machine}" is set up on this machine: run setup first.`);
-  writeRunScript(dir, savedConfig(dir, env));
+  const { config, fromOlderSetup } = savedConfig(dir, env);
+  writeRunScript(dir, config);
   print(`The code agent "${machine}": ${launch(env, machine, dir)}.`);
+  if (fromOlderSetup) {
+    print(
+      `If the secret rule in ${join(dir, "prompt.md")} has no exception for a new test login's password, add this sentence to it, then run stop and start again: "${PASSWORD_EXCEPTION}"`,
+    );
+  }
 }
 
 export function status(machine, env, print = console.log) {

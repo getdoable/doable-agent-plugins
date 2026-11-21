@@ -61,6 +61,12 @@ test('the release verifier lets the code agent skill allow only the two tools th
     assert.match(namesOldTool.stderr, /SKILL\.md names submit_code_agent_result, a removed code agent tool/);
     assert.match(namesOldTool.stderr, /SKILL\.md names ask_agent, a removed code agent tool/);
 
+    // An old name of the machine's question: the message names the tool of this release, not the removed ask_agent.
+    const namesOldStatus = verifyWith(directory, skill, (text) => `${text}\nWait while the request is \`needs_person\`.\n`);
+    assert.notEqual(namesOldStatus.status, 0, 'a skill that names an old status of the question must fail');
+    assert.match(namesOldStatus.stderr, /SKILL\.md names needs_person, an old name of the machine's question: ask with update_code_agent_request and its question/);
+    assert.doesNotMatch(namesOldStatus.stderr, /use ask_agent/);
+
     // The changelog keeps the history of the removed tools.
     const historyNamesOldTool = verifyWith(directory, 'CHANGELOG.md', (text) =>
       `${text}\n- \`add_test_account\` registered a login.\n`);
@@ -74,6 +80,13 @@ test('the release verifier refuses a README that allows the whole Doable MCP ser
       `${text}\n\`\`\`bash\nclaude --permission-mode dontAsk --allowedTools "mcp__plugin_doable-code-context_doable"\n\`\`\`\n`);
     assert.notEqual(wholeServer.status, 0, 'a README that allows the whole server must fail');
     assert.match(wholeServer.stderr, /README allows the whole Doable MCP server \("mcp__plugin_doable-code-context_doable"\)/);
+
+    // A 0.5.0 session that still runs after the Doable MCP release takes requests that it cannot end: the update
+    // stops it first.
+    const noStopFirst = verifyWith(directory, 'README.md', (text) =>
+      text.replace('Before the Doable MCP release, stop the 0.5.0 session', 'Stop the 0.5.0 session'));
+    assert.notEqual(noStopFirst.status, 0, 'a README that does not stop a 0.5.0 session before the Doable MCP release must fail');
+    assert.match(noStopFirst.stderr, /README is missing code agent setup: Before the Doable MCP release, stop the 0\.5\.0 session/);
 
     // A password goes only in its login of the result: a skill that drops the rule can leave it in a summary or a file.
     const noPasswordRule = verifyWith(directory, skill, (text) => text.replace('A password goes in no other place.', ''));

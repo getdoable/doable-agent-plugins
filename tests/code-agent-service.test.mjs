@@ -105,33 +105,117 @@ test("stop writes the stop file that ends the restart loop, and remove deletes t
   assert.match(printed[0], /Revoke the key in Doable's Settings > API Keys/);
 });
 
-test("start writes the start script again with this release's rules, also on a machine that plugin 0.5.0 set up", () => {
+// The start script that plugin 0.5.0's setup wrote, word for word: its rules allow the whole Doable MCP server, and
+// its PATH, claude command and development plugin folder are those of the terminal that ran setup.
+function plugin050RunScript({ dir, folder }) {
+  return `#!/bin/bash
+# Written by doable-code-context's code-agent-service.mjs. It serves Doable requests in ${folder}
+# until \`code-agent-service.mjs stop\` writes the stop file. Do not edit it: setup writes it again.
+set -u
+# The session's output can hold a test login's password (in a command): its files are the owner's only.
+umask 077
+dir='${dir}'
+. "$dir/env"
+unset ANTHROPIC_API_KEY
+export PATH='/srv/setup-terminal/bin:/usr/bin:/bin'
+# In print mode the MCP servers can connect after the first turn starts; the skill's first call needs Doable's tools.
+export MCP_CONNECTION_NONBLOCKING=false
+cd '${folder}' || exit 1
+while [ ! -e "$dir/stopped" ]; do
+  if [ -f "$dir/session.jsonl" ] && [ "$(wc -c < "$dir/session.jsonl")" -gt 20971520 ]; then
+    mv -f "$dir/session.jsonl" "$dir/session.1.jsonl"
+  fi
+  echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) the serving session starts" >> "$dir/service.log"
+  /usr/bin/caffeinate -i -s '/srv/setup terminal'\\''s/bin/claude' -p --plugin-dir '/srv/dev/doable-agent-plugins/plugins/doable-code-context' --permission-mode dontAsk --output-format stream-json --verbose --allowedTools 'Skill(doable-code-context:doable-code-agent)' 'mcp__plugin_doable-code-context_doable' 'Bash(sleep 20)' 'Bash(npm test *)' < "$dir/prompt.md" >> "$dir/session.jsonl" 2>&1
+  echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) the serving session ended with code $?" >> "$dir/service.log"
+  [ -e "$dir/stopped" ] && break
+  sleep 300
+done
+`;
+}
+
+// A machine that plugin 0.5.0 set up: its config.json has only the folder, the machine and the person's rules.
+function asPlugin050Setup(m, dir, runScriptText) {
+  writeFileSync(join(dir, "config.json"), `${JSON.stringify({ folder: m.folder, machine: "mac-mini-1", allow: ["Bash(npm test *)"] })}\n`);
+  writeFileSync(join(dir, "run.sh"), runScriptText);
+}
+
+const REMINDER = /prompt\.md has no exception for a new test login's password, add this sentence to it, then run stop and start again: "The one exception: the password of a new test login goes in that login of the result\."$/;
+
+test("start writes the start script again with this release's rules, and keeps what this release's setup saved", () => {
   // A machine updates by a plugin update, then stop and start: the start script that an older setup wrote must not
-  // keep its rules, such as plugin 0.5.0's rule for the whole Doable MCP server.
+  // keep its rules.
   const m = machine();
   setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, allow: ["Bash(npm test *)"] }, m.env, () => {});
   const dir = serviceDir(m.env, "mac-mini-1");
   const later = { ...m.env, DOABLE_CLAUDE_BIN: "/srv/other/claude" };
 
-  // A machine that this release set up: start keeps what setup saved, also when the environment of start differs.
+  // start keeps what setup saved, also when the environment of start differs, and has no reminder for 0.5.0's prompt.
   writeFileSync(join(dir, "run.sh"), "#!/bin/bash\n# an older start script\n");
   stop("mac-mini-1", m.env, () => {});
-  start("mac-mini-1", later, () => {});
-  let run = readFileSync(join(dir, "run.sh"), "utf8");
+  const printed = [];
+  start("mac-mini-1", later, (line) => printed.push(line));
+  const run = readFileSync(join(dir, "run.sh"), "utf8");
   assert.match(run, new RegExp(`'\\/opt\\/claude'\\\\''s bin\\/claude' -p --permission-mode dontAsk .* --allowedTools ${BASE_RULES_IN_RUN} 'Bash\\(npm test \\*\\)' <`));
   execFileSync("bash", ["-n", join(dir, "run.sh")]);
+  assert.deepEqual(printed, ['The code agent "mac-mini-1": not started (DOABLE_CODE_AGENT_NO_LAUNCH is set).']);
+});
 
-  // A machine that plugin 0.5.0 set up: its config.json has only the folder, the machine and the person's rules, and
-  // its start script allows the whole server. Start takes the rest from its environment and keeps it.
-  writeFileSync(join(dir, "config.json"), `${JSON.stringify({ folder: m.folder, machine: "mac-mini-1", allow: ["Bash(npm test *)"] })}\n`);
-  writeFileSync(join(dir, "run.sh"), "#!/bin/bash\nclaude -p --permission-mode dontAsk --allowedTools 'mcp__plugin_doable-code-context_doable' 'Bash(sleep 20)'\n");
-  stop("mac-mini-1", m.env, () => {});
-  start("mac-mini-1", later, () => {});
-  run = readFileSync(join(dir, "run.sh"), "utf8");
-  assert.match(run, new RegExp(`'\\/srv\\/other\\/claude' -p --permission-mode dontAsk .* --allowedTools ${BASE_RULES_IN_RUN} 'Bash\\(npm test \\*\\)' <`));
+test("start on a machine that plugin 0.5.0 set up takes the PATH, the claude command and the plugin folder from its start script, and reminds of the prompt's password sentence", () => {
+  const m = machine();
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, allow: ["Bash(npm test *)"] }, m.env, () => {});
+  const dir = serviceDir(m.env, "mac-mini-1");
+  asPlugin050Setup(m, dir, plugin050RunScript({ dir, folder: m.folder }));
+  // start runs from a shell that has no claude on its PATH and no plugin folder, for example over SSH.
+  const { DOABLE_CLAUDE_BIN: _claude, ...withoutClaude } = m.env;
+  const sshShell = { ...withoutClaude, PATH: "/srv/ssh-shell/bin" };
+
+  stop("mac-mini-1", sshShell, () => {});
+  const printed = [];
+  start("mac-mini-1", sshShell, (line) => printed.push(line));
+  const run = readFileSync(join(dir, "run.sh"), "utf8");
+  assert.match(run, /^export PATH='\/srv\/setup-terminal\/bin:\/usr\/bin:\/bin'$/m);
+  assert.match(
+    run,
+    new RegExp(
+      `'\\/srv\\/setup terminal'\\\\''s\\/bin\\/claude' -p --plugin-dir '\\/srv\\/dev\\/doable-agent-plugins\\/plugins\\/doable-code-context' ` +
+        `--permission-mode dontAsk .* --allowedTools ${BASE_RULES_IN_RUN} 'Bash\\(npm test \\*\\)' <`,
+    ),
+  );
   assert.ok(!run.includes("'mcp__plugin_doable-code-context_doable' "), run);
   assert.match(run, new RegExp(`cd '${m.folder.replaceAll("/", "\\/")}' \\|\\| exit 1`));
+  execFileSync("bash", ["-n", join(dir, "run.sh")]);
+  const config = JSON.parse(readFileSync(join(dir, "config.json"), "utf8"));
+  assert.equal(config.claude, "/srv/setup terminal's/bin/claude");
+  assert.equal(config.path, "/srv/setup-terminal/bin:/usr/bin:/bin");
+  assert.equal(config.pluginDir, "/srv/dev/doable-agent-plugins/plugins/doable-code-context");
+  assert.equal(printed.length, 2, printed.join("\n"));
+  assert.ok(printed[1].startsWith(`If the secret rule in ${join(dir, "prompt.md")} `), printed[1]);
+  assert.match(printed[1], REMINDER);
+
+  // config.json now holds what the start script needs: the next start is not a 0.5.0 setup, and has no reminder.
+  const again = [];
+  start("mac-mini-1", sshShell, (line) => again.push(line));
+  assert.equal(again.length, 1, again.join("\n"));
+});
+
+test("start on a machine that plugin 0.5.0 set up takes from its environment what its start script does not hold", () => {
+  const m = machine();
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, allow: ["Bash(npm test *)"] }, m.env, () => {});
+  const dir = serviceDir(m.env, "mac-mini-1");
+  // A start script that a person changed by hand: no PATH line, and a claude command that is not quoted.
+  asPlugin050Setup(m, dir, "#!/bin/bash\nclaude -p --permission-mode dontAsk --allowedTools 'mcp__plugin_doable-code-context_doable' 'Bash(sleep 20)'\n");
+  const later = { ...m.env, DOABLE_CLAUDE_BIN: "/srv/other/claude", PATH: "/srv/other/bin:/usr/bin" };
+
+  stop("mac-mini-1", later, () => {});
+  const printed = [];
+  start("mac-mini-1", later, (line) => printed.push(line));
+  const run = readFileSync(join(dir, "run.sh"), "utf8");
+  assert.match(run, /^export PATH='\/srv\/other\/bin:\/usr\/bin'$/m);
+  assert.match(run, new RegExp(`'\\/srv\\/other\\/claude' -p --permission-mode dontAsk .* --allowedTools ${BASE_RULES_IN_RUN} 'Bash\\(npm test \\*\\)' <`));
+  assert.ok(!run.includes("'mcp__plugin_doable-code-context_doable' "), run);
   assert.equal(JSON.parse(readFileSync(join(dir, "config.json"), "utf8")).claude, "/srv/other/claude");
+  assert.match(printed[1], REMINDER);
 });
 
 test("the launchd job starts the start script at login, with no KeepAlive, so that a stop stays stopped", () => {

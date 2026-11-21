@@ -203,9 +203,9 @@ one of two askers:
   The chat's agent can send a request only while a session of the organization is connected.
 - **A person's own Claude Code**, with the Doable MCP tool `ask_code_agent`. It takes an
   organization API key, or the personal API key (with read and write) of a member of the
-  organization. The tool waits for the answer, and only the person who asked can read the request
-  and its result. Doable keeps such a request in memory only, and drops it at a restart of Doable
-  or one hour after it ends.
+  organization. The tool waits for the answer, and only the asker can read the request and its
+  result: the person who asked, or for an organization API key, that key. Doable keeps such a
+  request in memory only, and drops it at a restart of Doable or one hour after it ends.
 
 A request can ask anything; the session does what its rules allow and declines the rest.
 For example:
@@ -313,11 +313,12 @@ node <installPath>/scripts/code-agent-service.mjs remove --machine <machine>
 ```
 
 `status` shows whether it is on, its last activity, and the end of its log; the serving session's
-output is in `~/.doable/code-agent/<machine>/session.jsonl`. `start` writes the start script again
-with the rules of the installed plugin. `remove` stops it and deletes its files and its key. After
-a plugin update, run `stop` and `start`, so that the serving session loads the new plugin (see
-[Update from 0.5.0](#update-from-050)). The key stays in its file until `remove`. Revoke it in
-Settings > API Keys when you no longer need it.
+output is in `~/.doable/code-agent/<machine>/session.jsonl`. That output holds the password of each
+new test login that the session sends to Doable, and only you can read it. `start` writes the
+start script again with the rules of the installed plugin. `remove` stops it and deletes its files
+and its key. After a plugin update, run `stop` and `start`, so that the serving session loads the
+new plugin (see [Update from 0.5.0](#update-from-050)). The key stays in its file until `remove`.
+Revoke it in Settings > API Keys when you no longer need it.
 
 ### By hand
 
@@ -392,25 +393,45 @@ it.
 
 ### Update from 0.5.0
 
-Doable MCP replaced the tools with which plugin 0.5.0 serves requests, so a machine with 0.5.0
-serves no request until you update it. On each machine, update the plugin, then stop and start
-the Always on session:
+The Doable MCP release for 0.6.0 removes the tools with which plugin 0.5.0 ends a request. A 0.5.0
+session that still runs after that release keeps taking requests: it cannot end them, Doable shows
+the machine as connected, and each such request ends lost after about 30 minutes. So on each
+Always on machine:
 
-```bash
-claude plugin marketplace update doable
-claude plugin update doable-code-context@doable --scope user
-node <installPath>/scripts/code-agent-service.mjs stop --machine <machine>
-node <installPath>/scripts/code-agent-service.mjs start --machine <machine>
-```
+1. Before the Doable MCP release, stop the 0.5.0 session:
 
-Read `installPath` in `claude plugin list --json` after the update: it changes with the version.
+   ```bash
+   node <installPath>/scripts/code-agent-service.mjs stop --machine <machine>
+   ```
+
+2. After the release, update the plugin:
+
+   ```bash
+   claude plugin marketplace update doable
+   claude plugin update doable-code-context@doable --scope user
+   ```
+
+   Read `installPath` in `claude plugin list --json` again: it changes with the version.
+3. Open the session's prompt (`~/.doable/code-agent/<machine>/prompt.md`). If its secret rule has
+   no exception for a new test login's password, add the sentence that the start prompt above has:
+   "The one exception: the password of a new test login goes in that login of the result." Else
+   your rule forbids the password that a new login needs, and the session cannot hand a new login
+   to Doable.
+4. Start the session:
+
+   ```bash
+   node <installPath>/scripts/code-agent-service.mjs start --machine <machine>
+   ```
+
 The serving session runs the installed plugin, so the new session loads 0.6.0, and `start` writes
-the start script again with this release's four rules. Before `start`, open the session's prompt
-(`~/.doable/code-agent/<machine>/prompt.md`). If its secret rule has no exception for a new test
-login's password, add the sentence that the start prompt above has: else your rule forbids the
-password that a new login needs, and the session cannot hand a new login to Doable. For a session
-that you started by hand, stop it, and start it again with the new start prompt (and the new
-`dontAsk` command when nobody watches it).
+the start script again with this release's four rules. It keeps the `PATH` and the `claude`
+command that the 0.5.0 setup took from your terminal, so you can run it from another shell, for
+example over SSH. It also prints a line that reminds you of the sentence of step 3.
+
+If you cannot stop a machine before the release, update it at once after the release: run `stop`,
+then steps 2 to 4. Stop a session that you started by hand before the release too, and after the
+update start it again with the new start prompt (and the new `dontAsk` command when nobody watches
+it).
 
 ### What a session does
 
