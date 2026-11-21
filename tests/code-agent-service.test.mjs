@@ -106,8 +106,10 @@ test("stop writes the stop file that ends the restart loop, and remove deletes t
 });
 
 // The start script that plugin 0.5.0's setup wrote, word for word: its rules allow the whole Doable MCP server, and
-// its PATH, claude command and development plugin folder are those of the terminal that ran setup.
-function plugin050RunScript({ dir, folder }) {
+// its PATH, claude command and development plugin folder are those of the terminal that ran setup. With no plugin
+// folder at setup (the installed plugin), it has no --plugin-dir.
+function plugin050RunScript({ dir, folder, pluginDir = "/srv/dev/doable-agent-plugins/plugins/doable-code-context" }) {
+  const plugin = pluginDir ? `--plugin-dir '${pluginDir}' ` : "";
   return `#!/bin/bash
 # Written by doable-code-context's code-agent-service.mjs. It serves Doable requests in ${folder}
 # until \`code-agent-service.mjs stop\` writes the stop file. Do not edit it: setup writes it again.
@@ -126,7 +128,7 @@ while [ ! -e "$dir/stopped" ]; do
     mv -f "$dir/session.jsonl" "$dir/session.1.jsonl"
   fi
   echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) the serving session starts" >> "$dir/service.log"
-  /usr/bin/caffeinate -i -s '/srv/setup terminal'\\''s/bin/claude' -p --plugin-dir '/srv/dev/doable-agent-plugins/plugins/doable-code-context' --permission-mode dontAsk --output-format stream-json --verbose --allowedTools 'Skill(doable-code-context:doable-code-agent)' 'mcp__plugin_doable-code-context_doable' 'Bash(sleep 20)' 'Bash(npm test *)' < "$dir/prompt.md" >> "$dir/session.jsonl" 2>&1
+  /usr/bin/caffeinate -i -s '/srv/setup terminal'\\''s/bin/claude' -p ${plugin}--permission-mode dontAsk --output-format stream-json --verbose --allowedTools 'Skill(doable-code-context:doable-code-agent)' 'mcp__plugin_doable-code-context_doable' 'Bash(sleep 20)' 'Bash(npm test *)' < "$dir/prompt.md" >> "$dir/session.jsonl" 2>&1
   echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) the serving session ended with code $?" >> "$dir/service.log"
   [ -e "$dir/stopped" ] && break
   sleep 300
@@ -197,6 +199,22 @@ test("start on a machine that plugin 0.5.0 set up takes the PATH, the claude com
   const again = [];
   start("mac-mini-1", sshShell, (line) => again.push(line));
   assert.equal(again.length, 1, again.join("\n"));
+});
+
+test("start on a machine that plugin 0.5.0 set up with the installed plugin takes no plugin folder from its environment", () => {
+  const m = machine();
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, allow: ["Bash(npm test *)"] }, m.env, () => {});
+  const dir = serviceDir(m.env, "mac-mini-1");
+  asPlugin050Setup(m, dir, plugin050RunScript({ dir, folder: m.folder, pluginDir: null }));
+  // The shell that runs start has a development plugin folder set, for example for work on another checkout.
+  const devShell = { ...m.env, DOABLE_CODE_AGENT_PLUGIN_DIR: "/srv/dev/doable-agent-plugins/plugins/doable-code-context" };
+
+  stop("mac-mini-1", devShell, () => {});
+  start("mac-mini-1", devShell, () => {});
+  const run = readFileSync(join(dir, "run.sh"), "utf8");
+  assert.match(run, new RegExp(`'\\/srv\\/setup terminal'\\\\''s\\/bin\\/claude' -p --permission-mode dontAsk .* --allowedTools ${BASE_RULES_IN_RUN} 'Bash\\(npm test \\*\\)' <`));
+  assert.ok(!run.includes("--plugin-dir"), run);
+  assert.equal(JSON.parse(readFileSync(join(dir, "config.json"), "utf8")).pluginDir, null);
 });
 
 test("start on a machine that plugin 0.5.0 set up takes from its environment what its start script does not hold", () => {

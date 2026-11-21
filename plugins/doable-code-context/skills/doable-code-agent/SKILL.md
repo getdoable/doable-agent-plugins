@@ -225,9 +225,11 @@ person's email or `null` in `asked_by_user` (see "Words"), `null` in `suite`, `c
    request back to the queue after the answer, and you or another machine took it again. Use that
    answer, and never ask again for this request.
 2. Read what the request asks, and check it against the session's rules. The rules can depend on
-   who asks: a request from a person's Claude Code names that person in `asked_by_user`. When
-   `asked_by_user` is `null`, you cannot tell which person asked: when the session's rules allow
-   or forbid the work by the person who asks, decline the request. Also decline it when:
+   who asks: a request from a person's Claude Code (`asked_by: "claude_code"`) names that person in
+   `asked_by_user`. Such a request with `asked_by_user: null` came with an organization API key and
+   names no person: when the session's rules allow or forbid the work by the person who asks,
+   decline it. A chat's request has `asked_by_user: null` too, because its asker is the chat's
+   agent: that `null` is no reason to decline it. Also decline any request when:
    - the work needs production, a push, an effect outside the test environment (see "Rules"), a
      change in the team's work tools that the session's rules do not name, or a secret in a result
      other than a new login's password in `logins`;
