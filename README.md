@@ -334,7 +334,8 @@ node <installPath>/scripts/code-agent-service.mjs remove --machine <machine>
 `status` shows whether it is on, its last activity, and the end of its log; the serving session's
 output is in `~/.doable/code-agent/<machine>/session.jsonl`. That output holds the password of each
 new test login that the session sends to Doable, and only you can read it. `start` writes the
-start script again with the command line of the installed plugin. `remove` stops it and deletes
+start script again with the command line of the installed plugin, starts the session, and, as the
+setup does, tells you whether it is connected. `remove` stops it and deletes
 its files and its key. After a plugin update, run `stop` and `start`, so that the serving session
 loads the new plugin (see [Update from 0.6.0](#update-from-060)). To change the session's prompt,
 edit `~/.doable/code-agent/<machine>/prompt.md`, then run `stop` and `start`. To change its folder
@@ -466,7 +467,11 @@ machine:
 
 `start` writes the start script again from `~/.doable/code-agent/<machine>/config.json`, with this
 release's command line. It does not use the `allow` list that 0.6.0 kept in that file: the session
-now uses every tool and command with no rule. The session's prompt
+now uses every tool and command with no rule. Then `start` waits up to 2 minutes and tells you
+whether the session is connected. If it says that the session did not start to wait, read the end
+of `~/.doable/code-agent/<machine>/service.log` and `session.jsonl` there: for example, managed
+settings that turn off the bypass mode keep the session from its work (see
+[With nobody at the terminal](#with-nobody-at-the-terminal)). The session's prompt
 (`~/.doable/code-agent/<machine>/prompt.md`) does not change. You can update before or after the
 Doable releases that add the tool and the test inbox: until then, a request names no test inbox,
 and the session says in the result that it could not read the mail. Stop a session that you

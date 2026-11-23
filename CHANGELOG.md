@@ -49,6 +49,9 @@ Update each Always on machine with stop, the plugin update, and start, with Chro
   server name or under `doable` (a user-scoped or project-scoped Doable MCP server), so that the
   session cannot send a request to itself with it.
   `start` writes this command line into the start script, also on a machine that 0.6.0 set up.
+  Then, as the setup does, it waits up to 2 minutes for the session's first wait for a request,
+  and says whether the session is connected. Both read only the session's output after the
+  launch, so that a call of an earlier session does not count.
 - README: the sign-up by email, the new command for a session with nobody at the terminal and what
   the bypass mode lets it do, managed settings that turn the bypass mode off, "A browser for a
   mail's link" (keep Chrome open with the extension connected, let it act on the test sites

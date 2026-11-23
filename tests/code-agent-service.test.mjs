@@ -6,7 +6,18 @@ import { dirname, join, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { launchdPlist, parseArgs, remove, runScript, sawFirstWait, serviceDir, setup, start, stop } from "../plugins/doable-code-context/scripts/code-agent-service.mjs";
+import {
+  launchdPlist,
+  parseArgs,
+  remove,
+  runScript,
+  sawFirstWait,
+  sawFirstWaitAfter,
+  serviceDir,
+  setup,
+  start,
+  stop,
+} from "../plugins/doable-code-context/scripts/code-agent-service.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const script = join(root, "plugins", "doable-code-context", "scripts", "code-agent-service.mjs");
@@ -415,16 +426,31 @@ test("the launchd job starts the start script at login, with no KeepAlive, so th
   assert.ok(!plist.includes("KeepAlive"));
 });
 
+// The first line of `claude -p --output-format stream-json` lists every tool by name (seen in the live check of
+// 2026-11-19: the script said "connected" before the session waited), and a later line is the call of the wait tool.
+const TOOL_LIST_LINE = `${JSON.stringify({ type: "system", subtype: "init", tools: ["Bash", "mcp__plugin_doable-code-context_doable__wait_for_code_agent_request"] })}\n`;
+const WAIT_CALL_LINE = `${JSON.stringify({
+  type: "assistant",
+  message: { content: [{ type: "tool_use", id: "toolu_1", name: "mcp__plugin_doable-code-context_doable__wait_for_code_agent_request", input: { wait_seconds: 50 } }] },
+})}\n`;
+
 test("setup says connected only after the serving session calls the wait tool, not when its tool list names the tool", () => {
-  // The first line of `claude -p --output-format stream-json` lists every tool by name (seen in the live check of
-  // 2026-11-19: the script said "connected" before the session waited).
-  const toolList = JSON.stringify({ type: "system", subtype: "init", tools: ["Bash", "mcp__plugin_doable-code-context_doable__wait_for_code_agent_request"] });
-  const call = JSON.stringify({
-    type: "assistant",
-    message: { content: [{ type: "tool_use", id: "toolu_1", name: "mcp__plugin_doable-code-context_doable__wait_for_code_agent_request", input: { wait_seconds: 50 } }] },
-  });
-  assert.equal(sawFirstWait(toolList), false);
-  assert.equal(sawFirstWait(`${toolList}\n${call}\n`), true);
+  assert.equal(sawFirstWait(TOOL_LIST_LINE), false);
+  assert.equal(sawFirstWait(`${TOOL_LIST_LINE}${WAIT_CALL_LINE}`), true);
+});
+
+test("setup and start say connected only for a call of the wait tool after the launch, not for an earlier session's call", () => {
+  // session.jsonl keeps the output of the sessions before the launch, with their own calls of the wait tool.
+  const earlier = Buffer.from(`${TOOL_LIST_LINE}${WAIT_CALL_LINE}`);
+  const from = earlier.length;
+  assert.equal(sawFirstWaitAfter(earlier, from), false);
+  assert.equal(sawFirstWaitAfter(Buffer.concat([earlier, Buffer.from(TOOL_LIST_LINE)]), from), false);
+  assert.equal(sawFirstWaitAfter(Buffer.concat([earlier, Buffer.from(`${TOOL_LIST_LINE}${WAIT_CALL_LINE}`)]), from), true);
+  // The start script moved a large earlier output to session.1.jsonl: the output is shorter than at the launch, and
+  // all of it is new.
+  const large = from + 1000;
+  assert.equal(sawFirstWaitAfter(Buffer.from(`${TOOL_LIST_LINE}${WAIT_CALL_LINE}`), large), true);
+  assert.equal(sawFirstWaitAfter(Buffer.from(TOOL_LIST_LINE), large), false);
 });
 
 test("the command line takes the folder, the machine and the prompt file, and refuses an unknown option", () => {

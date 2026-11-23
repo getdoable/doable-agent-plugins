@@ -257,15 +257,41 @@ export function sawFirstWait(output) {
   return /"name":\s*"[^"]*wait_for_code_agent_request"/.test(output);
 }
 
-function waitForFirstWait(env, dir) {
+// Whether the output of the session that a launch started holds a call of the wait tool. The output's first `from`
+// bytes (its size at the launch) come from an earlier session, with that session's own calls. Output that is shorter
+// than `from` is all new: the start script moved the earlier output to session.1.jsonl because it grew too large.
+export function sawFirstWaitAfter(output, from) {
+  return sawFirstWait((output.length < from ? output : output.subarray(from)).toString("utf8"));
+}
+
+function outputSize(dir) {
+  const log = join(dir, "session.jsonl");
+  return existsSync(log) ? statSync(log).size : 0;
+}
+
+function waitForFirstWait(env, dir, from) {
   const seconds = env.DOABLE_CODE_AGENT_WAIT_S === undefined ? 120 : Number(env.DOABLE_CODE_AGENT_WAIT_S);
   const log = join(dir, "session.jsonl");
   const until = Date.now() + seconds * 1000;
   while (Date.now() < until) {
-    if (existsSync(log) && sawFirstWait(readFileSync(log, "utf8"))) return true;
+    if (existsSync(log) && sawFirstWaitAfter(readFileSync(log), from)) return true;
     execFileSync("sleep", ["5"]);
   }
   return false;
+}
+
+// Launches the start script, and waits for the session's first wait for a request, unless nothing was launched. Its
+// answer is null (not launched), true (connected) or false (no wait in time).
+function launchAndWait(env, machine, dir) {
+  const from = outputSize(dir);
+  const how = launch(env, machine, dir);
+  const connected = env.DOABLE_CODE_AGENT_NO_LAUNCH ? null : waitForFirstWait(env, dir, from);
+  return { how, connected };
+}
+
+function printConnection(connected, dir, print) {
+  if (connected === true) print("It is connected: it waits for Doable's requests.");
+  if (connected === false) print(`It did not start to wait in 2 minutes. Read ${join(dir, "session.jsonl")} and ${join(dir, "service.log")}.`);
 }
 
 export function setup(options, env, print = console.log) {
@@ -304,13 +330,11 @@ export function setup(options, env, print = console.log) {
     print(`Removed ${RETIRED_POLICY_FILE}: a session takes its rules from its prompt now.`);
   }
 
-  const how = launch(env, machine, dir);
-  const connected = env.DOABLE_CODE_AGENT_NO_LAUNCH ? null : waitForFirstWait(env, dir);
+  const { how, connected } = launchAndWait(env, machine, dir);
   print(`The Doable code agent "${machine}" serves ${folderPath}: ${how}.`);
   print(NO_PERMISSION_CHECK_NOTE);
   print(CHROME_NOTE);
-  if (connected === true) print("It is connected: it waits for Doable's requests.");
-  if (connected === false) print(`It did not start to wait in 2 minutes. Read ${join(dir, "session.jsonl")} and ${join(dir, "service.log")}.`);
+  printConnection(connected, dir, print);
   print(`Its files are in ${dir} (the key is in ${join(dir, "env")}, readable only by you).`);
   print(`Status: node ${fileURLToPath(import.meta.url)} status --machine ${machine}`);
   print(`Stop: node ${fileURLToPath(import.meta.url)} stop --machine ${machine}`);
@@ -340,8 +364,12 @@ export function start(machine, env, print = console.log) {
   if (!existsSync(join(dir, "config.json"))) fail(`No code agent "${machine}" is set up on this machine: run setup first.`);
   const { config, fromOlderSetup } = savedConfig(dir, env);
   writeRunScript(dir, config);
-  print(`The code agent "${machine}": ${launch(env, machine, dir)}.`);
+  // A new command line can fail where the old one worked (for example, managed settings that turn off the bypass
+  // mode): the person who starts the session learns whether it waits for requests, as at setup.
+  const { how, connected } = launchAndWait(env, machine, dir);
+  print(`The code agent "${machine}": ${how}.`);
   print(CHROME_NOTE);
+  printConnection(connected, dir, print);
   if (fromOlderSetup) {
     print(
       `If the secret rule in ${join(dir, "prompt.md")} has no exception for a new test login's password, add this sentence to it, then run stop and start again: "${PASSWORD_EXCEPTION}"`,
