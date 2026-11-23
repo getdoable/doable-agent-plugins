@@ -13,8 +13,9 @@
 //
 // The serving session can use every tool with no permission check, and Claude in Chrome, so that it can open a page in
 // this machine's Chrome, for example the link of a sign-up mail from the request's test inbox. Only the rules of its
-// prompt and of the Skill keep it from a write to production. It cannot load one tool: Doable MCP's `ask_code_agent`,
-// with which a person's Claude Code asks a machine, so that the session cannot send a request to itself.
+// prompt and of the Skill keep it from a write to production. It cannot load Doable MCP's `ask_code_agent`, with which
+// a person's Claude Code asks a machine, under the plugin's server name or under `doable` (a user-scoped or
+// project-scoped Doable MCP server of that name), so that the session cannot send a request to itself with it.
 //
 // For development, DOABLE_CODE_AGENT_PLUGIN_DIR at setup makes the serving session load the plugin from that folder
 // (`claude --plugin-dir`) in place of the installed plugin.
@@ -29,9 +30,12 @@ const MACHINE_NAME = /^[A-Za-z0-9._-]{1,64}$/;
 // An organization API key: the code agent tools refuse a personal key and a login token.
 const ORGANIZATION_KEY = /^sk-doable-(?!personal-)[A-Za-z0-9_-]{16,}$/;
 const ANY_DOABLE_KEY = /sk-doable-[A-Za-z0-9_-]+/;
-// The one tool that the serving session cannot load (README, "With nobody at the terminal"): the tool with which a
-// person's Claude Code asks a machine. With it, the session could send a request to itself.
-const ASKING_TOOL = "mcp__plugin_doable-code-context_doable__ask_code_agent";
+// The tool that the serving session cannot load (README, "With nobody at the terminal"): the tool with which a person's
+// Claude Code asks a machine. With it, the session could send a request to itself. It has one name for each server that
+// gives it: the plugin's server, and a user-scoped or project-scoped server named `doable` (Doable MCP's README and the
+// connection recovery of doable-connect add one). Claude Code skips the plugin's server when such a server has the
+// same address, so the second name can be the only one. A name of a server that this machine does not have does nothing.
+const ASKING_TOOLS = ["mcp__plugin_doable-code-context_doable__ask_code_agent", "mcp__doable__ask_code_agent"];
 // The options of plugin 0.6.0's setup that this release refuses: the session allows every tool and has Chrome on.
 const RETIRED_OPTIONS = ["--allow", "--chrome"];
 const RESTART_WAIT_S = 300;
@@ -85,6 +89,8 @@ export function findClaude(env) {
 export function runScript({ dir, folder, claude, path, wake, pluginDir = null }) {
   const plugin = pluginDir ? `--plugin-dir ${shellQuote(pluginDir)} ` : "";
   const wakeLock = wake ? "/usr/bin/caffeinate -i -s " : "";
+  // --disallowedTools takes each word after it as a tool name, so an option must come next.
+  const disallowed = ASKING_TOOLS.map(shellQuote).join(" ");
   return `#!/bin/bash
 # Written by doable-code-context's code-agent-service.mjs. It serves Doable requests in ${folder}
 # until \`code-agent-service.mjs stop\` writes the stop file. Do not edit it: setup writes it again.
@@ -103,7 +109,7 @@ while [ ! -e "$dir/stopped" ]; do
     mv -f "$dir/session.jsonl" "$dir/session.1.jsonl"
   fi
   echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) the serving session starts" >> "$dir/service.log"
-  ${wakeLock}${shellQuote(claude)} -p ${plugin}--permission-mode bypassPermissions --chrome --disallowedTools ${shellQuote(ASKING_TOOL)} --output-format stream-json --verbose < "$dir/prompt.md" >> "$dir/session.jsonl" 2>&1
+  ${wakeLock}${shellQuote(claude)} -p ${plugin}--permission-mode bypassPermissions --chrome --disallowedTools ${disallowed} --output-format stream-json --verbose < "$dir/prompt.md" >> "$dir/session.jsonl" 2>&1
   echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) the serving session ended with code $?" >> "$dir/service.log"
   [ -e "$dir/stopped" ] && break
   sleep ${RESTART_WAIT_S}

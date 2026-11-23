@@ -34,9 +34,11 @@ function machine() {
 
 // The rest of the serving session's command line in this release, after the claude command and the plugin folder:
 // the bypass permission mode (no permission check), Claude in Chrome, and no ask_code_agent (with which a person's
-// Claude Code asks a machine, so the session could send a request to itself). No --allowedTools.
+// Claude Code asks a machine, so the session could send a request to itself) under the plugin's server name and under
+// `doable`, the name of a user-scoped or project-scoped Doable MCP server. No --allowedTools.
 const SESSION_FLAGS =
-  "--permission-mode bypassPermissions --chrome --disallowedTools 'mcp__plugin_doable-code-context_doable__ask_code_agent' " +
+  "--permission-mode bypassPermissions --chrome " +
+  "--disallowedTools 'mcp__plugin_doable-code-context_doable__ask_code_agent' 'mcp__doable__ask_code_agent' " +
   "--output-format stream-json --verbose < \"\\$dir\\/prompt\\.md\" >> \"\\$dir\\/session\\.jsonl\" 2>&1$";
 
 // The session's command line of a start script that this release wrote, with this claude command (a regex of it, as
@@ -72,7 +74,7 @@ test("setup keeps the key only in a file that only its owner can read, and never
   assert.ok(!readFileSync(join(dir, "run.sh"), "utf8").includes(KEY));
 });
 
-test("the start script runs the serving session with no permission check, with Claude in Chrome and without ask_code_agent, and starts it again", () => {
+test("the start script runs the serving session with no permission check, with Claude in Chrome and without ask_code_agent under either server name, and starts it again", () => {
   const m = machine();
   const printed = [];
   setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt }, m.env, (line) => printed.push(line));
@@ -95,6 +97,29 @@ test("the start script runs the serving session with no permission check, with C
   // Nobody answers the extension's prompt, and nothing but the rules keeps the session from production: setup says so.
   assert.ok(printed.includes(CHROME_NOTE), printed.join("\n"));
   assert.ok(printed.some((line) => line.startsWith("It runs in the bypass permission mode: ")), printed.join("\n"));
+});
+
+test("the serving session's claude gets each name of ask_code_agent as its own word after --disallowedTools, and an option after them", () => {
+  // --disallowedTools takes each word after it as a tool name: a name that the shell joins to another, or a prompt
+  // word after the names, would not remove the tool. A fake claude writes the words it gets, one per line, and stops
+  // the loop.
+  const m = machine();
+  const dir = join(m.base, "agent");
+  mkdirSync(dir);
+  writeFileSync(join(dir, "env"), "export DOABLE_MACHINE_NAME='mac-mini-1'\n");
+  writeFileSync(join(dir, "prompt.md"), "Serve Doable requests.\n");
+  const claude = join(m.base, "fake claude");
+  writeFileSync(claude, `#!/bin/bash\nprintf '%s\\n' "$@" > '${join(dir, "argv")}'\ntouch '${join(dir, "stopped")}'\n`, { mode: 0o700 });
+  writeFileSync(join(dir, "run.sh"), runScript({ dir, folder: m.folder, claude, path: "/usr/bin:/bin", wake: false }));
+  execFileSync("/bin/bash", [join(dir, "run.sh")], { stdio: "pipe" });
+  const words = readFileSync(join(dir, "argv"), "utf8").trim().split("\n");
+  const at = words.indexOf("--disallowedTools");
+  assert.deepEqual(words.slice(at + 1, at + 4), [
+    "mcp__plugin_doable-code-context_doable__ask_code_agent",
+    "mcp__doable__ask_code_agent",
+    "--output-format",
+  ]);
+  assert.deepEqual(words.slice(0, 4), ["-p", "--permission-mode", "bypassPermissions", "--chrome"]);
 });
 
 test("a development plugin folder goes between the claude command and the permission mode", () => {
