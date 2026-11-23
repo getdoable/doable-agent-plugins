@@ -2,8 +2,10 @@
 
 // Runs the Doable code agent in the background on this machine: one serving session of Claude Code in the dontAsk
 // permission mode, started again when it stops (a plan limit, a crash), kept awake on a Mac, and started at login by
-// launchd on a Mac. The setup prompt that a request card copies ("Always on") runs `setup`; a person runs `status`,
-// `stop`, `start` and `remove`. Fixed code does these steps, not the model: they must be the same on every machine.
+// launchd on a Mac. A person runs `setup` (the README's "Always on"), then `status`, `stop`, `start` and `remove`.
+// `start` writes the start script again with the rules of the plugin release that runs it, so a plugin update, then
+// `stop` and `start`, gives the serving session the new release and its rules. Fixed code does these steps, not the
+// model: they must be the same on every machine.
 //
 // Usage:
 //   DOABLE_API_KEY=... node code-agent-service.mjs setup --folder DIR --machine NAME --prompt-file FILE [--allow RULE]...
@@ -22,8 +24,16 @@ const MACHINE_NAME = /^[A-Za-z0-9._-]{1,64}$/;
 // An organization API key: the code agent tools refuse a personal key and a login token.
 const ORGANIZATION_KEY = /^sk-doable-(?!personal-)[A-Za-z0-9_-]{16,}$/;
 const ANY_DOABLE_KEY = /sk-doable-[A-Za-z0-9_-]+/;
-// The three rules that every serving session with nobody at the terminal needs (README, "With nobody at the terminal").
-const BASE_RULES = ["Skill(doable-code-context:doable-code-agent)", "mcp__plugin_doable-code-context_doable", "Bash(sleep 20)"];
+// The four rules that every serving session with nobody at the terminal needs (README, "With nobody at the terminal"):
+// the Skill, the two Doable MCP tools that serve requests, and the wait after an error. They name the two tools, not
+// the whole Doable MCP server: a rule for the whole server would let the serving session call `ask_code_agent`, the
+// tool with which a person's Claude Code asks this machine.
+const BASE_RULES = [
+  "Skill(doable-code-context:doable-code-agent)",
+  "mcp__plugin_doable-code-context_doable__wait_for_code_agent_request",
+  "mcp__plugin_doable-code-context_doable__update_code_agent_request",
+  "Bash(sleep 20)",
+];
 const RESTART_WAIT_S = 300;
 const LOG_MAX_BYTES = 20 * 1024 * 1024;
 // Plugin 0.3.0's policy file in the workspace. A session takes its rules from its prompt now, so setup deletes the
@@ -117,6 +127,77 @@ export function launchdPlist({ machine, dir }) {
 `;
 }
 
+// What the start script runs with, besides the rules: setup takes it from its environment and keeps it in config.json.
+// `kept` holds the values that an older start script gives (scriptEnvironment): they win over the environment.
+function runEnvironment(env, kept = {}) {
+  return {
+    claude: kept.claude ?? findClaude(env),
+    path: kept.path ?? (env.PATH || ""),
+    wake: process.platform === "darwin" && existsSync("/usr/bin/caffeinate"),
+    pluginDir: kept.pluginDir !== undefined ? kept.pluginDir : env.DOABLE_CODE_AGENT_PLUGIN_DIR || null,
+  };
+}
+
+// A value as shellQuote writes it: in single quotes, with each single quote of the value written as '\''.
+const SHELL_QUOTED = String.raw`'[^']*'(?:\\''[^']*')*`;
+
+function shellUnquote(quoted) {
+  return quoted.slice(1, -1).replaceAll(`'\\''`, "'");
+}
+
+// What a start script that runScript wrote runs with: the PATH of its `export PATH=` line, and the claude command and
+// the development plugin folder of its session's command line. A value that the script does not hold is left out.
+function scriptEnvironment(script) {
+  const kept = {};
+  const path = script.match(new RegExp(`^export PATH=(${SHELL_QUOTED})$`, "m"));
+  if (path) kept.path = shellUnquote(path[1]);
+  const session = script.match(
+    new RegExp(`^\\s*(?:/usr/bin/caffeinate -i -s )?(${SHELL_QUOTED}) -p (?:--plugin-dir (${SHELL_QUOTED}) )?--permission-mode dontAsk `, "m"),
+  );
+  if (session) {
+    kept.claude = shellUnquote(session[1]);
+    kept.pluginDir = session[2] === undefined ? null : shellUnquote(session[2]);
+  }
+  return kept;
+}
+
+// The start script, from config.json and this release's BASE_RULES.
+function writeRunScript(dir, config) {
+  const script = runScript({
+    dir,
+    folder: config.folder,
+    claude: config.claude,
+    rules: [...BASE_RULES, ...config.allow],
+    path: config.path,
+    wake: config.wake,
+    pluginDir: config.pluginDir,
+  });
+  writeFileSync(join(dir, "run.sh"), script, { mode: 0o700 });
+  chmodSync(join(dir, "run.sh"), 0o700);
+}
+
+function writeConfig(dir, config) {
+  writeFileSync(join(dir, "config.json"), `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
+}
+
+// config.json of a machine that setup set up, and whether plugin 0.5.0's setup wrote it. That setup kept only the
+// folder, the machine and the person's rules. It wrote the rest into the start script, from the person's terminal, and
+// the shell that runs start can have another PATH (for example over SSH). So the rest comes from that start script,
+// else from this environment, and is kept from now on.
+function savedConfig(dir, env) {
+  const config = JSON.parse(readFileSync(join(dir, "config.json"), "utf8"));
+  if ("claude" in config) return { config, fromOlderSetup: false };
+  const runFile = join(dir, "run.sh");
+  const kept = existsSync(runFile) ? scriptEnvironment(readFileSync(runFile, "utf8")) : {};
+  Object.assign(config, runEnvironment(env, kept));
+  writeConfig(dir, config);
+  return { config, fromOlderSetup: true };
+}
+
+// The sentence of the README's start prompt that lets a new test login's password go in the result. A 0.5.0 prompt's
+// secret rule has no such exception, so its session cannot hand a new login to Doable.
+const PASSWORD_EXCEPTION = "The one exception: the password of a new test login goes in that login of the result.";
+
 function plistPath(env, machine) {
   return join(env.DOABLE_LAUNCH_AGENTS_DIR || join(homedir(), "Library", "LaunchAgents"), `${launchdLabel(machine)}.plist`);
 }
@@ -173,7 +254,7 @@ export function setup(options, env, print = console.log) {
   checkMachine(machine);
   const key = env.DOABLE_API_KEY || "";
   if (!ORGANIZATION_KEY.test(key)) {
-    fail("Set DOABLE_API_KEY to the organization API key that the request card gave (it starts with sk-doable-, not sk-doable-personal-).");
+    fail("Set DOABLE_API_KEY to an organization API key from Doable's Settings > MCP (it starts with sk-doable-, not sk-doable-personal-).");
   }
   if (!folder || !isAbsolute(folder) || !existsSync(folder) || !statSync(folder).isDirectory()) {
     fail("--folder must be the absolute path of the folder that holds the repositories.");
@@ -193,19 +274,9 @@ export function setup(options, env, print = console.log) {
   chmodSync(join(dir, "env"), 0o600);
   writeFileSync(join(dir, "prompt.md"), `${prompt}\n`, { mode: 0o600 });
   const folderPath = resolve(folder);
-  const wake = process.platform === "darwin" && existsSync("/usr/bin/caffeinate");
-  const script = runScript({
-    dir,
-    folder: folderPath,
-    claude: findClaude(env),
-    rules: [...BASE_RULES, ...allow],
-    path: env.PATH || "",
-    wake,
-    pluginDir: env.DOABLE_CODE_AGENT_PLUGIN_DIR || null,
-  });
-  writeFileSync(join(dir, "run.sh"), script, { mode: 0o700 });
-  chmodSync(join(dir, "run.sh"), 0o700);
-  writeFileSync(join(dir, "config.json"), `${JSON.stringify({ folder: folderPath, machine, allow }, null, 2)}\n`, { mode: 0o600 });
+  const config = { folder: folderPath, machine, allow, ...runEnvironment(env) };
+  writeRunScript(dir, config);
+  writeConfig(dir, config);
   if (useLaunchd(env)) {
     mkdirSync(join(plistPath(env, machine), ".."), { recursive: true });
     writeFileSync(plistPath(env, machine), launchdPlist({ machine, dir }));
@@ -248,8 +319,15 @@ export function stop(machine, env, print = console.log) {
 export function start(machine, env, print = console.log) {
   checkMachine(machine);
   const dir = serviceDir(env, machine);
-  if (!existsSync(join(dir, "run.sh"))) fail(`No code agent "${machine}" is set up on this machine: run setup first.`);
+  if (!existsSync(join(dir, "config.json"))) fail(`No code agent "${machine}" is set up on this machine: run setup first.`);
+  const { config, fromOlderSetup } = savedConfig(dir, env);
+  writeRunScript(dir, config);
   print(`The code agent "${machine}": ${launch(env, machine, dir)}.`);
+  if (fromOlderSetup) {
+    print(
+      `If the secret rule in ${join(dir, "prompt.md")} has no exception for a new test login's password, add this sentence to it, then run stop and start again: "${PASSWORD_EXCEPTION}"`,
+    );
+  }
 }
 
 export function status(machine, env, print = console.log) {
