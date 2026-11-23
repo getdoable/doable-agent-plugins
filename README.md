@@ -423,8 +423,8 @@ Chrome, with Claude in Chrome. The Always on setup always starts the session wit
   app before it opens such a link, and signs its new login out after its check.
 
 If Chrome is not open or the extension is not connected, the browser tools fail when the session
-calls them. The session goes on without them, and says in the result which login it could not
-finish and why.
+calls them. The session checks the browser before it invites a user, goes on without it, and
+says in the result which login it could not make or finish, and why.
 
 Claude in Chrome can open any site, production too, and it acts with the sign-ins that this
 machine's Chrome holds. Only the rules of the start prompt and of the Skill limit what it does
