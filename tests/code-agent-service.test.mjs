@@ -582,6 +582,27 @@ test("on a machine without launchd, start goes on when another process has the p
   assert.deepEqual(printedBy((print) => start("mac-mini-1", m.launching, print)), [STARTED, CHROME_NOTE, CONNECTED]);
 });
 
+test("start refuses a wait time that is not a whole number of seconds, and launches nothing", () => {
+  // "2s" is not a number: with it, start waited for ever for a session that never waits. The command runs in its own
+  // process with a time limit, so that a start that waits for ever fails the test and does not stop it.
+  const m = servedMachine(initLine());
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt }, m.env, () => {});
+  let failed;
+  try {
+    execFileSync(process.execPath, [script, "start", "--machine", "mac-mini-1"], {
+      stdio: "pipe",
+      env: { ...m.launching, DOABLE_CODE_AGENT_WAIT_S: "2s" },
+      timeout: 20000,
+    });
+  } catch (error) {
+    failed = error;
+  }
+  assert.ok(failed, "start did not fail");
+  assert.equal(failed.status, 1, `status ${failed.status}, signal ${failed.signal}`);
+  assert.equal(failed.stderr.toString(), "DOABLE_CODE_AGENT_WAIT_S must be a whole number of seconds.\n");
+  assert.equal(existsSync(join(m.dir, "pid")), false);
+});
+
 test("the command line takes the folder, the machine and the prompt file, and refuses an unknown option", () => {
   assert.deepEqual(parseArgs(["setup", "--machine", "m", "--folder", "/srv/repos", "--prompt-file", "/srv/p.md"]).options, {
     machine: "m",

@@ -20,7 +20,8 @@
 // For development, DOABLE_CODE_AGENT_PLUGIN_DIR at setup makes the serving session load the plugin from that folder
 // (`claude --plugin-dir`) in place of the installed plugin. For tests, DOABLE_CODE_AGENT_NO_LAUNCH writes the files and
 // starts nothing, DOABLE_CODE_AGENT_NO_LAUNCHD starts the start script on a Mac as on a machine without launchd, and
-// DOABLE_CODE_AGENT_WAIT_S sets how many seconds setup and start wait for the session's first wait for a request.
+// DOABLE_CODE_AGENT_WAIT_S sets how many seconds (a whole number) setup and start wait for the session's first wait for a
+// request.
 
 import { execFileSync, spawn } from "node:child_process";
 import {
@@ -361,10 +362,18 @@ function outputAfter(log, from) {
   }
 }
 
+// How many seconds setup and start wait for the session's first wait for a request: 2 minutes, or for tests
+// DOABLE_CODE_AGENT_WAIT_S.
+function waitSeconds(env) {
+  const value = env.DOABLE_CODE_AGENT_WAIT_S;
+  if (value === undefined) return 120;
+  if (!/^\d+$/.test(value)) fail("DOABLE_CODE_AGENT_WAIT_S must be a whole number of seconds.");
+  return Number(value);
+}
+
 // What the output of the session that the launch started says about its start (sessionStart), once a wait for a request
-// returned or after 2 minutes. The Skill's first wait has `wait_seconds: 0`, so it returns at once.
-function waitForStart(env, dir, from) {
-  const seconds = env.DOABLE_CODE_AGENT_WAIT_S === undefined ? 120 : Number(env.DOABLE_CODE_AGENT_WAIT_S);
+// returned or after `seconds`. The Skill's first wait has `wait_seconds: 0`, so it returns at once.
+function waitForStart(dir, from, seconds) {
   const log = join(dir, "session.jsonl");
   const until = Date.now() + seconds * 1000;
   for (;;) {
@@ -377,9 +386,10 @@ function waitForStart(env, dir, from) {
 // Launches the start script, and waits for the session's start (waitForStart), unless nothing was launched (then
 // `seen` is null).
 function launchAndWait(env, machine, dir) {
+  const seconds = waitSeconds(env);
   const from = outputSize(dir);
   const how = launch(env, machine, dir);
-  const seen = env.DOABLE_CODE_AGENT_NO_LAUNCH ? null : waitForStart(env, dir, from);
+  const seen = env.DOABLE_CODE_AGENT_NO_LAUNCH ? null : waitForStart(dir, from, seconds);
   return { how, seen };
 }
 
