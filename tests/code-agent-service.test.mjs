@@ -71,6 +71,18 @@ test("the start script runs the serving session in dontAsk mode with the five ru
   execFileSync("bash", ["-n", join(serviceDir(m.env, "mac-mini-1"), "run.sh")]);
 });
 
+test("setup again with the saved prompt file keeps the prompt and adds a rule, for example for a browser tool", () => {
+  const m = machine();
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, allow: ["Bash(npm test *)"] }, m.env, () => {});
+  const dir = serviceDir(m.env, "mac-mini-1");
+  const savedPrompt = join(dir, "prompt.md");
+  const prompt = readFileSync(savedPrompt, "utf8");
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: savedPrompt, allow: ["Bash(npm test *)", "mcp__browser__navigate"] }, m.env, () => {});
+  assert.equal(readFileSync(savedPrompt, "utf8"), prompt);
+  const run = readFileSync(join(dir, "run.sh"), "utf8");
+  assert.match(run, new RegExp(`--allowedTools ${BASE_RULES_IN_RUN} 'Bash\\(npm test \\*\\)' 'mcp__browser__navigate' <`));
+});
+
 test("setup removes plugin 0.3.0's policy file from the folder", () => {
   const m = machine();
   const policy = join(m.folder, ".doable", ["code-agent", "md"].join("."));
