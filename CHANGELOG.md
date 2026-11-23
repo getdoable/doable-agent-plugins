@@ -12,7 +12,8 @@ All notable changes to Doable Agent Plugins are documented here.
 ## [0.6.1] - 2026-11-23
 
 A machine reads its request's test inbox, so that it can finish a sign-up that a test environment
-sends by email. Update each Always on machine with stop, the plugin update, and start (README,
+sends by email, and the serving session runs with no permission check and with Claude in Chrome.
+Update each Always on machine with stop, the plugin update, and start, with Chrome open (README,
 "Update from 0.6.0"); the session's prompt does not change.
 
 ### Added
@@ -20,26 +21,43 @@ sends by email. Update each Always on machine with stop, the plugin update, and 
 - `doable-code-agent` uses a third Doable MCP tool of a machine, `read_code_agent_mail`. When a
   test environment gives a new user its password only through a link or a code in an email, the
   session invites the user at a `+` address of the request's `test_inbox`, reads the mail with
-  the tool (`wait_seconds` up to 60, again for about 5 minutes), opens the link or uses the code
-  on the machine with the tools that its rules allow, signs in once, and returns the login with
-  its password. The link and the code go in no progress text, question, result or file. When a
-  request names no test inbox (`test_inbox` is `null` or not there: the organization has none, or
-  Doable is older than this release, or the request is older than it), the session makes no such
-  login and says in the result that the request named no test inbox, and that a person can ask
-  the Doable team. On Doable's `no_test_inbox`, it gives Doable's reason; on `not_test_inbox`, it
+  the tool (`wait_seconds` up to 60, again for about 5 minutes), opens the link in a new tab of
+  the machine's Chrome or uses the code, signs in once, and returns the login with its password.
+  The link and the code go in no progress text, question, result or file. When a request names no
+  test inbox (`test_inbox` is `null` or not there: the organization has none, or Doable is older
+  than this release, or the request is older than it), the session makes no such login and says
+  in the result that the request named no test inbox, and that a person can ask the Doable team. On Doable's `no_test_inbox`, it gives Doable's reason; on `not_test_inbox`, it
   reads a `+` address of the test inbox. The skill's rule that forbids opening a link that acts
   when it opens has one exception: the link of such a mail.
 - The skill's `allowed-tools` names the tool under both server names.
-- `scripts/code-agent-service.mjs`: the serving session's rules are five: the Skill, the three
-  Doable MCP tools of a machine and `Bash(sleep 20)`. `start` writes them into the start script.
-- `scripts/code-agent-service.mjs setup --chrome`: the start script starts the session with
-  Claude in Chrome (`claude --chrome`) and allows all its tools (`mcp__claude-in-chrome`), so that
-  the session can open a mail's link in this machine's Chrome. `start` keeps it; a setup without
-  it takes it away.
-- README: the sign-up by email, the five rules, the new `dontAsk` command, "A browser for a
-  mail's link" (Claude in Chrome, or a rule for a whole browser MCP server), and "Update from
-  0.6.0", whose setup runs after the `stop` and exports the key from its file. PRIVACY and TESTING
-  (scenarios 66 and 67) say the same.
+- `doable-code-agent`: the session's browser is Claude in Chrome. It opens a mail's link in a new
+  tab of this machine's Chrome, and when Chrome is not open or the extension is not connected, it
+  says so in the result. The session uses Doable MCP only through the three tools of a machine,
+  because the other tools write to the organization's production data in Doable. The one hard rule
+  for permissions is never to write to a production system; every other tool and command that a
+  request's work needs is allowed.
+
+### Changed
+
+- `scripts/code-agent-service.mjs`: the serving session runs with
+  `--permission-mode bypassPermissions --chrome --disallowedTools
+  'mcp__plugin_doable-code-context_doable__ask_code_agent'`: every tool with no permission check,
+  Claude in Chrome, and no `ask_code_agent`, so that the session cannot send a request to itself.
+  `start` writes this command line into the start script, also on a machine that 0.6.0 set up.
+- README: the sign-up by email, the new command for a session with nobody at the terminal and what
+  the bypass mode lets it do, managed settings that turn the bypass mode off, "A browser for a
+  mail's link" (keep Chrome open with the extension connected, and let it act on the test sites
+  without asking), and "Update from 0.6.0" (stop, the plugin update, start). The start prompt's
+  first rule says "Never write to production". PRIVACY and TESTING (scenarios 49, 56, 60, 65, 66
+  and 67) say the same.
+
+### Removed
+
+- The serving session's allow rules (`--allowedTools` in the `dontAsk` mode) and the setup's
+  `--allow` option. Setup and `start` refuse `--allow` and `--chrome` with a line that this
+  release allows every tool and has Chrome on. `start` does not use the `allow` list of a 0.6.0
+  `config.json`.
+- The skill's texts about allow rules and refusals in the `dontAsk` mode.
 
 ## [0.6.0] - 2026-11-20
 
