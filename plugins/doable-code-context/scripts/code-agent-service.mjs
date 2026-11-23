@@ -438,7 +438,8 @@ export function setup(options, env, print = console.log) {
 
   const { how, seen } = launchAndWait(env, machine, dir);
   print(`The Doable code agent "${machine}" serves ${folderPath}: ${how}.`);
-  print(NO_PERMISSION_CHECK_NOTE);
+  // When the session says that it runs in another mode, printStart says so in place of this note.
+  if (seen === null || seen.permissionMode === null || seen.permissionMode === "bypassPermissions") print(NO_PERMISSION_CHECK_NOTE);
   print(CHROME_NOTE);
   printStart(seen, dir, print);
   print(`Its files are in ${dir} (the key is in ${join(dir, "env")}, readable only by you).`);

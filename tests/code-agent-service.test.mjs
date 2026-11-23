@@ -504,18 +504,24 @@ test("start does not count a wait call that Claude Code refused or that Doable r
   assert.deepEqual(printedBy((print) => start("mac-mini-1", m.launching, print)), [STARTED, CHROME_NOTE, notWaiting(m.dir)]);
 });
 
-test("setup says when the session runs in another permission mode than the bypass mode", () => {
+test("setup says when the session runs in another permission mode than the bypass mode, and then not that it runs in the bypass mode", () => {
+  const otherMode =
+    'It runs in the default permission mode, not in the bypass mode, so with nobody at the terminal it cannot do the work of a request. Settings of this machine can turn the bypass mode off (`disableBypassPermissionsMode`): read the README\'s "With nobody at the terminal".';
+  const bypassNote = (line) => line.startsWith("It runs in the bypass permission mode: ");
   // Settings that turn the bypass mode off: Claude Code goes on in the default mode, and the Skill's allowed-tools let
-  // the wait through.
-  const m = servedMachine(`${initLine("default")}${callLine("toolu_1")}${resultLine("toolu_1")}`);
-  const printed = printedBy((print) => setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt }, m.launching, print));
-  const at = printed.indexOf(CONNECTED);
-  assert.ok(at > 0, printed.join("\n"));
-  assert.equal(
-    printed[at + 1],
-    'It runs in the default permission mode, not in the bypass mode, so with nobody at the terminal it cannot do the work of a request. Settings of this machine can turn the bypass mode off (`disableBypassPermissionsMode`): read the README\'s "With nobody at the terminal".',
-  );
-  assert.ok(printed[at + 2].startsWith("Its files are in "), printed.join("\n"));
+  // the wait through. Contrast: the session that runs in the bypass mode.
+  for (const [mode, expected] of [
+    ["default", { bypass: false, other: true }],
+    ["bypassPermissions", { bypass: true, other: false }],
+  ]) {
+    const m = servedMachine(`${initLine(mode)}${callLine("toolu_1")}${resultLine("toolu_1")}`);
+    const printed = printedBy((print) => setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt }, m.launching, print));
+    const at = printed.indexOf(CONNECTED);
+    assert.ok(at > 0, printed.join("\n"));
+    assert.equal(printed.some(bypassNote), expected.bypass, `${mode}:\n${printed.join("\n")}`);
+    assert.equal(printed.includes(otherMode), expected.other, `${mode}:\n${printed.join("\n")}`);
+    assert.ok(printed[at + (expected.other ? 2 : 1)].startsWith("Its files are in "), printed.join("\n"));
+  }
 });
 
 test("start says when the session waits through another Doable MCP server than the plugin's, and not that it is connected", () => {
