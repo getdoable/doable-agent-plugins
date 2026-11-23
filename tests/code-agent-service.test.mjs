@@ -6,7 +6,7 @@ import { dirname, join, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { launchdPlist, parseArgs, remove, sawFirstWait, serviceDir, setup, start, stop } from "../plugins/doable-code-context/scripts/code-agent-service.mjs";
+import { launchdPlist, parseArgs, remove, runScript, sawFirstWait, serviceDir, setup, start, stop } from "../plugins/doable-code-context/scripts/code-agent-service.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const script = join(root, "plugins", "doable-code-context", "scripts", "code-agent-service.mjs");
@@ -47,13 +47,14 @@ test("setup keeps the key only in a file that only its owner can read, and never
   assert.ok(!readFileSync(join(dir, "run.sh"), "utf8").includes(KEY));
 });
 
-// The --allowedTools rules of this release: the Skill, the two Doable MCP tools that serve requests (never the whole
-// server, whose ask_code_agent is the asking tool of a person's Claude Code), and the wait after an error.
+// The --allowedTools rules of this release: the Skill, the three Doable MCP tools of a machine (never the whole server,
+// whose ask_code_agent is the asking tool of a person's Claude Code), and the wait after an error.
 const BASE_RULES_IN_RUN =
   "'Skill\\(doable-code-context:doable-code-agent\\)' 'mcp__plugin_doable-code-context_doable__wait_for_code_agent_request' " +
-  "'mcp__plugin_doable-code-context_doable__update_code_agent_request' 'Bash\\(sleep 20\\)'";
+  "'mcp__plugin_doable-code-context_doable__update_code_agent_request' 'mcp__plugin_doable-code-context_doable__read_code_agent_mail' " +
+  "'Bash\\(sleep 20\\)'";
 
-test("the start script runs the serving session in dontAsk mode with the four rules and the person's rules, and starts it again", () => {
+test("the start script runs the serving session in dontAsk mode with the five rules and the person's rules, and starts it again", () => {
   const m = machine();
   setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, allow: ["Bash(npm test *)", "Bash(curl https://staging.example.com/*)"] }, m.env, () => {});
   const run = readFileSync(join(serviceDir(m.env, "mac-mini-1"), "run.sh"), "utf8");
@@ -160,6 +161,32 @@ test("start writes the start script again with this release's rules, and keeps w
   const run = readFileSync(join(dir, "run.sh"), "utf8");
   assert.match(run, new RegExp(`'\\/opt\\/claude'\\\\''s bin\\/claude' -p --permission-mode dontAsk .* --allowedTools ${BASE_RULES_IN_RUN} 'Bash\\(npm test \\*\\)' <`));
   execFileSync("bash", ["-n", join(dir, "run.sh")]);
+  assert.deepEqual(printed, ['The code agent "mac-mini-1": not started (DOABLE_CODE_AGENT_NO_LAUNCH is set).']);
+});
+
+test("start on a machine that plugin 0.6.0 set up gives the serving session the rule for the test inbox mail tool, and asks for no change of the prompt", () => {
+  const m = machine();
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, allow: ["Bash(npm test *)"] }, m.env, () => {});
+  const dir = serviceDir(m.env, "mac-mini-1");
+  const config = JSON.parse(readFileSync(join(dir, "config.json"), "utf8"));
+  // The start script of plugin 0.6.0: its rules name only the wait and the update of a request.
+  const rules060 = [
+    "Skill(doable-code-context:doable-code-agent)",
+    "mcp__plugin_doable-code-context_doable__wait_for_code_agent_request",
+    "mcp__plugin_doable-code-context_doable__update_code_agent_request",
+    "Bash(sleep 20)",
+    "Bash(npm test *)",
+  ];
+  writeFileSync(join(dir, "run.sh"), runScript({ dir, folder: config.folder, claude: config.claude, rules: rules060, path: config.path, wake: false }));
+  assert.ok(!readFileSync(join(dir, "run.sh"), "utf8").includes("read_code_agent_mail"));
+
+  stop("mac-mini-1", m.env, () => {});
+  const printed = [];
+  start("mac-mini-1", m.env, (line) => printed.push(line));
+  const run = readFileSync(join(dir, "run.sh"), "utf8");
+  assert.match(run, new RegExp(`--allowedTools ${BASE_RULES_IN_RUN} 'Bash\\(npm test \\*\\)' <`));
+  execFileSync("bash", ["-n", join(dir, "run.sh")]);
+  // config.json of 0.6.0 holds the claude command: no reminder of the prompt's password sentence.
   assert.deepEqual(printed, ['The code agent "mac-mini-1": not started (DOABLE_CODE_AGENT_NO_LAUNCH is set).']);
 });
 

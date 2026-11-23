@@ -24,14 +24,16 @@ const MACHINE_NAME = /^[A-Za-z0-9._-]{1,64}$/;
 // An organization API key: the code agent tools refuse a personal key and a login token.
 const ORGANIZATION_KEY = /^sk-doable-(?!personal-)[A-Za-z0-9_-]{16,}$/;
 const ANY_DOABLE_KEY = /sk-doable-[A-Za-z0-9_-]+/;
-// The four rules that every serving session with nobody at the terminal needs (README, "With nobody at the terminal"):
-// the Skill, the two Doable MCP tools that serve requests, and the wait after an error. They name the two tools, not
-// the whole Doable MCP server: a rule for the whole server would let the serving session call `ask_code_agent`, the
-// tool with which a person's Claude Code asks this machine.
+// The five rules that every serving session with nobody at the terminal needs (README, "With nobody at the terminal"):
+// the Skill, the three Doable MCP tools of a machine (the wait for a request, the update of a request, and the read of
+// the request's test inbox mail), and the wait after an error. They name the three tools, not the whole Doable MCP
+// server: a rule for the whole server would let the serving session call `ask_code_agent`, the tool with which a
+// person's Claude Code asks this machine.
 const BASE_RULES = [
   "Skill(doable-code-context:doable-code-agent)",
   "mcp__plugin_doable-code-context_doable__wait_for_code_agent_request",
   "mcp__plugin_doable-code-context_doable__update_code_agent_request",
+  "mcp__plugin_doable-code-context_doable__read_code_agent_mail",
   "Bash(sleep 20)",
 ];
 const RESTART_WAIT_S = 300;
