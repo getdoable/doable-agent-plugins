@@ -69,6 +69,12 @@ again.
   wiki, the team's shared chat channels. You reach them only through tools that this session
   already has: a connector, or a browser that is signed in as the person. They are not production
   and not a test environment; "Rules" says what you may do there.
+- **The browser**: Claude in Chrome, whose tools (`mcp__claude-in-chrome__*`) act in this
+  machine's Chrome, with the sign-ins that it holds. The Always on session always has it. Open each
+  page, for example a mail's link, in a new tab. If Chrome is not open or the extension is not
+  connected, its tools fail when you call them (a session that a person started without Chrome has
+  none): go on without the browser, and say so in the result, with what a person can do on this
+  machine (open Chrome, with the Claude in Chrome extension connected).
 - **Work that the request did not ask for**: an action that the goal needs and that the request
   did not name: you make, change or delete a login or data, or you run the app, the repository's
   tests or a script. A read is not such work.
@@ -132,9 +138,8 @@ it) or a `422` (the reason names the field). When Doable refuses with a code wor
 reason starts with that word and a colon, for example `doable_error: username_exists: The suite's
 environment already has a test account with the username ...`. An error that Doable MCP makes
 itself has none of these codes, so it has no status. To wait before you call again, run the shell
-command `sleep 20`, exactly so: the host blocks a `sleep` of 25 seconds or more, and the README's
-start command for a session with nobody at the terminal allows `sleep 20`. Act on the error by
-the first item that fits:
+command `sleep 20`, exactly so: the host blocks a `sleep` of 25 seconds or more. Act on the error
+by the first item that fits:
 
 - An error about the machine name, whatever its status, and also with no status: its text names
   the `X-Doable-Machine` header, or names the machine name (the field `machine`) as not valid.
@@ -321,11 +326,7 @@ team's work tools, inside "Rules", and stop when the goal is met.
   role that the flow needs, a known issue in a ticket). Put it under **Also found**.
 - When you cannot read a source or do work that the goal needs, go on without it and name it
   under **Not known** (see "Result format"). The asker passes this to a person. Say that a tool is
-  missing or refused only after the call that this work needs failed. In a permission mode that
-  does not ask, a refusal reads "Permission to use Bash has been denied", but it refuses only that
-  one call (its command, or a path outside this folder), not the tool: another command, for
-  example a `curl` call to the test environment's API, can still be allowed. So make the call that
-  the work needs before you say that you cannot.
+  missing or does not work only after the call that this work needs failed: make that call first.
 - What the asker knows can be inexact (for example an old name for a feature, or a ticket key with
   a typing error). When what you find says otherwise, say so in the answer.
 
@@ -477,7 +478,7 @@ and a value that the tests need is also in `records`. Leave this out when there 
 
 **Not known:** what you could not establish or do, and why. For a source that you could not read,
 name it, give the reason in words that a person can act on (for example: this session has no tool
-for the issue tracker; a permission rule refused the tool; the browser is not signed in; the
+for the issue tracker; Chrome is not open on this machine; the browser is not signed in; the
 person's account has no access to the page), and say what a person can do on this machine so that
 it works the next time. Example: "I could not read the ticket: this session has no tool for the
 issue tracker. A person can add the tracker's connector to this machine's Claude Code." Leave
@@ -546,9 +547,9 @@ Never write a password in a summary, a record, a progress text, a question, a ch
 file, or a commit, and never repeat it in your text to the person. Do not keep other secrets that
 an app hands out (a reset key, an API key of the test login). An answer that holds such a secret
 (for example the reply of an API that makes a login) stays in the command's output: do not save
-it to a file, for example with `curl -o`, because a mode that does not ask can refuse the command
-that deletes the file. If a file with a secret stays on this machine, say so under **Not known**,
-with its path, so that a person deletes it. Never make a login in production.
+it to a file, for example with `curl -o`, because the file keeps it after the request. If a file
+with a secret stays on this machine, say so under **Not known**, with its path, so that a person
+deletes it. Never make a login in production.
 
 ### Mail from the test environment
 
@@ -572,10 +573,9 @@ inbox (see "Words") with `read_code_agent_mail`:
    invitation; then say under **Not known** that no mail came. An empty list of mails is a
    normal answer.
 4. Take the link or the code from the newest mail that fits (its `links` and its `text`). Open the
-   link or use the code on this machine, with the tools that the session's rules allow (for
-   example a browser that this session drives, or the app's API), and set the login's password.
-   When no such tool can open the link, say so under **Not known**: a person can give this
-   session a browser (README, "A browser for a mail's link").
+   link in a new tab of this machine's Chrome with the browser (see "Words"), or use the code there
+   or with the app's API, and set the login's password. If Chrome is not open or the extension is
+   not connected, say so under **Not known**, and name the login that you could not finish.
 5. Sign in once with the new login to check it. Then send the login back with its password in
    `logins`, as for any other login.
 
@@ -668,13 +668,11 @@ the loop, and each time you report progress on the request you serve. Then act o
 
 In Claude Code, the Doable MCP tools that this skill allows (its `allowed-tools`) stop being
 allowed at each new message from the person: for example "continue" after a plan limit, or "done"
-after they reconnected `doable` in `/mcp`. Without them, your next Doable call can stop at a
-permission prompt while nobody is at the terminal. So after any new message from the person, load
-this skill again before your next Doable call: in Claude Code, call the Skill tool with
-`doable-code-context:doable-code-agent`. The README's start command for a session with nobody at
-the terminal allows that call with the rule `Skill(doable-code-context:doable-code-agent)`;
-without that rule, the call itself stops at a permission prompt. In another host, read this skill
-again. Loading it does not start the watch again: go on from where you were.
+after they reconnected `doable` in `/mcp`. In the default permission mode, your next Doable call
+then stops at a permission prompt, also when nobody is at the terminal. So after any new message
+from the person, load this skill again before your next Doable call, in every permission mode: in
+Claude Code, call the Skill tool with `doable-code-context:doable-code-agent`. In another host,
+read this skill again. Loading it does not start the watch again: go on from where you were.
 
 ## Resume after an interruption
 
@@ -695,6 +693,13 @@ it as "When a call fails" says.
 
 ## Rules
 
+- The one hard rule for permissions: never write to a production system (see "Words"). Every
+  other tool and command that the request's work needs is allowed: use it, inside the other rules
+  here. A session with nobody at the terminal runs with no permission check, so no permission rule
+  or prompt stops a tool, and nothing but these rules stops a write to production.
+- Use Doable MCP only through its three tools of a machine: `wait_for_code_agent_request`,
+  `update_code_agent_request` and `read_code_agent_mail`. Its other tools write to the
+  organization's production data in Doable: never call them.
 - Never push: no `git push` in any form, no pull request, no merge, no deploy, no release. Try a
   fix only on a separate local branch or worktree.
 - Never touch production (see "Words"): no request, login, data change, or command against it,

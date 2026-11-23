@@ -245,13 +245,12 @@ for (const plugin of plugins) {
     // rules and the result boundary must stay word for word.
     const codeAgentSkillPath = join(pluginRoot, "skills", "doable-code-agent", "SKILL.md");
     const codeAgentSkill = readFileSync(codeAgentSkillPath, "utf8");
-    // A serving session can run with nobody at the terminal, so a permission prompt for one of its
-    // own Doable tools stops the watch. Its frontmatter allows exactly the three Doable MCP tools of a
-    // machine (the wait for a request, the update of a request, and the read of the request's test
-    // inbox mail), under the plugin's server name and under a user-scoped `doable` server, and
-    // nothing else: no other Doable MCP tool (a serving session never calls `ask_code_agent`, with
-    // which a person's Claude Code asks the machine) and no shell command (the person allows the
-    // commands that their rules need, at the prompt or with `--allowedTools`).
+    // A serving session that a person started by hand runs in the default permission mode, so a permission prompt for
+    // one of its own Doable tools stops the watch while nobody is at the terminal. Its frontmatter allows exactly the
+    // three Doable MCP tools of a machine (the wait for a request, the update of a request, and the read of the
+    // request's test inbox mail), under the plugin's server name and under a user-scoped `doable` server, and nothing
+    // else: no other Doable MCP tool (a serving session never calls `ask_code_agent`, with which a person's Claude Code
+    // asks the machine) and no shell command (a session with nobody at the terminal runs with no permission check).
     const codeAgentFrontmatter = codeAgentSkill.match(/^---\n([\s\S]*?)\n---/)?.[1] ?? "";
     const allowedTools = (codeAgentFrontmatter.match(/^allowed-tools:(.*(?:\n[ \t]+.*)*)/m)?.[1] ?? "")
       .replace(/^\s*>-?/, "")
@@ -378,9 +377,16 @@ for (const plugin of plugins) {
           // blocks a foreground sleep of 25 seconds or more: either one stops an unattended watch.
           "load this skill again before your next Doable call",
           "`doable-code-context:doable-code-agent`",
-          // Claude Code asks before the Skill tool loads a plugin Skill that no rule allows.
-          "`Skill(doable-code-context:doable-code-agent)`",
           "run the shell command `sleep 20`, exactly so",
+          // A session with nobody at the terminal runs with no permission check: only the rules stop a write to
+          // production, and the other Doable MCP tools write to the organization's data in Doable, which is
+          // production too.
+          "The one hard rule for permissions: never write to a production system",
+          "Use Doable MCP only through its three tools of a machine",
+          "Its other tools write to the organization's production data in Doable: never call them.",
+          // The session's browser is Claude in Chrome. Its tools fail when Chrome is closed or the extension is not
+          // connected, and a person on the machine fixes that: the result says so.
+          "If Chrome is not open or the extension is not connected, its tools fail when you call them",
           // Doable MCP refuses a machine name that breaks the rule itself, with no status: the stop
           // must not wait for Doable's 422.
           "An error about the machine name, whatever its status, and also with no status",
