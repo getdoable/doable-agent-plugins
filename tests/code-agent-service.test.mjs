@@ -71,16 +71,40 @@ test("the start script runs the serving session in dontAsk mode with the five ru
   execFileSync("bash", ["-n", join(serviceDir(m.env, "mac-mini-1"), "run.sh")]);
 });
 
-test("setup again with the saved prompt file keeps the prompt and adds a rule, for example for a browser tool", () => {
+test("setup again with the saved prompt file keeps the prompt and adds a rule, for example for a browser server", () => {
   const m = machine();
   setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, allow: ["Bash(npm test *)"] }, m.env, () => {});
   const dir = serviceDir(m.env, "mac-mini-1");
   const savedPrompt = join(dir, "prompt.md");
   const prompt = readFileSync(savedPrompt, "utf8");
-  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: savedPrompt, allow: ["Bash(npm test *)", "mcp__browser__navigate"] }, m.env, () => {});
+  // A rule for the whole browser server: a sign-up opens a page, types and clicks, and dontAsk refuses each tool that
+  // no rule names.
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: savedPrompt, allow: ["Bash(npm test *)", "mcp__playwright"] }, m.env, () => {});
   assert.equal(readFileSync(savedPrompt, "utf8"), prompt);
   const run = readFileSync(join(dir, "run.sh"), "utf8");
-  assert.match(run, new RegExp(`--allowedTools ${BASE_RULES_IN_RUN} 'Bash\\(npm test \\*\\)' 'mcp__browser__navigate' <`));
+  assert.match(run, new RegExp(`--allowedTools ${BASE_RULES_IN_RUN} 'Bash\\(npm test \\*\\)' 'mcp__playwright' <`));
+});
+
+test("setup with --chrome starts the serving session with Claude in Chrome and allows all its tools, start keeps it, and setup without it takes it away", () => {
+  const m = machine();
+  const printed = [];
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, allow: ["Bash(npm test *)"], chrome: true }, m.env, (line) => printed.push(line));
+  const dir = serviceDir(m.env, "mac-mini-1");
+  const withChrome = new RegExp(
+    `-p --permission-mode dontAsk --chrome --output-format stream-json --verbose --allowedTools ${BASE_RULES_IN_RUN} 'mcp__claude-in-chrome' 'Bash\\(npm test \\*\\)' <`,
+  );
+  assert.match(readFileSync(join(dir, "run.sh"), "utf8"), withChrome);
+  execFileSync("bash", ["-n", join(dir, "run.sh")]);
+  assert.ok(printed.some((line) => line.includes("Claude in Chrome")), printed.join("\n"));
+
+  stop("mac-mini-1", m.env, () => {});
+  start("mac-mini-1", m.env, () => {});
+  assert.match(readFileSync(join(dir, "run.sh"), "utf8"), withChrome);
+
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: join(dir, "prompt.md"), allow: ["Bash(npm test *)"] }, m.env, () => {});
+  const run = readFileSync(join(dir, "run.sh"), "utf8");
+  assert.match(run, new RegExp(`-p --permission-mode dontAsk --output-format stream-json --verbose --allowedTools ${BASE_RULES_IN_RUN} 'Bash\\(npm test \\*\\)' <`));
+  assert.ok(!run.includes("chrome"), run);
 });
 
 test("setup removes plugin 0.3.0's policy file from the folder", () => {
@@ -181,6 +205,9 @@ test("start on a machine that plugin 0.6.0 set up gives the serving session the 
   setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, allow: ["Bash(npm test *)"] }, m.env, () => {});
   const dir = serviceDir(m.env, "mac-mini-1");
   const config = JSON.parse(readFileSync(join(dir, "config.json"), "utf8"));
+  // config.json of plugin 0.6.0 has no `chrome`.
+  delete config.chrome;
+  writeFileSync(join(dir, "config.json"), JSON.stringify(config));
   // The start script of plugin 0.6.0: its rules name only the wait and the update of a request.
   const rules060 = [
     "Skill(doable-code-context:doable-code-agent)",
@@ -196,7 +223,7 @@ test("start on a machine that plugin 0.6.0 set up gives the serving session the 
   const printed = [];
   start("mac-mini-1", m.env, (line) => printed.push(line));
   const run = readFileSync(join(dir, "run.sh"), "utf8");
-  assert.match(run, new RegExp(`--allowedTools ${BASE_RULES_IN_RUN} 'Bash\\(npm test \\*\\)' <`));
+  assert.match(run, new RegExp(`-p --permission-mode dontAsk --output-format stream-json --verbose --allowedTools ${BASE_RULES_IN_RUN} 'Bash\\(npm test \\*\\)' <`));
   execFileSync("bash", ["-n", join(dir, "run.sh")]);
   // config.json of 0.6.0 holds the claude command: no reminder of the prompt's password sentence.
   assert.deepEqual(printed, ['The code agent "mac-mini-1": not started (DOABLE_CODE_AGENT_NO_LAUNCH is set).']);
@@ -295,9 +322,13 @@ test("setup says connected only after the serving session calls the wait tool, n
   assert.equal(sawFirstWait(`${toolList}\n${call}\n`), true);
 });
 
-test("the command line takes repeated --allow options and refuses an unknown option", () => {
+test("the command line takes repeated --allow options and --chrome with no value, and refuses an unknown option", () => {
   assert.deepEqual(parseArgs(["setup", "--machine", "m", "--allow", "Bash(a *)", "--allow", "Bash(b *)"]).options.allow, ["Bash(a *)", "Bash(b *)"]);
   assert.throws(() => parseArgs(["setup", "--key", "x"]), /Unknown option --key/);
+  // --chrome takes no value, at any place.
+  const chrome = parseArgs(["setup", "--chrome", "--machine", "m", "--allow", "Bash(a *)", "--chrome"]).options;
+  assert.deepEqual([chrome.chrome, chrome.machine, chrome.allow], [true, "m", ["Bash(a *)"]]);
+  assert.equal(parseArgs(["setup", "--machine", "m"]).options.chrome, false);
   // A failed command prints its reason and exits with 1, with no stack trace.
   let failed;
   try {

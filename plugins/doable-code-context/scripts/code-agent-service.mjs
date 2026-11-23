@@ -8,8 +8,11 @@
 // model: they must be the same on every machine.
 //
 // Usage:
-//   DOABLE_API_KEY=... node code-agent-service.mjs setup --folder DIR --machine NAME --prompt-file FILE [--allow RULE]...
+//   DOABLE_API_KEY=... node code-agent-service.mjs setup --folder DIR --machine NAME --prompt-file FILE [--allow RULE]... [--chrome]
 //   node code-agent-service.mjs status|stop|start|remove --machine NAME
+//
+// `--chrome` starts the serving session with Claude in Chrome and allows its tools, so that the session can open a
+// page in this machine's Chrome, for example the link of a sign-up mail from the request's test inbox.
 //
 // For development, DOABLE_CODE_AGENT_PLUGIN_DIR at setup makes the serving session load the plugin from that folder
 // (`claude --plugin-dir`) in place of the installed plugin.
@@ -36,6 +39,9 @@ const BASE_RULES = [
   "mcp__plugin_doable-code-context_doable__read_code_agent_mail",
   "Bash(sleep 20)",
 ];
+// The rule for every tool of Claude in Chrome, which `--chrome` adds: a sign-up opens a page, types and clicks, and
+// dontAsk refuses each tool that no rule names, so a rule for one tool is not enough.
+const CHROME_RULE = "mcp__claude-in-chrome";
 const RESTART_WAIT_S = 300;
 const LOG_MAX_BYTES = 20 * 1024 * 1024;
 // Plugin 0.3.0's policy file in the workspace. A session takes its rules from its prompt now, so setup deletes the
@@ -84,9 +90,11 @@ export function findClaude(env) {
   fail("Claude Code (`claude`) is not on PATH. Install it, sign in on the Claude plan, and run setup again.");
 }
 
-export function runScript({ dir, folder, claude, rules, path, wake, pluginDir = null }) {
+export function runScript({ dir, folder, claude, rules, path, wake, pluginDir = null, chrome = false }) {
   const allowed = rules.map(shellQuote).join(" ");
   const plugin = pluginDir ? `--plugin-dir ${shellQuote(pluginDir)} ` : "";
+  // After the permission mode, so that scriptEnvironment still reads the claude command and the plugin folder.
+  const chromeFlag = chrome ? "--chrome " : "";
   const wakeLock = wake ? "/usr/bin/caffeinate -i -s " : "";
   return `#!/bin/bash
 # Written by doable-code-context's code-agent-service.mjs. It serves Doable requests in ${folder}
@@ -106,7 +114,7 @@ while [ ! -e "$dir/stopped" ]; do
     mv -f "$dir/session.jsonl" "$dir/session.1.jsonl"
   fi
   echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) the serving session starts" >> "$dir/service.log"
-  ${wakeLock}${shellQuote(claude)} -p ${plugin}--permission-mode dontAsk --output-format stream-json --verbose --allowedTools ${allowed} < "$dir/prompt.md" >> "$dir/session.jsonl" 2>&1
+  ${wakeLock}${shellQuote(claude)} -p ${plugin}--permission-mode dontAsk ${chromeFlag}--output-format stream-json --verbose --allowedTools ${allowed} < "$dir/prompt.md" >> "$dir/session.jsonl" 2>&1
   echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) the serving session ended with code $?" >> "$dir/service.log"
   [ -e "$dir/stopped" ] && break
   sleep ${RESTART_WAIT_S}
@@ -163,16 +171,18 @@ function scriptEnvironment(script) {
   return kept;
 }
 
-// The start script, from config.json and this release's BASE_RULES.
+// The start script, from config.json and this release's BASE_RULES. A config.json of an older setup has no `chrome`.
 function writeRunScript(dir, config) {
+  const chrome = config.chrome === true;
   const script = runScript({
     dir,
     folder: config.folder,
     claude: config.claude,
-    rules: [...BASE_RULES, ...config.allow],
+    rules: [...BASE_RULES, ...(chrome ? [CHROME_RULE] : []), ...config.allow],
     path: config.path,
     wake: config.wake,
     pluginDir: config.pluginDir,
+    chrome,
   });
   writeFileSync(join(dir, "run.sh"), script, { mode: 0o700 });
   chmodSync(join(dir, "run.sh"), 0o700);
@@ -252,7 +262,7 @@ function waitForFirstWait(env, dir) {
 }
 
 export function setup(options, env, print = console.log) {
-  const { folder, machine, promptFile, allow = [] } = options;
+  const { folder, machine, promptFile, allow = [], chrome = false } = options;
   checkMachine(machine);
   const key = env.DOABLE_API_KEY || "";
   if (!ORGANIZATION_KEY.test(key)) {
@@ -276,7 +286,7 @@ export function setup(options, env, print = console.log) {
   chmodSync(join(dir, "env"), 0o600);
   writeFileSync(join(dir, "prompt.md"), `${prompt}\n`, { mode: 0o600 });
   const folderPath = resolve(folder);
-  const config = { folder: folderPath, machine, allow, ...runEnvironment(env) };
+  const config = { folder: folderPath, machine, allow, chrome: chrome === true, ...runEnvironment(env) };
   writeRunScript(dir, config);
   writeConfig(dir, config);
   if (useLaunchd(env)) {
@@ -293,6 +303,9 @@ export function setup(options, env, print = console.log) {
   const how = launch(env, machine, dir);
   const connected = env.DOABLE_CODE_AGENT_NO_LAUNCH ? null : waitForFirstWait(env, dir);
   print(`The Doable code agent "${machine}" serves ${folderPath}: ${how}.`);
+  if (config.chrome) {
+    print("It uses Claude in Chrome: keep Chrome open on this machine, with the Claude in Chrome extension installed.");
+  }
   if (connected === true) print("It is connected: it waits for Doable's requests.");
   if (connected === false) print(`It did not start to wait in 2 minutes. Read ${join(dir, "session.jsonl")} and ${join(dir, "service.log")}.`);
   print(`Its files are in ${dir} (the key is in ${join(dir, "env")}, readable only by you).`);
@@ -358,15 +371,24 @@ export function remove(machine, env, print = console.log) {
 
 export function parseArgs(argv) {
   const [command, ...rest] = argv;
-  const options = { allow: [] };
-  for (let i = 0; i < rest.length; i += 2) {
-    const [name, value] = [rest[i], rest[i + 1]];
+  const options = { allow: [], chrome: false };
+  let i = 0;
+  while (i < rest.length) {
+    const name = rest[i];
+    // The one option with no value.
+    if (name === "--chrome") {
+      options.chrome = true;
+      i += 1;
+      continue;
+    }
+    const value = rest[i + 1];
     if (value === undefined) fail(`${name} needs a value.`);
     if (name === "--allow") options.allow.push(value);
     else if (name === "--folder") options.folder = value;
     else if (name === "--machine") options.machine = value;
     else if (name === "--prompt-file") options.promptFile = value;
     else fail(`Unknown option ${name}.`);
+    i += 2;
   }
   return { command, options };
 }
