@@ -315,6 +315,9 @@ for (const plugin of plugins) {
           // link that acts when it opens that the machine may open.
           "Invite the user, or sign it up, at a `+` address of the test inbox",
           "If the request's `test_inbox` is `null`, the request cannot use this way",
+          // A null or missing test inbox also comes from an older Doable or an older request: the machine cannot tell
+          // why, so it must not send a person to look for an inbox that the organization may have.
+          "Do not say that the organization has no test inbox.",
           "Never put the link or the code in a progress text, a question or a result",
           "The one exception: the link of a mail from the test inbox that finishes a sign-up that you started for the request",
           // A 409 for a login is not the end of the request: only a 409 that says so stops the work with no result.
@@ -604,6 +607,13 @@ for (const requiredCodeAgentSetup of [
   // A 0.6.0 machine gets the rule for the third machine tool, read_code_agent_mail, only from a `start` of 0.6.1: an
   // update alone leaves the running session and its start script on the 0.6.0 rules.
   "### Update from 0.6.0",
+  // A sign-up opens a page, types and clicks, and dontAsk refuses each tool that no rule names: a browser needs a rule
+  // for all its tools, and Claude in Chrome also needs `claude --chrome`, which only the setup's `--chrome` adds.
+  "### A browser for a mail's link",
+  "add one `--allow` rule for the whole server, such as `--allow mcp__playwright`",
+  "add `--chrome` to the Always on setup",
+  // On a machine without launchd, a setup while the session runs starts a second session with the same name.
+  "Run the setup only after the `stop` of step 1",
 ]) {
   assert(includesPhrase(readme, requiredCodeAgentSetup), `README is missing code agent setup: ${requiredCodeAgentSetup}`);
 }

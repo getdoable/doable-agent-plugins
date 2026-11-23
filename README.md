@@ -229,10 +229,12 @@ address such as `acme-tests+ca-20261111-0930@mail.getdoable.ai`), reads that mai
 MCP tool `read_code_agent_mail`, opens the link on this machine, signs in once, and returns the
 login with its password. The link and the code stay on the machine: they are in no progress text,
 question or result. The tool reads only the organization's own test inbox, only the mail to the
-address that the session names, and only the mail that came after the request was asked. When the
-organization has no test inbox, the session says so in the result. To open the link, the session
-needs a tool that opens a web page, for example a browser that it drives (see
-[With nobody at the terminal](#with-nobody-at-the-terminal)).
+address that the session names, and only the mail that came after the request was asked. When a
+request names no test inbox (the organization has none, the Doable server or Doable MCP is older
+than this release, or the request was asked before that release), the session makes no such
+login, and says in the result that the request named no test inbox and that a person can ask the
+Doable team about it. To open the link, the session needs a browser that it drives (see
+[A browser for a mail's link](#a-browser-for-a-mails-link)).
 
 A session runs [Always on](#always-on), in the background, or [by hand](#by-hand), in a terminal.
 Doable counts it as connected while it waits for requests or works on one, and sends it each new
@@ -300,7 +302,9 @@ from the session's environment, so that its usage is not billed to the API.
 3. Choose the commands that the session may run with nobody at the terminal, for example the
    repositories' tests or a script of the app that makes test logins. Each one becomes one
    `--allow` rule, such as `Bash(npm test *)`. Read
-   [With nobody at the terminal](#with-nobody-at-the-terminal) for the rules not to give.
+   [With nobody at the terminal](#with-nobody-at-the-terminal) for the rules not to give. To let
+   the session open the link of a sign-up mail in Chrome, add `--chrome` (see
+   [A browser for a mail's link](#a-browser-for-a-mails-link)).
 4. In the folder that holds the repositories, export `DOABLE_API_KEY` (an organization API key
    from Doable's Settings > MCP), and run the setup, with one `--allow` for each rule. Give the
    machine its own name in `--machine`, by the rule of `DOABLE_MACHINE_NAME`:
@@ -313,7 +317,8 @@ from the session's environment, so that its usage is not billed to the API.
 
 This plugin's `scripts/code-agent-service.mjs setup` keeps the key in a file that only you can
 read (`~/.doable/code-agent/<machine>/env`), starts the serving session in the background in the
-`dontAsk` permission mode with the five rules below and your commands, starts it again 5 minutes
+`dontAsk` permission mode with the five rules below and your commands (with `--chrome`, also with
+Claude in Chrome and a rule for its tools), starts it again 5 minutes
 after it stops (for example at a plan limit), keeps a Mac awake while it runs, and on a Mac starts
 it at each login. On a machine that an older plugin set up, it also deletes that plugin's policy
 file. It tells you whether the session is connected.
@@ -333,7 +338,9 @@ output is in `~/.doable/code-agent/<machine>/session.jsonl`. That output holds t
 new test login that the session sends to Doable, and only you can read it. `start` writes the
 start script again with the rules of the installed plugin. `remove` stops it and deletes its files
 and its key. After a plugin update, run `stop` and `start`, so that the serving session loads the
-new plugin (see [Update from 0.6.0](#update-from-060)). The key stays in its file until `remove`.
+new plugin (see [Update from 0.6.0](#update-from-060)). To change your `--allow` rules or
+`--chrome`, run `stop`, then the setup again, as step 3 of that section shows. The key stays in
+its file until `remove`.
 Revoke it in Settings > API Keys when you no longer need it.
 
 ### By hand
@@ -397,12 +404,10 @@ reads tickets and docs only through a tool that an allow rule names (for example
 read tools); without the rule, it answers from the code and says in the result which source it
 could not read and why. In the same way, it runs the app or a script only when an allow rule
 names that command; without the rule, it names the work that it could not do. In the same way,
-it opens the link of a test inbox mail only with a browser tool that a rule allows (for example
-the tools of a browser MCP server that you added to Claude Code); without one, it names the login
-that it could not finish. A browser tool can open any host, production too, so the session's
-rules, not the allow rule, keep it on the test environments. Then paste the start prompt, and
-leave. In Codex and Cursor, allow the three Doable MCP tools and the same commands in that host's
-settings.
+it opens the link of a test inbox mail only in a browser whose tools a rule allows (see
+[A browser for a mail's link](#a-browser-for-a-mails-link)); without one, it names the login that
+it could not finish. Then paste the start prompt, and leave. In Codex and Cursor, allow the three
+Doable MCP tools and the same commands in that host's settings.
 
 Your own Claude Code settings apply to this session too: your user settings
 (`~/.claude/settings.json`), with their allow rules and the features they turn on, your
@@ -412,6 +417,28 @@ allow list before you leave the machine. A feature that your user settings turn 
 session try its tool: for example, when they turn on multi-agent workflows, the session may try
 the Workflow tool. `dontAsk` refuses a tool that no rule allows, and the session goes on without
 it.
+
+### A browser for a mail's link
+
+To finish a sign-up by email, the session opens the mail's link in a browser on this machine.
+With nobody at the terminal, `dontAsk` refuses each browser tool that no rule allows. A sign-up
+opens a page, types and clicks, so allow all the tools of one browser:
+
+- **Claude in Chrome**, in this machine's Chrome: add `--chrome` to the Always on setup. The start
+  script then starts the session with `claude --chrome` and allows all the tools of Claude in
+  Chrome (`mcp__claude-in-chrome`). Keep Chrome open on this machine, with the Claude in Chrome
+  extension installed. If the extension asks before it acts on a site, nobody answers it: allow
+  the test environments' sites in the extension before you leave the machine. For a session that
+  you start by hand, add `--chrome` before `--allowedTools` in the `dontAsk` command, and
+  `"mcp__claude-in-chrome"` after its rules.
+- **A browser MCP server** that you added to Claude Code, for example Playwright's: add one
+  `--allow` rule for the whole server, such as `--allow mcp__playwright`. A rule for one tool,
+  such as `mcp__playwright__browser_navigate`, lets the session open the page, but not type or
+  click.
+
+A browser can open any host, production too, and Claude in Chrome acts with the sign-ins that
+this machine's Chrome holds. The session's rules, not the allow rule, keep it on the test
+environments.
 
 ### Update from 0.6.0
 
@@ -439,15 +466,28 @@ read that mail. On each Always on machine:
    node <installPath>/scripts/code-agent-service.mjs start --machine <machine>
    ```
 
-`start` writes the start script again with this release's five rules, so the session can call
-`read_code_agent_mail` with nobody at the terminal. The session's prompt
-(`~/.doable/code-agent/<machine>/prompt.md`) does not change. To let the session also open a
-mail's link with a browser tool, run the setup of [Always on](#always-on) again, with
-`--prompt-file ~/.doable/code-agent/<machine>/prompt.md`, your `--allow` rules, and one more
-`--allow` rule for that tool. You can update before or after the Doable MCP release that adds the
-tool: until that release, the session says in a result that it cannot read the test inbox. Stop a
-session that you started by hand, update the plugin, and start it again (with the new `dontAsk`
-command when nobody watches it).
+   To let the session also open a mail's link in a browser (see
+   [A browser for a mail's link](#a-browser-for-a-mails-link)), run the setup again in place of
+   `start`. Run it in the folder that holds the repositories, with the saved prompt, your
+   `--allow` rules again (the `allow` list in `~/.doable/code-agent/<machine>/config.json`), and
+   `--chrome` or the rule for your browser server. The setup needs the key in `DOABLE_API_KEY`:
+   the first line below exports it from the file that holds it, and prints nothing.
+
+   ```bash
+   . ~/.doable/code-agent/<machine>/env
+   node <installPath>/scripts/code-agent-service.mjs setup --folder "$PWD" --machine <machine> --prompt-file ~/.doable/code-agent/<machine>/prompt.md --allow 'Bash(npm test *)' --chrome
+   ```
+
+`start` and the setup write the start script again with this release's five rules, so the session
+can call `read_code_agent_mail` with nobody at the terminal. The session's prompt
+(`~/.doable/code-agent/<machine>/prompt.md`) does not change. Run the setup only after the `stop`
+of step 1: on a machine without launchd, a setup while the session runs starts a second session
+with the same machine name, and the first one goes on with its old rules. You can update before
+or after the Doable releases that add the tool and the test inbox: until then, a request names no
+test inbox, and the session says in the result that it could not read the mail. Stop a session
+that you started by hand, update the plugin, and start it again (with the new `dontAsk` command
+when nobody watches it, and a browser as
+[A browser for a mail's link](#a-browser-for-a-mails-link) says).
 
 ### Update from 0.5.0
 
@@ -542,9 +582,12 @@ See [CHANGELOG.md](CHANGELOG.md) for version history and [CONTRIBUTING.md](CONTR
   `update_code_agent_request`, and a Doable server that takes the capability summary (the
   `capabilities` argument of `wait_for_code_agent_request`) and the logins of a result with their
   passwords. A Doable server that does not take the summary refuses the call with `422`. On a
-  Doable MCP server without `update_code_agent_request`, the Skill tells you so and stops. On a
-  Doable MCP server or a Doable server that cannot read the test inbox (`read_code_agent_mail`),
-  the Skill goes on serving and says in a result that it could not read the mail.
+  Doable MCP server without `update_code_agent_request`, the Skill tells you so and stops. With a
+  Doable MCP server or a Doable server older than this release, a request names no test inbox, or
+  `read_code_agent_mail` is missing: the Skill goes on serving, makes no login that needs a
+  sign-up mail, and says in the result that it could not read the mail.
+- A request that was asked before the Doable server's release names no test inbox, also after
+  the release.
 - The session reads only the mail of its organization's test inbox. A test environment that sends
   its sign-up mail only to another address, or that refuses a `+` in an email address, cannot use
   this way.
