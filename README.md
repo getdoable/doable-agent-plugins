@@ -371,12 +371,16 @@ session that nobody watches runs in the bypass permission mode, with Claude in C
 cannot send a request to itself. The Always on setup starts it so. To start such a session by hand:
 
 ```bash
-claude --permission-mode bypassPermissions --chrome --disallowedTools "mcp__plugin_doable-code-context_doable__ask_code_agent"
+claude --permission-mode bypassPermissions --chrome --disallowedTools "mcp__plugin_doable-code-context_doable__ask_code_agent" "mcp__doable__ask_code_agent"
 ```
 
-Use `mcp__doable__ask_code_agent` in place of the plugin's tool name if you set up a user-scoped
-`doable` server instead. If Claude Code asks you to accept the bypass mode, accept it. Then paste
-the start prompt, and leave. In Codex and Cursor, let the session use its tools with no prompt in
+The command names `ask_code_agent` two times: as the plugin's server gives it, and as a
+user-scoped or project-scoped Doable MCP server named `doable` gives it (when both servers have the
+same address, Claude Code loads only the `doable` server). Keep `--disallowedTools` last: it takes
+each word after it as a tool name. A Doable MCP server with another name keeps its
+`ask_code_agent` in the session: give that server the name `doable`, or remove it from this
+machine. If Claude Code asks you to accept the bypass mode, accept it. Then paste the start
+prompt, and leave. In Codex and Cursor, let the session use its tools with no prompt in
 that host's settings, and turn off Doable MCP's `ask_code_agent` there.
 
 What the bypass mode means: Claude Code checks no permission. The session can run any command and

@@ -92,9 +92,11 @@ test('the release verifier refuses a README that allows the whole Doable MCP ser
     assert.notEqual(wholeServer.status, 0, 'a README that allows the whole server must fail');
     assert.match(wholeServer.stderr, /README allows the whole Doable MCP server \("mcp__plugin_doable-code-context_doable"\)/);
 
-    // The serving session runs with no permission check, with Claude in Chrome and without ask_code_agent: a README
-    // that goes back to the dontAsk command, or that drops the disallowed tool, must fail.
-    const bypassCommand = 'claude --permission-mode bypassPermissions --chrome --disallowedTools "mcp__plugin_doable-code-context_doable__ask_code_agent"';
+    // The serving session runs with no permission check, with Claude in Chrome and without ask_code_agent under both
+    // server names: a README that goes back to the dontAsk command, or that drops a name of the disallowed tool, must
+    // fail.
+    const bypassCommand =
+      'claude --permission-mode bypassPermissions --chrome --disallowedTools "mcp__plugin_doable-code-context_doable__ask_code_agent" "mcp__doable__ask_code_agent"';
     assert.ok(readFileSync(join(directory, 'README.md'), 'utf8').includes(bypassCommand));
     const dontAskCommand = verifyWith(directory, 'README.md', (text) =>
       text.replace(bypassCommand, 'claude --permission-mode dontAsk --allowedTools "Bash(sleep 20)"'));
@@ -105,6 +107,11 @@ test('the release verifier refuses a README that allows the whole Doable MCP ser
     const noDisallowedTool = verifyWith(directory, 'README.md', (text) =>
       text.replace(bypassCommand, 'claude --permission-mode bypassPermissions --chrome'));
     assert.notEqual(noDisallowedTool.status, 0, 'a README whose command lets the session ask itself must fail');
+    // A user-scoped or project-scoped `doable` server gives the tool as mcp__doable__ask_code_agent.
+    const pluginNameOnly = verifyWith(directory, 'README.md', (text) =>
+      text.replace(bypassCommand, bypassCommand.replace(' "mcp__doable__ask_code_agent"', '')));
+    assert.notEqual(pluginNameOnly.status, 0, 'a README whose command lets a `doable` server give ask_code_agent must fail');
+    assert.match(pluginNameOnly.stderr, /README is missing code agent setup: claude --permission-mode bypassPermissions --chrome --disallowedTools/);
 
     // Nothing but the rules stops a write to production: the README says so, and the skill keeps the one hard rule and
     // the rule that keeps it off Doable MCP's other tools.

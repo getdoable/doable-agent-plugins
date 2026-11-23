@@ -582,7 +582,9 @@ for (const requiredSetup of [
 // A code agent session starts Always on, with the service script, or by hand. In the default permission mode the
 // person answers the first prompts at the terminal. A session that nobody watches runs in the bypass permission mode
 // (no permission check) with Claude in Chrome, and cannot load `ask_code_agent`, with which it could send a request to
-// itself. The README says what the bypass mode lets the session do, and what the person does on the machine.
+// itself, under the plugin's server name or under `doable` (a user-scoped or project-scoped Doable MCP server, which
+// Claude Code loads in place of the plugin's server when both have the same address). The README says what the bypass
+// mode lets the session do, and what the person does on the machine.
 for (const requiredCodeAgentSetup of [
   "The Skill's own rules always apply too: a rule in the message joins them and never replaces them.",
   "### Always on",
@@ -592,7 +594,7 @@ for (const requiredCodeAgentSetup of [
   "starts it again 5 minutes after it stops",
   "code-agent-service.mjs stop --machine <machine>",
   "Stay at the terminal: Claude Code asks before it runs a new command.",
-  'claude --permission-mode bypassPermissions --chrome --disallowedTools "mcp__plugin_doable-code-context_doable__ask_code_agent"',
+  'claude --permission-mode bypassPermissions --chrome --disallowedTools "mcp__plugin_doable-code-context_doable__ask_code_agent" "mcp__doable__ask_code_agent"',
   // What the bypass mode lets the session do, said plainly, and that only the rules stop a write to production.
   "The session can run any command and use any tool on this machine with your rights",
   "and use Chrome with the sign-ins that it holds",

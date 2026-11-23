@@ -41,8 +41,10 @@ Update each Always on machine with stop, the plugin update, and start, with Chro
 
 - `scripts/code-agent-service.mjs`: the serving session runs with
   `--permission-mode bypassPermissions --chrome --disallowedTools
-  'mcp__plugin_doable-code-context_doable__ask_code_agent'`: every tool with no permission check,
-  Claude in Chrome, and no `ask_code_agent`, so that the session cannot send a request to itself.
+  'mcp__plugin_doable-code-context_doable__ask_code_agent' 'mcp__doable__ask_code_agent'`: every
+  tool with no permission check, Claude in Chrome, and no `ask_code_agent` under the plugin's
+  server name or under `doable` (a user-scoped or project-scoped Doable MCP server), so that the
+  session cannot send a request to itself with it.
   `start` writes this command line into the start script, also on a machine that 0.6.0 set up.
 - README: the sign-up by email, the new command for a session with nobody at the terminal and what
   the bypass mode lets it do, managed settings that turn the bypass mode off, "A browser for a
