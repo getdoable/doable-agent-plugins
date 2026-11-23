@@ -58,11 +58,13 @@ again.
   the repositories show that it is not production. A local copy of the app on this machine whose
   databases are its own or those of the request's test environment is a test environment too.
 - **Test inbox**: the organization's email inbox in Doable for tests, given as the request's
-  `test_inbox` (an address such as `acme-tests@mail.getdoable.ai`), or `null` when the
-  organization has none. Mail to a `+` address of it (`acme-tests+anything@mail.getdoable.ai`)
-  lands in the same inbox. `read_code_agent_mail` reads it for one request: only the mail to the
-  address that you name, and only the mail that came after the request was asked. The test inbox
-  is inside the test environment (see "Rules").
+  `test_inbox` (an address such as `acme-tests@mail.getdoable.ai`). Mail to a `+` address of it
+  (`acme-tests+anything@mail.getdoable.ai`) lands in the same inbox. `read_code_agent_mail` reads
+  it for one request: only the mail to the address that you name, and only the mail that came
+  after the request was asked. The test inbox is inside the test environment (see "Rules"). When
+  `test_inbox` is `null` or not in the request, the request names no test inbox: the organization
+  has none, the Doable server or Doable MCP is older than this plugin, or the request was asked
+  before Doable gave the test inbox.
 - **The team's work tools**: where the team writes about its work: the issue tracker, docs, the
   wiki, the team's shared chat channels. You reach them only through tools that this session
   already has: a connector, or a browser that is signed in as the person. They are not production
@@ -160,9 +162,9 @@ the first item that fits:
   `not_test_inbox`: do what "Mail from the test environment" says.
 - `read_code_agent_mail` is missing (an older Doable MCP server), or it answers `404` while
   `update_code_agent_request` works for the same request (an older Doable server): this machine
-  cannot read the test inbox. Go on without the mail, as "Mail from the test environment" says
-  for a request with no test inbox, and say that the Doable server or Doable MCP is older than
-  this plugin. Keep the watch.
+  cannot read the test inbox. Do not make a login that needs the mail. Say in the result that you
+  could not read the test inbox, because the Doable server or Doable MCP is older than this
+  plugin. Keep the watch.
 - A timeout, a network error, `429`, or a `5xx` error: wait (`sleep 20`) and call again. If it
   goes on for more than 10 minutes, tell the person once, then keep calling.
 - `update_code_agent_request` is missing while `wait_for_code_agent_request` is there: this Doable
@@ -553,9 +555,12 @@ with its path, so that a person deletes it. Never make a login in production.
 To finish a sign-up that a test environment sends by email, read the mail of the request's test
 inbox (see "Words") with `read_code_agent_mail`:
 
-1. If the request's `test_inbox` is `null`, the request cannot use this way: the organization has
-   no test inbox. Do not make the login. Say so in the result (the reason of a `failed`, or under
-   **Not known**): a person can give the organization a test inbox in Doable.
+1. If the request's `test_inbox` is `null`, the request cannot use this way. The same applies
+   when the request has no `test_inbox` field. The request names no test inbox (see "Words"), and
+   you cannot tell why. Do not make the login. Say in the result (the reason of a `failed`, or
+   under **Not known**) that the request named no test inbox, so you could not read the sign-up
+   mail, and that a person can ask the Doable team about the organization's test inbox. Do not
+   say that the organization has no test inbox.
 2. Invite the user, or sign it up, at a `+` address of the test inbox with the date and time in
    its tag: for the test inbox `acme-tests@mail.getdoable.ai`, use
    `acme-tests+ca-20261111-0930@mail.getdoable.ai`. That address is the login's username. If the
@@ -569,8 +574,8 @@ inbox (see "Words") with `read_code_agent_mail`:
 4. Take the link or the code from the newest mail that fits (its `links` and its `text`). Open the
    link or use the code on this machine, with the tools that the session's rules allow (for
    example a browser that this session drives, or the app's API), and set the login's password.
-   When no such tool can open the link, say so under **Not known**: a person can allow a browser
-   tool for this session.
+   When no such tool can open the link, say so under **Not known**: a person can give this
+   session a browser (README, "A browser for a mail's link").
 5. Sign in once with the new login to check it. Then send the login back with its password in
    `logins`, as for any other login.
 
@@ -585,8 +590,8 @@ When Doable refuses the read:
 - `not_test_inbox`: `to` is not the test inbox or a `+` address of it. Doable's reason names the
   test inbox. Read the mail of a `+` address of it. If you invited the user at another address,
   invite a new user at such an address.
-- `no_test_inbox`: the organization has no test inbox now. Do as step 1 says, and give Doable's
-  reason, which says what a person does.
+- `no_test_inbox`: the organization has no test inbox now. Do not make the login. Say so in the
+  result, with Doable's reason, which says what a person does.
 
 ## Ask the asker
 
