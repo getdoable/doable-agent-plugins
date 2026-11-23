@@ -14,6 +14,7 @@ import {
   serviceDir,
   setup,
   start,
+  status,
   stop,
 } from "../plugins/doable-code-context/scripts/code-agent-service.mjs";
 
@@ -601,6 +602,21 @@ test("start refuses a wait time that is not a whole number of seconds, and launc
   assert.equal(failed.status, 1, `status ${failed.status}, signal ${failed.signal}`);
   assert.equal(failed.stderr.toString(), "DOABLE_CODE_AGENT_WAIT_S must be a whole number of seconds.\n");
   assert.equal(existsSync(join(m.dir, "pid")), false);
+});
+
+test("on a machine without launchd, status says on while the start script runs, and not running when the pid file names another process", () => {
+  // After a reboot, no stop file is there, and another process can have the pid that the `pid` file names.
+  const m = servedMachine(WAITED, { keepRunning: true });
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt }, m.env, () => {});
+  start("mac-mini-1", m.launching, () => {});
+  const pid = readFileSync(join(m.dir, "pid"), "utf8").trim();
+  try {
+    assert.equal(printedBy((print) => status("mac-mini-1", m.launching, print))[0], 'Code agent "mac-mini-1": on.');
+    writeFileSync(join(m.dir, "pid"), `${process.pid}\n`);
+    assert.equal(printedBy((print) => status("mac-mini-1", m.launching, print))[0], 'Code agent "mac-mini-1": not running.');
+  } finally {
+    endGroup(pid);
+  }
 });
 
 test("the command line takes the folder, the machine and the prompt file, and refuses an unknown option", () => {

@@ -57,6 +57,8 @@ Update each Always on machine with stop, the plugin update, and start, with Chro
   plugin's server, with its own key and machine header). Both read only the session's output
   after the launch, and on a machine without launchd they refuse while the session runs, so that
   a call of an earlier session does not count.
+- `scripts/code-agent-service.mjs status`: on a machine without launchd, it says `not running`
+  when the start script does not run (for example after a reboot), not `on`.
 - README: the sign-up by email, the new command for a session with nobody at the terminal and what
   the bypass mode lets it do, that the serving session must have no other Doable MCP server than
   the plugin's, managed settings that turn the bypass mode off, "A browser for a

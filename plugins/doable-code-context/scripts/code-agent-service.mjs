@@ -501,8 +501,11 @@ export function status(machine, env, print = console.log) {
   const dir = serviceDir(env, machine);
   if (!existsSync(dir)) fail(`No code agent "${machine}" is set up on this machine.`);
   const stopped = existsSync(join(dir, "stopped"));
-  const running = useLaunchd(env) ? launchctl(["print", `gui/${process.getuid()}/${launchdLabel(machine)}`], { quiet: true }) : null;
-  print(`Code agent "${machine}": ${stopped ? "stopped" : running === false ? "not running" : "on"}.`);
+  // With no launchd, the agent is on only while the start script of the `pid` file runs: nothing starts it after a reboot.
+  const running = useLaunchd(env)
+    ? launchctl(["print", `gui/${process.getuid()}/${launchdLabel(machine)}`], { quiet: true })
+    : runningScript(dir) !== null;
+  print(`Code agent "${machine}": ${stopped ? "stopped" : running ? "on" : "not running"}.`);
   const session = join(dir, "session.jsonl");
   if (existsSync(session)) print(`Last activity: ${statSync(session).mtime.toISOString()} (${session}).`);
   const log = join(dir, "service.log");
