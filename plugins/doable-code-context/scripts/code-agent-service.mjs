@@ -18,10 +18,26 @@
 // project-scoped Doable MCP server of that name), so that the session cannot send a request to itself with it.
 //
 // For development, DOABLE_CODE_AGENT_PLUGIN_DIR at setup makes the serving session load the plugin from that folder
-// (`claude --plugin-dir`) in place of the installed plugin.
+// (`claude --plugin-dir`) in place of the installed plugin. For tests, DOABLE_CODE_AGENT_NO_LAUNCH writes the files and
+// starts nothing, DOABLE_CODE_AGENT_NO_LAUNCHD starts the start script on a Mac as on a machine without launchd, and
+// DOABLE_CODE_AGENT_WAIT_S sets how many seconds setup and start wait for the session's first wait for a request.
 
 import { execFileSync, spawn } from "node:child_process";
-import { accessSync, chmodSync, constants, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+  accessSync,
+  chmodSync,
+  closeSync,
+  constants,
+  existsSync,
+  fstatSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  readSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -30,12 +46,20 @@ const MACHINE_NAME = /^[A-Za-z0-9._-]{1,64}$/;
 // An organization API key: the code agent tools refuse a personal key and a login token.
 const ORGANIZATION_KEY = /^sk-doable-(?!personal-)[A-Za-z0-9_-]{16,}$/;
 const ANY_DOABLE_KEY = /sk-doable-[A-Za-z0-9_-]+/;
+// The prefix of the tool names of the plugin's Doable MCP server: the server that sends the key and the machine name of
+// this setup (the env file) to Doable.
+const PLUGIN_TOOLS = "mcp__plugin_doable-code-context_doable__";
 // The tool that the serving session cannot load (README, "With nobody at the terminal"): the tool with which a person's
 // Claude Code asks a machine. With it, the session could send a request to itself. It has one name for each server that
 // gives it: the plugin's server, and a user-scoped or project-scoped server named `doable` (Doable MCP's README and the
-// connection recovery of doable-connect add one). Claude Code skips the plugin's server when such a server has the
-// same address, so the second name can be the only one. A name of a server that this machine does not have does nothing.
-const ASKING_TOOLS = ["mcp__plugin_doable-code-context_doable__ask_code_agent", "mcp__doable__ask_code_agent"];
+// connection recovery of doable-connect add one). A name of a server that this machine does not have does nothing.
+// Claude Code loads a server of the person's settings that has the plugin server's address in place of the plugin's
+// server, whatever its name. The session then calls Doable with that server's key and headers, not with this setup's:
+// setup and start say so (printStart), and the README says to remove such a server.
+const ASKING_TOOLS = [`${PLUGIN_TOOLS}ask_code_agent`, "mcp__doable__ask_code_agent"];
+// The wait for a request of a Doable MCP server under any server name, and under the plugin's server.
+const WAIT_TOOL = /^mcp__.+__wait_for_code_agent_request$/;
+const PLUGIN_WAIT_TOOL = `${PLUGIN_TOOLS}wait_for_code_agent_request`;
 // The options that this release refuses with the reason, because the session allows every tool and has Chrome on:
 // `--allow`, the option of plugin 0.6.0's setup for its allow rules, and `--chrome`, which no released setup took (a
 // draft of this release did), but which a person can give because Claude Code has an option of that name.
@@ -222,7 +246,33 @@ function plistPath(env, machine) {
 }
 
 function useLaunchd(env) {
-  return process.platform === "darwin" && !env.DOABLE_CODE_AGENT_NO_LAUNCH;
+  return process.platform === "darwin" && !env.DOABLE_CODE_AGENT_NO_LAUNCH && !env.DOABLE_CODE_AGENT_NO_LAUNCHD;
+}
+
+// The pid of the start script that the `pid` file names, while that script runs (on a machine without launchd), else
+// null. A process that took the pid after the script ended (for example after a reboot) does not count.
+function runningScript(dir) {
+  const pidFile = join(dir, "pid");
+  if (!existsSync(pidFile)) return null;
+  const pid = readFileSync(pidFile, "utf8").trim();
+  let command;
+  try {
+    command = execFileSync("ps", ["-o", "command=", "-p", pid], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+  } catch (error) {
+    // ps exits with 1 when no process has the pid: the script ended.
+    if (error.status === 1) return null;
+    throw error;
+  }
+  return command.includes(join(dir, "run.sh")) ? pid : null;
+}
+
+// On a machine without launchd, a launch while the session runs would start a second session with the same machine
+// name, and `stop` would end only the one in the `pid` file. A launch by launchd ends the job's session first
+// (bootout), and a session that `stop` ended (the stop file) does not start again.
+function checkNotRunning(env, machine, dir) {
+  if (env.DOABLE_CODE_AGENT_NO_LAUNCH || useLaunchd(env) || existsSync(join(dir, "stopped"))) return;
+  const pid = runningScript(dir);
+  if (pid !== null) fail(`The code agent "${machine}" runs (process ${pid}). Run stop first: stop --machine ${machine}`);
 }
 
 function launchctl(args, { quiet = false } = {}) {
@@ -251,17 +301,37 @@ function launch(env, machine, dir) {
   return "started in the background; after a reboot, run `start` again";
 }
 
-// Whether the serving session's output holds a call of the wait tool. Its first line lists every tool by name, so a
-// match on the name alone says "connected" before the session waits (seen in the live check of 2026-11-19).
-export function sawFirstWait(output) {
-  return /"name":\s*"[^"]*wait_for_code_agent_request"/.test(output);
-}
-
-// Whether the output of the session that a launch started holds a call of the wait tool. The output's first `from`
-// bytes (its size at the launch) come from an earlier session, with that session's own calls. Output that is shorter
-// than `from` is all new: the start script moved the earlier output to session.1.jsonl because it grew too large.
-export function sawFirstWaitAfter(output, from) {
-  return sawFirstWait((output.length < from ? output : output.subarray(from)).toString("utf8"));
+// What the output of a serving session (`claude -p --output-format stream-json`) says about its start: the permission
+// mode of its `system` `init` line (null when the output has none), and the name of the first wait tool whose call
+// returned with no error (null when none did). Claude Code writes the line of a call before it checks the call's
+// permission and before the call runs: only the call's result (a `tool_result` with the call's id) says that the session
+// waits. The result of a refused call, or of a call that Doable refused (for example a revoked key), has
+// `"is_error": true`. The init line also names each tool, so a tool's name alone says nothing.
+function sessionStart(output) {
+  let permissionMode = null;
+  let waitTool = null;
+  const waitCalls = new Map();
+  for (const line of output.split("\n")) {
+    let event;
+    try {
+      event = JSON.parse(line);
+    } catch (error) {
+      // The output also holds the session's stderr, and its last line can be half written: such a line says nothing.
+      if (error instanceof SyntaxError) continue;
+      throw error;
+    }
+    if (event === null || typeof event !== "object") continue;
+    if (event.type === "system" && event.subtype === "init" && permissionMode === null) permissionMode = event.permissionMode ?? null;
+    const content = event.message?.content;
+    if (!Array.isArray(content)) continue;
+    for (const part of content) {
+      if (part.type === "tool_use" && WAIT_TOOL.test(part.name)) waitCalls.set(part.id, part.name);
+      if (part.type === "tool_result" && waitCalls.has(part.tool_use_id) && part.is_error !== true && waitTool === null) {
+        waitTool = waitCalls.get(part.tool_use_id);
+      }
+    }
+  }
+  return { permissionMode, waitTool };
 }
 
 function outputSize(dir) {
@@ -269,29 +339,64 @@ function outputSize(dir) {
   return existsSync(log) ? statSync(log).size : 0;
 }
 
-function waitForFirstWait(env, dir, from) {
+// The session's output after its first `from` bytes (its size at the launch), which the sessions before the launch
+// wrote, with their own calls. Output that is shorter than `from` is all new: the start script moved the earlier output
+// to session.1.jsonl because it grew too large.
+function outputAfter(log, from) {
+  let fd;
+  try {
+    fd = openSync(log, "r");
+  } catch (error) {
+    // No output yet: the session did not start, or the start script has just moved the earlier output away.
+    if (error.code === "ENOENT") return "";
+    throw error;
+  }
+  try {
+    const size = fstatSync(fd).size;
+    const offset = size < from ? 0 : from;
+    const bytes = Buffer.alloc(size - offset);
+    return bytes.subarray(0, readSync(fd, bytes, 0, bytes.length, offset)).toString("utf8");
+  } finally {
+    closeSync(fd);
+  }
+}
+
+// What the output of the session that the launch started says about its start (sessionStart), once a wait for a request
+// returned or after 2 minutes. The Skill's first wait has `wait_seconds: 0`, so it returns at once.
+function waitForStart(env, dir, from) {
   const seconds = env.DOABLE_CODE_AGENT_WAIT_S === undefined ? 120 : Number(env.DOABLE_CODE_AGENT_WAIT_S);
   const log = join(dir, "session.jsonl");
   const until = Date.now() + seconds * 1000;
-  while (Date.now() < until) {
-    if (existsSync(log) && sawFirstWaitAfter(readFileSync(log), from)) return true;
-    execFileSync("sleep", ["5"]);
+  for (;;) {
+    const seen = sessionStart(outputAfter(log, from));
+    if (seen.waitTool !== null || Date.now() >= until) return seen;
+    execFileSync("sleep", ["1"]);
   }
-  return false;
 }
 
-// Launches the start script, and waits for the session's first wait for a request, unless nothing was launched. Its
-// answer is null (not launched), true (connected) or false (no wait in time).
+// Launches the start script, and waits for the session's start (waitForStart), unless nothing was launched (then
+// `seen` is null).
 function launchAndWait(env, machine, dir) {
   const from = outputSize(dir);
   const how = launch(env, machine, dir);
-  const connected = env.DOABLE_CODE_AGENT_NO_LAUNCH ? null : waitForFirstWait(env, dir, from);
-  return { how, connected };
+  const seen = env.DOABLE_CODE_AGENT_NO_LAUNCH ? null : waitForStart(env, dir, from);
+  return { how, seen };
 }
 
-function printConnection(connected, dir, print) {
-  if (connected === true) print("It is connected: it waits for Doable's requests.");
-  if (connected === false) print(`It did not start to wait in 2 minutes. Read ${join(dir, "session.jsonl")} and ${join(dir, "service.log")}.`);
+function printStart(seen, dir, print) {
+  if (seen === null) return;
+  const { permissionMode, waitTool } = seen;
+  if (waitTool === PLUGIN_WAIT_TOOL) print("It is connected: it waits for Doable's requests.");
+  else if (waitTool !== null) {
+    print(
+      `It waits for Doable's requests through another Doable MCP server of your Claude Code settings (its tool ${waitTool}), not through the plugin's server, so it does not use this setup's key and machine name. Remove that server (README, "With nobody at the terminal"), then run stop and start.`,
+    );
+  } else print(`It did not start to wait in 2 minutes. Read ${join(dir, "session.jsonl")} and ${join(dir, "service.log")}.`);
+  if (permissionMode !== null && permissionMode !== "bypassPermissions") {
+    print(
+      `It runs in the ${permissionMode} permission mode, not in the bypass mode, so with nobody at the terminal it cannot do the work of a request. Settings of this machine can turn the bypass mode off (\`disableBypassPermissionsMode\`): read the README's "With nobody at the terminal".`,
+    );
+  }
 }
 
 export function setup(options, env, print = console.log) {
@@ -310,6 +415,7 @@ export function setup(options, env, print = console.log) {
   if (ANY_DOABLE_KEY.test(prompt)) fail("The prompt file holds a Doable API key. Take the key out: setup keeps it in its own file.");
 
   const dir = serviceDir(env, machine);
+  checkNotRunning(env, machine, dir);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   chmodSync(dir, 0o700);
   writeFileSync(join(dir, "env"), `export DOABLE_API_KEY=${shellQuote(key)}\nexport DOABLE_MACHINE_NAME=${shellQuote(machine)}\n`, { mode: 0o600 });
@@ -330,11 +436,11 @@ export function setup(options, env, print = console.log) {
     print(`Removed ${RETIRED_POLICY_FILE}: a session takes its rules from its prompt now.`);
   }
 
-  const { how, connected } = launchAndWait(env, machine, dir);
+  const { how, seen } = launchAndWait(env, machine, dir);
   print(`The Doable code agent "${machine}" serves ${folderPath}: ${how}.`);
   print(NO_PERMISSION_CHECK_NOTE);
   print(CHROME_NOTE);
-  printConnection(connected, dir, print);
+  printStart(seen, dir, print);
   print(`Its files are in ${dir} (the key is in ${join(dir, "env")}, readable only by you).`);
   print(`Status: node ${fileURLToPath(import.meta.url)} status --machine ${machine}`);
   print(`Stop: node ${fileURLToPath(import.meta.url)} stop --machine ${machine}`);
@@ -362,14 +468,16 @@ export function start(machine, env, print = console.log) {
   checkMachine(machine);
   const dir = serviceDir(env, machine);
   if (!existsSync(join(dir, "config.json"))) fail(`No code agent "${machine}" is set up on this machine: run setup first.`);
+  checkNotRunning(env, machine, dir);
   const { config, fromOlderSetup } = savedConfig(dir, env);
   writeRunScript(dir, config);
-  // A new command line can fail where the old one worked (for example, managed settings that turn off the bypass
-  // mode): the person who starts the session learns whether it waits for requests, as at setup.
-  const { how, connected } = launchAndWait(env, machine, dir);
+  // A new command line can fail where the old one worked: the person who starts the session learns, as at setup,
+  // whether it waits for requests, in which permission mode it runs (settings can turn the bypass mode off), and
+  // whether it waits through the plugin's server.
+  const { how, seen } = launchAndWait(env, machine, dir);
   print(`The code agent "${machine}": ${how}.`);
   print(CHROME_NOTE);
-  printConnection(connected, dir, print);
+  printStart(seen, dir, print);
   if (fromOlderSetup) {
     print(
       `If the secret rule in ${join(dir, "prompt.md")} has no exception for a new test login's password, add this sentence to it, then run stop and start again: "${PASSWORD_EXCEPTION}"`,

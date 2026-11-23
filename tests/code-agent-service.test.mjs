@@ -11,8 +11,6 @@ import {
   parseArgs,
   remove,
   runScript,
-  sawFirstWait,
-  sawFirstWaitAfter,
   serviceDir,
   setup,
   start,
@@ -426,31 +424,156 @@ test("the launchd job starts the start script at login, with no KeepAlive, so th
   assert.ok(!plist.includes("KeepAlive"));
 });
 
-// The first line of `claude -p --output-format stream-json` lists every tool by name (seen in the live check of
-// 2026-11-19: the script said "connected" before the session waited), and a later line is the call of the wait tool.
-const TOOL_LIST_LINE = `${JSON.stringify({ type: "system", subtype: "init", tools: ["Bash", "mcp__plugin_doable-code-context_doable__wait_for_code_agent_request"] })}\n`;
-const WAIT_CALL_LINE = `${JSON.stringify({
-  type: "assistant",
-  message: { content: [{ type: "tool_use", id: "toolu_1", name: "mcp__plugin_doable-code-context_doable__wait_for_code_agent_request", input: { wait_seconds: 50 } }] },
-})}\n`;
+// Lines of `claude -p --output-format stream-json`, as Claude Code 2.1.326 writes them. The init line names each tool
+// (seen in the live check of 2026-11-19: the script said "connected" before the session waited) and the permission
+// mode. The line of a call comes before Claude Code checks its permission and before it runs; its result line says
+// whether it ran (`is_error`).
+const PLUGIN_WAIT = "mcp__plugin_doable-code-context_doable__wait_for_code_agent_request";
+const jsonLine = (event) => `${JSON.stringify(event)}\n`;
+const initLine = (permissionMode = "bypassPermissions") =>
+  jsonLine({ type: "system", subtype: "init", permissionMode, tools: ["Bash", PLUGIN_WAIT, "mcp__doable__wait_for_code_agent_request"] });
+const callLine = (id, name = PLUGIN_WAIT) =>
+  jsonLine({ type: "assistant", message: { content: [{ type: "tool_use", id, name, input: { wait_seconds: 0 } }] } });
+const resultLine = (id, { isError = false, text = '{"request":null,"capabilities_missing":false}' } = {}) =>
+  jsonLine({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: id, content: text, is_error: isError }] } });
+const WAITED = `${initLine()}${callLine("toolu_1")}${resultLine("toolu_1")}`;
 
-test("setup says connected only after the serving session calls the wait tool, not when its tool list names the tool", () => {
-  assert.equal(sawFirstWait(TOOL_LIST_LINE), false);
-  assert.equal(sawFirstWait(`${TOOL_LIST_LINE}${WAIT_CALL_LINE}`), true);
+// A machine set up with no launch, whose `claude` is a fake: it writes `output` as the serving session's output, then
+// stops the start script's loop, or with `keepRunning` stays on as a session that serves. `launching` is the
+// environment of a real launch: the start script runs in the background as on a machine without launchd (on a Mac
+// too), and setup and start wait 2 seconds at most for the session's first wait for a request.
+function servedMachine(output, { keepRunning = false } = {}) {
+  const m = machine();
+  const dir = serviceDir(m.env, "mac-mini-1");
+  const outputFile = join(m.base, "output.jsonl");
+  writeFileSync(outputFile, output);
+  const claude = join(m.base, "fake-claude");
+  const then = keepRunning ? "sleep 30" : `touch '${join(dir, "stopped")}'`;
+  writeFileSync(claude, `#!/bin/bash\ncat '${outputFile}'\n${then}\n`, { mode: 0o700 });
+  const env = { ...m.env, DOABLE_CLAUDE_BIN: claude };
+  const { DOABLE_CODE_AGENT_NO_LAUNCH: _noLaunch, ...withLaunch } = env;
+  const launching = { ...withLaunch, DOABLE_CODE_AGENT_NO_LAUNCHD: "1", DOABLE_CODE_AGENT_WAIT_S: "2" };
+  return { ...m, dir, env, launching };
+}
+
+function printedBy(command) {
+  const printed = [];
+  command((line) => printed.push(line));
+  return printed;
+}
+
+// Ends a start script that a test launched, with the processes of its group.
+function endGroup(pid) {
+  try {
+    process.kill(-Number(pid), "SIGTERM");
+  } catch {
+    // The script ended already.
+  }
+}
+
+const STARTED = 'The code agent "mac-mini-1": started in the background; after a reboot, run `start` again.';
+const CONNECTED = "It is connected: it waits for Doable's requests.";
+const notWaiting = (dir) => `It did not start to wait in 2 minutes. Read ${join(dir, "session.jsonl")} and ${join(dir, "service.log")}.`;
+
+test("start says connected when the plugin's wait for a request returned, and reads past a line that is not JSON", () => {
+  // The session's stderr goes to the same output.
+  const m = servedMachine(`Warning: a line of stderr\n${WAITED}`);
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt }, m.env, () => {});
+  assert.deepEqual(printedBy((print) => start("mac-mini-1", m.launching, print)), [STARTED, CHROME_NOTE, CONNECTED]);
 });
 
-test("setup and start say connected only for a call of the wait tool after the launch, not for an earlier session's call", () => {
-  // session.jsonl keeps the output of the sessions before the launch, with their own calls of the wait tool.
-  const earlier = Buffer.from(`${TOOL_LIST_LINE}${WAIT_CALL_LINE}`);
-  const from = earlier.length;
-  assert.equal(sawFirstWaitAfter(earlier, from), false);
-  assert.equal(sawFirstWaitAfter(Buffer.concat([earlier, Buffer.from(TOOL_LIST_LINE)]), from), false);
-  assert.equal(sawFirstWaitAfter(Buffer.concat([earlier, Buffer.from(`${TOOL_LIST_LINE}${WAIT_CALL_LINE}`)]), from), true);
-  // The start script moved a large earlier output to session.1.jsonl: the output is shorter than at the launch, and
-  // all of it is new.
-  const large = from + 1000;
-  assert.equal(sawFirstWaitAfter(Buffer.from(`${TOOL_LIST_LINE}${WAIT_CALL_LINE}`), large), true);
-  assert.equal(sawFirstWaitAfter(Buffer.from(TOOL_LIST_LINE), large), false);
+test("start does not count a wait of the session before the launch", () => {
+  // session.jsonl keeps the output of the earlier sessions, with their waits and the results.
+  const m = servedMachine(initLine());
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt }, m.env, () => {});
+  writeFileSync(join(m.dir, "session.jsonl"), WAITED);
+  assert.deepEqual(printedBy((print) => start("mac-mini-1", m.launching, print)), [STARTED, CHROME_NOTE, notWaiting(m.dir)]);
+});
+
+test("start does not count a wait call that Claude Code refused or that Doable refused, nor the result of another call", () => {
+  const m = servedMachine(
+    initLine() +
+      callLine("toolu_1") +
+      resultLine("toolu_1", { isError: true, text: `Permission to use ${PLUGIN_WAIT} has been denied.` }) +
+      jsonLine({ type: "assistant", message: { content: [{ type: "tool_use", id: "toolu_2", name: "Bash", input: { command: "ls" } }] } }) +
+      resultLine("toolu_2", { text: "repos" }) +
+      callLine("toolu_3") +
+      resultLine("toolu_3", { isError: true, text: "doable_auth_error: The API key was revoked." }),
+  );
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt }, m.env, () => {});
+  assert.deepEqual(printedBy((print) => start("mac-mini-1", m.launching, print)), [STARTED, CHROME_NOTE, notWaiting(m.dir)]);
+});
+
+test("setup says when the session runs in another permission mode than the bypass mode", () => {
+  // Settings that turn the bypass mode off: Claude Code goes on in the default mode, and the Skill's allowed-tools let
+  // the wait through.
+  const m = servedMachine(`${initLine("default")}${callLine("toolu_1")}${resultLine("toolu_1")}`);
+  const printed = printedBy((print) => setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt }, m.launching, print));
+  const at = printed.indexOf(CONNECTED);
+  assert.ok(at > 0, printed.join("\n"));
+  assert.equal(
+    printed[at + 1],
+    'It runs in the default permission mode, not in the bypass mode, so with nobody at the terminal it cannot do the work of a request. Settings of this machine can turn the bypass mode off (`disableBypassPermissionsMode`): read the README\'s "With nobody at the terminal".',
+  );
+  assert.ok(printed[at + 2].startsWith("Its files are in "), printed.join("\n"));
+});
+
+test("start says when the session waits through another Doable MCP server than the plugin's, and not that it is connected", () => {
+  // A server of the person's settings with the plugin server's address takes the place of the plugin's server, with
+  // its own key and machine header.
+  const m = servedMachine(`${initLine()}${callLine("toolu_1", "mcp__doable__wait_for_code_agent_request")}${resultLine("toolu_1")}`);
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt }, m.env, () => {});
+  assert.deepEqual(printedBy((print) => start("mac-mini-1", m.launching, print)), [
+    STARTED,
+    CHROME_NOTE,
+    'It waits for Doable\'s requests through another Doable MCP server of your Claude Code settings (its tool mcp__doable__wait_for_code_agent_request), not through the plugin\'s server, so it does not use this setup\'s key and machine name. Remove that server (README, "With nobody at the terminal"), then run stop and start.',
+  ]);
+});
+
+test("start reads all of the new output when the start script moved a large earlier output away", () => {
+  const m = servedMachine(WAITED);
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt }, m.env, () => {});
+  // Larger than the 20 MB at which the start script moves the output to session.1.jsonl.
+  writeFileSync(join(m.dir, "session.jsonl"), `${"x".repeat(20 * 1024 * 1024)}\n`);
+  assert.deepEqual(printedBy((print) => start("mac-mini-1", m.launching, print)), [STARTED, CHROME_NOTE, CONNECTED]);
+  assert.ok(existsSync(join(m.dir, "session.1.jsonl")));
+});
+
+test("on a machine without launchd, setup and start refuse while the session runs, but not after stop", () => {
+  const m = servedMachine(WAITED, { keepRunning: true });
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt }, m.env, () => {});
+  const pids = [];
+  // Each launch's pid, kept before any assertion, so that the test ends each script that it launched.
+  const startAndKeepPid = () => {
+    const printed = printedBy((print) => start("mac-mini-1", m.launching, print));
+    pids.push(readFileSync(join(m.dir, "pid"), "utf8").trim());
+    return printed;
+  };
+  try {
+    assert.deepEqual(startAndKeepPid(), [STARTED, CHROME_NOTE, CONNECTED]);
+    const refusal = new RegExp(`^Error: The code agent "mac-mini-1" runs \\(process ${pids[0]}\\)\\. Run stop first: stop --machine mac-mini-1$`);
+    const run = readFileSync(join(m.dir, "run.sh"), "utf8");
+    assert.throws(() => start("mac-mini-1", m.launching, () => {}), refusal);
+    assert.throws(() => setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt }, m.launching, () => {}), refusal);
+    // A refused command launches nothing and changes nothing.
+    assert.equal(readFileSync(join(m.dir, "pid"), "utf8").trim(), pids[0]);
+    assert.equal(readFileSync(join(m.dir, "run.sh"), "utf8"), run);
+    // After `stop` (its stop file), the session ends by itself, and start goes on while it ends.
+    writeFileSync(join(m.dir, "stopped"), "now\n");
+    assert.deepEqual(startAndKeepPid(), [STARTED, CHROME_NOTE, CONNECTED]);
+    assert.notEqual(pids[1], pids[0]);
+  } finally {
+    // Also the script of a launch that a refusal did not stop.
+    for (const pid of new Set([...pids, readFileSync(join(m.dir, "pid"), "utf8").trim()])) endGroup(pid);
+  }
+});
+
+test("on a machine without launchd, start goes on when another process has the pid of the ended start script", () => {
+  // After a reboot, another process can have the pid that the `pid` file names.
+  const m = servedMachine(WAITED);
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt }, m.env, () => {});
+  writeFileSync(join(m.dir, "pid"), `${process.pid}\n`);
+  assert.deepEqual(printedBy((print) => start("mac-mini-1", m.launching, print)), [STARTED, CHROME_NOTE, CONNECTED]);
 });
 
 test("the command line takes the folder, the machine and the prompt file, and refuses an unknown option", () => {
