@@ -72,9 +72,10 @@ again.
 - **The browser**: Claude in Chrome, whose tools (`mcp__claude-in-chrome__*`) act in this
   machine's Chrome, with the sign-ins that it holds. The Always on session always has it. Open each
   page, for example a mail's link, in a new tab. If Chrome is not open or the extension is not
-  connected, its tools fail when you call them (a session that a person started without Chrome has
-  none): go on without the browser, and say so in the result, with what a person can do on this
-  machine (open Chrome, with the Claude in Chrome extension connected).
+  connected, its tools fail when you call them: go on without the browser, and say so in the
+  result, with what a person can do on this machine (open Chrome, with the Claude in Chrome
+  extension connected). A session that a person started without `--chrome` has no browser tools:
+  then say that a person must start the session again with `claude --chrome`.
 - **Work that the request did not ask for**: an action that the goal needs and that the request
   did not name: you make, change or delete a login or data, or you run the app, the repository's
   tests or a script. A read is not such work.
@@ -562,22 +563,32 @@ inbox (see "Words") with `read_code_agent_mail`:
    under **Not known**) that the request named no test inbox, so you could not read the sign-up
    mail, and that a person can ask the Doable team about the organization's test inbox. Do not
    say that the organization has no test inbox.
-2. Invite the user, or sign it up, at a `+` address of the test inbox with the date and time in
+2. A mail's link opens only in the browser (see "Words"). Before you invite the user, check that
+   the browser answers (for example, read its tabs), unless you know that the mail carries a code
+   that you can use with the app's API. When it does not answer, do not invite the user, because
+   nobody could finish that user's sign-up: say under **Not known** which login you could not
+   make, why, and what a person can do on this machine.
+3. Invite the user, or sign it up, at a `+` address of the test inbox with the date and time in
    its tag: for the test inbox `acme-tests@mail.getdoable.ai`, use
    `acme-tests+ca-20261111-0930@mail.getdoable.ai`. That address is the login's username. If the
    app refuses the address, say so under **Not known**.
-3. Report progress (for example `Waiting for the sign-up email`). Then call
+4. Report progress (for example `Waiting for the sign-up email`). Then call
    `read_code_agent_mail` with the request id, that address in `to`, and `wait_seconds` up to 60.
    Give a `keyword` (a word of the subject or the sender) when other mail can come to that
    address. When no mail came, call it again, until about 5 minutes have passed since the
    invitation; then say under **Not known** that no mail came. An empty list of mails is a
    normal answer.
-4. Take the link or the code from the newest mail that fits (its `links` and its `text`). Open the
-   link in a new tab of this machine's Chrome with the browser (see "Words"), or use the code there
-   or with the app's API, and set the login's password. If Chrome is not open or the extension is
-   not connected, say so under **Not known**, and name the login that you could not finish.
-5. Sign in once with the new login to check it. Then send the login back with its password in
-   `logins`, as for any other login.
+5. Take the link or the code from the newest mail that fits (its `links` and its `text`). The link
+   must finish the sign-up as the new user, not under another sign-in: if Chrome is signed in to
+   the test environment's app (for example as the user that sent the invitation, as a login of an
+   earlier request, or as the person), sign out of that app first. Then open the link in a new tab
+   of this machine's Chrome with the browser, or use the code there or with the app's API, and set
+   the login's password. If Chrome is not open or the extension is not connected, say so under
+   **Not known**, and name the login that you could not finish.
+6. Sign in once with the new login to check it, then sign it out of the app in Chrome, so that a
+   later request does not find Chrome signed in as it. Say under **Also done** each sign-in that
+   Chrome held before this request and that you signed out. Then send the login back with its
+   password in `logins`, as for any other login.
 
 A link or a code from this mail is test data for this request, and it works like a password: use
 it only on this machine, for this sign-up. Never put the link or the code in a progress text, a

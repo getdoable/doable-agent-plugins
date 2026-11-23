@@ -319,6 +319,12 @@ for (const plugin of plugins) {
           "Do not say that the organization has no test inbox.",
           "Never put the link or the code in a progress text, a question or a result",
           "The one exception: the link of a mail from the test inbox that finishes a sign-up that you started for the request",
+          // The link opens only in the browser: a user invited while the browser does not answer stays unfinished.
+          "Before you invite the user, check that the browser answers",
+          // Chrome holds the sign-ins of its profile: the link must open under no other sign-in to the app, and the new
+          // login must not stay signed in for the next request.
+          "if Chrome is signed in to the test environment's app",
+          "then sign it out of the app in Chrome, so that a later request does not find Chrome signed in as it.",
           // A 409 for a login is not the end of the request: only a 409 that says so stops the work with no result.
           "When a call answers `409` that says that the request has ended or that another machine has it, stop the same way.",
           // A request from a person's Claude Code has no chat, no suite and no environment: the result is all that
@@ -387,6 +393,8 @@ for (const plugin of plugins) {
           // The session's browser is Claude in Chrome. Its tools fail when Chrome is closed or the extension is not
           // connected, and a person on the machine fixes that: the result says so.
           "If Chrome is not open or the extension is not connected, its tools fail when you call them",
+          // Opening Chrome does not give browser tools to a session that started without them.
+          "then say that a person must start the session again with `claude --chrome`.",
           // Doable MCP refuses a machine name that breaks the rule itself, with no status: the stop
           // must not wait for Doable's 422.
           "An error about the machine name, whatever its status, and also with no status",
@@ -625,6 +633,10 @@ for (const requiredCodeAgentSetup of [
   "### A browser for a mail's link",
   "Keep Chrome open, with the Claude in Chrome extension installed and connected.",
   "Set the extension to act on the test environments' sites without asking.",
+  // A sign-up link opens under the sign-in that Chrome holds for its site.
+  "Do not sign in to the test environments' apps yourself in the Chrome profile that the extension acts in",
+  // A session started by hand without --chrome has no browser for a mail's link.
+  "4. Start `claude --chrome` in that folder",
   // On a machine without launchd, a setup while the session runs starts a second session with the same name.
   "Run the setup again only after `stop`",
 ]) {

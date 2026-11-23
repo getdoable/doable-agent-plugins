@@ -362,8 +362,9 @@ Revoke it in Settings > API Keys when you no longer need it.
    letter, a digit, `.`, `_`, or `-`, such as `mac-mini-1`), then install the plugin as above.
    Do not leave `DOABLE_MACHINE_NAME` unset: the machine then shows as `unnamed-machine` on its
    requests.
-4. Start `claude` in that folder, and send the start prompt, with your own lines added under its
-   rules.
+4. Start `claude --chrome` in that folder, and send the start prompt, with your own lines added
+   under its rules. With `--chrome` the session has Claude in Chrome, the browser with which it
+   opens a sign-up mail's link (see [A browser for a mail's link](#a-browser-for-a-mails-link)).
 5. From a Chat v2 chat, send the first requests. Stay at the terminal: Claude Code asks before it
    runs a new command. Answer each permission prompt until each command that the work needs ran
    once. For example, ask for a question about the code, state to make, a read of backend state,
@@ -415,14 +416,22 @@ Chrome, with Claude in Chrome. The Always on setup always starts the session wit
 - Keep Chrome open, with the Claude in Chrome extension installed and connected.
 - Set the extension to act on the test environments' sites without asking. Nobody answers the
   extension's prompt, so the session cannot act on a site that asks.
+- Do not sign in to the test environments' apps yourself in the Chrome profile that the extension
+  acts in, for example as your own admin: use another profile for that. A sign-up link opens
+  under the sign-in that Chrome holds for its site. The session signs out of a test environment's
+  app before it opens such a link, and signs its new login out after its check.
 
 If Chrome is not open or the extension is not connected, the browser tools fail when the session
 calls them. The session goes on without them, and says in the result which login it could not
 finish and why.
 
 Claude in Chrome can open any site, production too, and it acts with the sign-ins that this
-machine's Chrome holds. Only the rules of the start prompt and of the Skill keep it on the test
-environments.
+machine's Chrome holds. Only the rules of the start prompt and of the Skill limit what it does
+there: they let it act on the test environments, and read the team's work tools in which Chrome
+is signed in as you (the issue tracker, docs, the wiki, shared chat channels), as you. They keep
+it off production, and let it change nothing in the work tools unless a line of yours names that
+action. A result leaves out what a source says about people, and all that comes from a private
+message, mail or a page with restricted access.
 
 ### Update from 0.6.0
 
