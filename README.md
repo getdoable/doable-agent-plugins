@@ -233,8 +233,8 @@ address that the session names, and only the mail that came after the request wa
 request names no test inbox (the organization has none, the Doable server or Doable MCP is older
 than this release, or the request was asked before that release), the session makes no such
 login, and says in the result that the request named no test inbox and that a person can ask the
-Doable team about it. To open the link, the session needs a browser that it drives (see
-[A browser for a mail's link](#a-browser-for-a-mails-link)).
+Doable team about it. The session opens the link in a new tab of this machine's Chrome, with
+Claude in Chrome (see [A browser for a mail's link](#a-browser-for-a-mails-link)).
 
 A session runs [Always on](#always-on), in the background, or [by hand](#by-hand), in a terminal.
 Doable counts it as connected while it waits for requests or works on one, and sends it each new
@@ -244,7 +244,7 @@ does without a code agent.
 
 ### The session's rules
 
-The rules come from the message that starts the session. The start prompt below holds eight rules: never touch production, which includes a local copy that uses a
+The rules come from the message that starts the session. The start prompt below holds eight rules: never write to production, and never call or sign in to it, which includes a local copy that uses a
 production database or service and a host that the session cannot tell from production; in a
 request's test environment, or on a local copy of the app, make, change and delete the logins and
 data that its goal needs, also when the request did not ask for that work, and list all of it in
@@ -278,7 +278,7 @@ Both ways below start the session with this prompt. Add your own lines under its
 Serve Doable requests in this folder with the `doable-code-agent` skill of the doable-code-context plugin, until I stop you.
 
 Rules for this session:
-- Never call, sign in to or change production: a system that serves real users or holds their data. Work on the product only in its test environments (staging, development, local). A local copy that uses a production database or service is production. If you cannot tell whether a host is production, treat it as production.
+- Never write to production, and never call or sign in to it: a system that serves real users or holds their data. Work on the product only in its test environments (staging, development, local). A local copy that uses a production database or service is production. If you cannot tell whether a host is production, treat it as production.
 - In a request's test environment, or on a local copy of the app, you may make, change and delete the logins and data that its goal needs, also when the request did not ask for that work. List in the result all that you made, changed, deleted or ran.
 - Cause no effect outside test environments: no real payment, and no message to a real person.
 - In our team's work tools (issue tracker, docs, wiki, shared chat channels), only read, with the tools that this session already has. Change nothing there (no comment, edit, status change or message), unless a line that I added names that action.
@@ -294,31 +294,29 @@ Before the first request, look at this folder and write your capability summary,
 
 The plugin's service script runs the session in the background on this machine and keeps it on.
 Run Claude Code on the Claude plan (`claude auth login`): the script removes `ANTHROPIC_API_KEY`
-from the session's environment, so that its usage is not billed to the API.
+from the session's environment, so that its usage is not billed to the API. The session runs with
+no permission check and with Claude in Chrome: read
+[With nobody at the terminal](#with-nobody-at-the-terminal) for what that lets it do.
 
 1. Install the plugin as above, and read its `installPath` in `claude plugin list --json`.
 2. Write the start prompt, with your own lines, to a new file outside the folder that holds the
    repositories.
-3. Choose the commands that the session may run with nobody at the terminal, for example the
-   repositories' tests or a script of the app that makes test logins. Each one becomes one
-   `--allow` rule, such as `Bash(npm test *)`. Read
-   [With nobody at the terminal](#with-nobody-at-the-terminal) for the rules not to give. To let
-   the session open the link of a sign-up mail in Chrome, add `--chrome` (see
-   [A browser for a mail's link](#a-browser-for-a-mails-link)).
+3. Open Chrome on this machine, with the Claude in Chrome extension connected, as
+   [A browser for a mail's link](#a-browser-for-a-mails-link) says.
 4. In the folder that holds the repositories, export `DOABLE_API_KEY` (an organization API key
-   from Doable's Settings > MCP), and run the setup, with one `--allow` for each rule. Give the
-   machine its own name in `--machine`, by the rule of `DOABLE_MACHINE_NAME`:
+   from Doable's Settings > MCP), and run the setup. Give the machine its own name in
+   `--machine`, by the rule of `DOABLE_MACHINE_NAME`:
 
    ```bash
-   node <installPath>/scripts/code-agent-service.mjs setup --folder "$PWD" --machine <machine> --prompt-file <file> --allow 'Bash(npm test *)'
+   node <installPath>/scripts/code-agent-service.mjs setup --folder "$PWD" --machine <machine> --prompt-file <file>
    ```
 
 5. Delete the prompt file: the setup keeps its own copy.
 
 This plugin's `scripts/code-agent-service.mjs setup` keeps the key in a file that only you can
-read (`~/.doable/code-agent/<machine>/env`), starts the serving session in the background in the
-`dontAsk` permission mode with the five rules below and your commands (with `--chrome`, also with
-Claude in Chrome and a rule for its tools), starts it again 5 minutes
+read (`~/.doable/code-agent/<machine>/env`), starts the serving session in the background with the
+command of [With nobody at the terminal](#with-nobody-at-the-terminal) (the bypass permission
+mode, Claude in Chrome, and no `ask_code_agent`), starts it again 5 minutes
 after it stops (for example at a plan limit), keeps a Mac awake while it runs, and on a Mac starts
 it at each login. On a machine that an older plugin set up, it also deletes that plugin's policy
 file. It tells you whether the session is connected.
@@ -336,11 +334,14 @@ node <installPath>/scripts/code-agent-service.mjs remove --machine <machine>
 `status` shows whether it is on, its last activity, and the end of its log; the serving session's
 output is in `~/.doable/code-agent/<machine>/session.jsonl`. That output holds the password of each
 new test login that the session sends to Doable, and only you can read it. `start` writes the
-start script again with the rules of the installed plugin. `remove` stops it and deletes its files
-and its key. After a plugin update, run `stop` and `start`, so that the serving session loads the
-new plugin (see [Update from 0.6.0](#update-from-060)). To change your `--allow` rules or
-`--chrome`, run `stop`, then the setup again, as step 3 of that section shows. The key stays in
-its file until `remove`.
+start script again with the command line of the installed plugin. `remove` stops it and deletes
+its files and its key. After a plugin update, run `stop` and `start`, so that the serving session
+loads the new plugin (see [Update from 0.6.0](#update-from-060)). To change the session's prompt,
+edit `~/.doable/code-agent/<machine>/prompt.md`, then run `stop` and `start`. To change its folder
+or its key, run `stop`, then the setup again (`. ~/.doable/code-agent/<machine>/env` exports the
+saved key, and prints nothing). Run the setup again only after `stop`: on a machine without
+launchd, a setup while the session runs starts a second session with the same machine name. The
+key stays in its file until `remove`.
 Revoke it in Settings > API Keys when you no longer need it.
 
 ### By hand
@@ -364,87 +365,62 @@ Revoke it in Settings > API Keys when you no longer need it.
 
 ### With nobody at the terminal
 
-In the default permission mode, a permission prompt stops the watch until someone answers it. For
-a machine that nobody watches, start the session in the `dontAsk` permission mode, and allow its
-tools on the command line (the Always on setup does this for you):
+In the default permission mode, a permission prompt stops the watch until someone answers it. A
+session that nobody watches runs in the bypass permission mode, with Claude in Chrome, and without
+`ask_code_agent`, the Doable MCP tool with which a person's Claude Code asks a machine, so that it
+cannot send a request to itself. The Always on setup starts it so. To start such a session by hand:
 
 ```bash
-claude --permission-mode dontAsk --allowedTools "Skill(doable-code-context:doable-code-agent)" "mcp__plugin_doable-code-context_doable__wait_for_code_agent_request" "mcp__plugin_doable-code-context_doable__update_code_agent_request" "mcp__plugin_doable-code-context_doable__read_code_agent_mail" "Bash(sleep 20)"
+claude --permission-mode bypassPermissions --chrome --disallowedTools "mcp__plugin_doable-code-context_doable__ask_code_agent"
 ```
 
-A session that nobody watches needs these five rules:
+Use `mcp__doable__ask_code_agent` in place of the plugin's tool name if you set up a user-scoped
+`doable` server instead. If Claude Code asks you to accept the bypass mode, accept it. Then paste
+the start prompt, and leave. In Codex and Cursor, let the session use its tools with no prompt in
+that host's settings, and turn off Doable MCP's `ask_code_agent` there.
 
-- `Skill(doable-code-context:doable-code-agent)`: the Skill itself. After each new message from a
-  person, for example "continue" after a plan limit, the Skill loads itself again, and Claude Code
-  asks before it loads a Skill that no rule allows.
-- `mcp__plugin_doable-code-context_doable__wait_for_code_agent_request`,
-  `mcp__plugin_doable-code-context_doable__update_code_agent_request` and
-  `mcp__plugin_doable-code-context_doable__read_code_agent_mail`: the three Doable MCP tools of a
-  machine. The first two serve requests, and the third reads the mail of a request's test inbox
-  (`mcp__doable__wait_for_code_agent_request`, `mcp__doable__update_code_agent_request` and
-  `mcp__doable__read_code_agent_mail` if you set up a user-scoped `doable` server instead).
-  The Skill allows them while it runs, but Claude Code forgets that at each new message from a
-  person. Allow these three, not the whole Doable MCP server: then the session cannot call its
-  other tools, such as `ask_code_agent`, with which a person's Claude Code asks this machine.
-- `Bash(sleep 20)`: the wait before the Skill calls Doable again after an error. Claude Code blocks
-  a `sleep` of 25 seconds or more.
+What the bypass mode means: Claude Code checks no permission. The session can run any command and
+use any tool on this machine with your rights: it can read, change and delete each file that you
+can, call each host that this machine can reach, and use Chrome with the sign-ins that it holds.
+No permission rule stops a write to production: only the rules of the start prompt and of the
+Skill do. Keep the start prompt's first rule, never write to production.
 
-After them, add one quoted rule for each command that your rules let the session run, for example
-`"Bash(npm test *)"` or one of the app's own scripts (`"Bash(npm run seed *)"`). Do not allow
-`curl` or `wget` in any form: `"Bash(curl *)"` lets the session call any host, production too, with
-no prompt, and a rule that starts with the test host (`"Bash(curl https://staging.example.com/*)"`)
-does not keep the command on that host, because the command can name a second address after the
-first. Put `--allowedTools` last, because it reads every word
-after it as a rule. The session needs no rule to search the code: Claude Code runs read-only
-commands in the session's folder, such as `grep`, `rg`, `find`, `git ls-files` and `cat`, with no
-rule. Do not add a rule such as `"Bash(rg *)"`, because it also lets `rg --pre` run any program.
-`dontAsk` refuses every other tool and command with no prompt, and a read outside the session's
-folder: the session goes on without it, or declines the request. A session that nobody watches
-reads tickets and docs only through a tool that an allow rule names (for example a connector's
-read tools); without the rule, it answers from the code and says in the result which source it
-could not read and why. In the same way, it runs the app or a script only when an allow rule
-names that command; without the rule, it names the work that it could not do. In the same way,
-it opens the link of a test inbox mail only in a browser whose tools a rule allows (see
-[A browser for a mail's link](#a-browser-for-a-mails-link)); without one, it names the login that
-it could not finish. Then paste the start prompt, and leave. In Codex and Cursor, allow the three
-Doable MCP tools and the same commands in that host's settings.
+If managed settings on this machine turn off the bypass mode (`disableBypassPermissionsMode`), the
+session starts in the default permission mode. With nobody at the terminal, it then refuses each
+command and tool that needs a permission, and it cannot do the work of a request.
 
 Your own Claude Code settings apply to this session too: your user settings
-(`~/.claude/settings.json`), with their allow rules and the features they turn on, your
-user-level plugins and MCP servers, and the connectors of your Claude login. An allow rule in
-your user settings lets the session use that tool or command with no prompt, so read your user
-allow list before you leave the machine. A feature that your user settings turn on can make the
-session try its tool: for example, when they turn on multi-agent workflows, the session may try
-the Workflow tool. `dontAsk` refuses a tool that no rule allows, and the session goes on without
-it.
+(`~/.claude/settings.json`) and the features they turn on, your user-level plugins and MCP
+servers, and the connectors of your Claude login. In the bypass mode the session can use each of
+their tools with no prompt, for example a connector that writes to a work tool, or the Workflow
+tool when your settings turn on multi-agent workflows.
 
 ### A browser for a mail's link
 
-To finish a sign-up by email, the session opens the mail's link in a browser on this machine.
-With nobody at the terminal, `dontAsk` refuses each browser tool that no rule allows. A sign-up
-opens a page, types and clicks, so allow all the tools of one browser:
+To finish a sign-up by email, the session opens the mail's link in a new tab of this machine's
+Chrome, with Claude in Chrome. The Always on setup always starts the session with
+`claude --chrome`. On the machine:
 
-- **Claude in Chrome**, in this machine's Chrome: add `--chrome` to the Always on setup. The start
-  script then starts the session with `claude --chrome` and allows all the tools of Claude in
-  Chrome (`mcp__claude-in-chrome`). Keep Chrome open on this machine, with the Claude in Chrome
-  extension installed. If the extension asks before it acts on a site, nobody answers it: allow
-  the test environments' sites in the extension before you leave the machine. For a session that
-  you start by hand, add `--chrome` before `--allowedTools` in the `dontAsk` command, and
-  `"mcp__claude-in-chrome"` after its rules.
-- **A browser MCP server** that you added to Claude Code, for example Playwright's: add one
-  `--allow` rule for the whole server, such as `--allow mcp__playwright`. A rule for one tool,
-  such as `mcp__playwright__browser_navigate`, lets the session open the page, but not type or
-  click.
+- Keep Chrome open, with the Claude in Chrome extension installed and connected.
+- Set the extension to act on the test environments' sites without asking. Nobody answers the
+  extension's prompt, so the session cannot act on a site that asks.
 
-A browser can open any host, production too, and Claude in Chrome acts with the sign-ins that
-this machine's Chrome holds. The session's rules, not the allow rule, keep it on the test
+If Chrome is not open or the extension is not connected, the browser tools fail when the session
+calls them. The session goes on without them, and says in the result which login it could not
+finish and why.
+
+Claude in Chrome can open any site, production too, and it acts with the sign-ins that this
+machine's Chrome holds. Only the rules of the start prompt and of the Skill keep it on the test
 environments.
 
 ### Update from 0.6.0
 
 0.6.1 adds the third Doable MCP tool of a machine, `read_code_agent_mail`, with which the session
-reads the mail of a request's test inbox. A 0.6.0 session goes on serving requests, but it cannot
-read that mail. On each Always on machine:
+reads the mail of a request's test inbox. It also runs the session with no permission check and
+with Claude in Chrome (see [With nobody at the terminal](#with-nobody-at-the-terminal)): the
+allow rules of 0.6.0 are gone, and the setup and `start` take no `--allow` or `--chrome` option.
+A 0.6.0 session goes on serving requests, but it cannot read that mail. On each Always on
+machine:
 
 1. Stop the session:
 
@@ -460,34 +436,21 @@ read that mail. On each Always on machine:
    ```
 
    Read `installPath` in `claude plugin list --json` again: it changes with the version.
-3. Start the session:
+3. Start the session, with Chrome open and the Claude in Chrome extension connected (see
+   [A browser for a mail's link](#a-browser-for-a-mails-link)):
 
    ```bash
    node <installPath>/scripts/code-agent-service.mjs start --machine <machine>
    ```
 
-   To let the session also open a mail's link in a browser (see
-   [A browser for a mail's link](#a-browser-for-a-mails-link)), run the setup again in place of
-   `start`. Run it in the folder that holds the repositories, with the saved prompt, your
-   `--allow` rules again (the `allow` list in `~/.doable/code-agent/<machine>/config.json`), and
-   `--chrome` or the rule for your browser server. The setup needs the key in `DOABLE_API_KEY`:
-   the first line below exports it from the file that holds it, and prints nothing.
-
-   ```bash
-   . ~/.doable/code-agent/<machine>/env
-   node <installPath>/scripts/code-agent-service.mjs setup --folder "$PWD" --machine <machine> --prompt-file ~/.doable/code-agent/<machine>/prompt.md --allow 'Bash(npm test *)' --chrome
-   ```
-
-`start` and the setup write the start script again with this release's five rules, so the session
-can call `read_code_agent_mail` with nobody at the terminal. The session's prompt
-(`~/.doable/code-agent/<machine>/prompt.md`) does not change. Run the setup only after the `stop`
-of step 1: on a machine without launchd, a setup while the session runs starts a second session
-with the same machine name, and the first one goes on with its old rules. You can update before
-or after the Doable releases that add the tool and the test inbox: until then, a request names no
-test inbox, and the session says in the result that it could not read the mail. Stop a session
-that you started by hand, update the plugin, and start it again (with the new `dontAsk` command
-when nobody watches it, and a browser as
-[A browser for a mail's link](#a-browser-for-a-mails-link) says).
+`start` writes the start script again from `~/.doable/code-agent/<machine>/config.json`, with this
+release's command line. It does not use the `allow` list that 0.6.0 kept in that file: the session
+now uses every tool and command with no rule. The session's prompt
+(`~/.doable/code-agent/<machine>/prompt.md`) does not change. You can update before or after the
+Doable releases that add the tool and the test inbox: until then, a request names no test inbox,
+and the session says in the result that it could not read the mail. Stop a session that you
+started by hand, update the plugin, and start it again, with the command of
+[With nobody at the terminal](#with-nobody-at-the-terminal) when nobody watches it.
 
 ### Update from 0.5.0
 
@@ -522,14 +485,14 @@ Always on machine:
    ```
 
 The serving session runs the installed plugin, so the new session loads the new release, and
-`start` writes the start script again with this release's five rules. It keeps the `PATH` and the
+`start` writes the start script again with this release's command line. It keeps the `PATH` and the
 `claude` command that the 0.5.0 setup took from your terminal, so you can run it from another
 shell, for example over SSH. It also prints a line that reminds you of the sentence of step 3.
 
 If you cannot stop a machine before the release, update it at once after the release: run `stop`,
 then steps 2 to 4. Stop a session that you started by hand before the release too, and after the
-update start it again with the new start prompt (and the new `dontAsk` command when nobody watches
-it).
+update start it again with the new start prompt (and the command of
+[With nobody at the terminal](#with-nobody-at-the-terminal) when nobody watches it).
 
 ### What a session does
 

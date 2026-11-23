@@ -25,6 +25,11 @@ function withReleaseCopy(use) {
   }
 }
 
+// A phrase as a regex that matches it also where the Markdown wraps it across lines.
+function wrapped(phrase) {
+  return new RegExp(phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/ /g, '\\s+'));
+}
+
 // Runs the release verifier on the copy in `directory`, in which `path` holds the text that `change` makes of it.
 function verifyWith(directory, path, change) {
   const file = join(directory, path);
@@ -44,7 +49,7 @@ test('the release verifier lets the code agent skill allow only the three tools 
     assert.equal(unchanged.status, 0, unchanged.stderr);
     assert.match(readFileSync(join(directory, skill), 'utf8'), /`ask_code_agent`/);
 
-    // The asking tool of a person's Claude Code: a serving session in dontAsk mode must not be allowed to call it.
+    // The asking tool of a person's Claude Code: a serving session must not be allowed to call it with no prompt.
     const allowsAskTool = verifyWith(directory, skill, (text) =>
       text.replace('  mcp__doable__update_code_agent_request\n', '  mcp__doable__update_code_agent_request\n  mcp__doable__ask_code_agent\n'));
     assert.notEqual(allowsAskTool.status, 0, 'a skill that allows ask_code_agent must fail');
@@ -80,12 +85,53 @@ test('the release verifier lets the code agent skill allow only the three tools 
   });
 });
 
-test('the release verifier refuses a README that allows the whole Doable MCP server or misses an update, a skill without its login and mail rules, and a text that names the removed policy file', () => {
+test('the release verifier refuses a README that allows the whole Doable MCP server, goes back to allow rules or misses an update, a skill without its permission, login and mail rules, and a text that names the removed policy file', () => {
   withReleaseCopy((directory) => {
     const wholeServer = verifyWith(directory, 'README.md', (text) =>
-      `${text}\n\`\`\`bash\nclaude --permission-mode dontAsk --allowedTools "mcp__plugin_doable-code-context_doable"\n\`\`\`\n`);
+      `${text}\nIn a session that you watch, always allow "mcp__plugin_doable-code-context_doable" at its first prompt.\n`);
     assert.notEqual(wholeServer.status, 0, 'a README that allows the whole server must fail');
     assert.match(wholeServer.stderr, /README allows the whole Doable MCP server \("mcp__plugin_doable-code-context_doable"\)/);
+
+    // The serving session runs with no permission check, with Claude in Chrome and without ask_code_agent: a README
+    // that goes back to the dontAsk command, or that drops the disallowed tool, must fail.
+    const bypassCommand = 'claude --permission-mode bypassPermissions --chrome --disallowedTools "mcp__plugin_doable-code-context_doable__ask_code_agent"';
+    assert.ok(readFileSync(join(directory, 'README.md'), 'utf8').includes(bypassCommand));
+    const dontAskCommand = verifyWith(directory, 'README.md', (text) =>
+      text.replace(bypassCommand, 'claude --permission-mode dontAsk --allowedTools "Bash(sleep 20)"'));
+    assert.notEqual(dontAskCommand.status, 0, 'a README with the dontAsk command must fail');
+    assert.match(dontAskCommand.stderr, /README is missing code agent setup: claude --permission-mode bypassPermissions --chrome --disallowedTools/);
+    assert.match(dontAskCommand.stderr, /README\.md names dontAsk: the serving session runs in the bypass permission mode/);
+    assert.match(dontAskCommand.stderr, /README\.md names --allowedTools/);
+    const noDisallowedTool = verifyWith(directory, 'README.md', (text) =>
+      text.replace(bypassCommand, 'claude --permission-mode bypassPermissions --chrome'));
+    assert.notEqual(noDisallowedTool.status, 0, 'a README whose command lets the session ask itself must fail');
+
+    // Nothing but the rules stops a write to production: the README says so, and the skill keeps the one hard rule and
+    // the rule that keeps it off Doable MCP's other tools.
+    const bypassMeaning = wrapped('No permission rule stops a write to production: only the rules of the start prompt and of the Skill do.');
+    assert.match(readFileSync(join(directory, 'README.md'), 'utf8'), bypassMeaning);
+    const noBypassMeaning = verifyWith(directory, 'README.md', (text) => text.replace(bypassMeaning, ''));
+    assert.notEqual(noBypassMeaning.status, 0, 'a README that does not say what the bypass mode means must fail');
+    assert.match(noBypassMeaning.stderr, /README is missing code agent setup: No permission rule stops a write to production/);
+    const permissionRule = wrapped('The one hard rule for permissions: never write to a production system');
+    assert.match(readFileSync(join(directory, skill), 'utf8'), permissionRule);
+    const noPermissionRule = verifyWith(directory, skill, (text) => text.replace(permissionRule, 'Never write to a production system'));
+    assert.notEqual(noPermissionRule.status, 0, 'a skill without the one hard rule for permissions must fail');
+    assert.match(noPermissionRule.stderr, /missing machine rule: The one hard rule for permissions: never write to a production system/);
+    const threeToolsRule = wrapped('Use Doable MCP only through its three tools of a machine');
+    assert.match(readFileSync(join(directory, skill), 'utf8'), threeToolsRule);
+    const otherDoableTools = verifyWith(directory, skill, (text) =>
+      text.replace(threeToolsRule, 'Use Doable MCP mostly through its three tools of a machine'));
+    assert.notEqual(otherDoableTools.status, 0, 'a skill that lets the session use the other Doable MCP tools must fail');
+    assert.match(otherDoableTools.stderr, /missing machine rule: Use Doable MCP only through its three tools of a machine/);
+
+    // A null test inbox comes also from an older Doable or an older request: the skill must not say that the
+    // organization has none.
+    const noInboxRule = wrapped('Do not say that the organization has no test inbox.');
+    assert.match(readFileSync(join(directory, skill), 'utf8'), noInboxRule);
+    const saysNoInbox = verifyWith(directory, skill, (text) => text.replace(noInboxRule, ''));
+    assert.notEqual(saysNoInbox.status, 0, 'a skill without the null test inbox rule must fail');
+    assert.match(saysNoInbox.stderr, /missing machine rule: Do not say that the organization has no test inbox\./);
 
     // A 0.5.0 session that still runs after the Doable MCP release takes requests that it cannot end: the update
     // stops it first.
@@ -113,7 +159,7 @@ test('the release verifier refuses a README that allows the whole Doable MCP ser
     assert.notEqual(noMailLinkRule.status, 0, 'a skill without the rule for the link of a test inbox mail must fail');
     assert.match(noMailLinkRule.stderr, /missing machine rule: Never put the link or the code in a progress text, a question or a result/);
 
-    // A 0.6.0 machine gets the mail tool's rule only from a start of this release: the README says how.
+    // A 0.6.0 machine gets this release's command line only from a start of this release: the README says how.
     const noUpdateFrom060 = verifyWith(directory, 'README.md', (text) => text.replace('### Update from 0.6.0', '### Update'));
     assert.notEqual(noUpdateFrom060.status, 0, 'a README without the update from 0.6.0 must fail');
     assert.match(noUpdateFrom060.stderr, /README is missing code agent setup: ### Update from 0\.6\.0/);

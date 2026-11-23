@@ -580,10 +580,9 @@ for (const requiredSetup of [
   assert(readme.includes(requiredSetup), `README is missing public MCP setup: ${requiredSetup}`);
 }
 // A code agent session starts Always on, with the service script, or by hand. In the default permission mode the
-// person answers the first prompts at the terminal. A session that nobody watches runs in dontAsk mode, which refuses
-// with no prompt every tool and command that no rule allows: its start command must allow the Skill (which loads
-// itself again after a new message from the person), the three Doable MCP tools of a machine (which that message
-// takes from the Skill) and the wait.
+// person answers the first prompts at the terminal. A session that nobody watches runs in the bypass permission mode
+// (no permission check) with Claude in Chrome, and cannot load `ask_code_agent`, with which it could send a request to
+// itself. The README says what the bypass mode lets the session do, and what the person does on the machine.
 for (const requiredCodeAgentSetup of [
   "The Skill's own rules always apply too: a rule in the message joins them and never replaces them.",
   "### Always on",
@@ -593,10 +592,16 @@ for (const requiredCodeAgentSetup of [
   "starts it again 5 minutes after it stops",
   "code-agent-service.mjs stop --machine <machine>",
   "Stay at the terminal: Claude Code asks before it runs a new command.",
-  'claude --permission-mode dontAsk --allowedTools "Skill(doable-code-context:doable-code-agent)" "mcp__plugin_doable-code-context_doable__wait_for_code_agent_request" "mcp__plugin_doable-code-context_doable__update_code_agent_request" "mcp__plugin_doable-code-context_doable__read_code_agent_mail" "Bash(sleep 20)"',
-  "Put `--allowedTools` last, because it reads every word after it as a rule.",
-  "`dontAsk` refuses every other tool and command with no prompt",
-  // The person's user settings reach the serving session: their allow rules and the tools their features add.
+  'claude --permission-mode bypassPermissions --chrome --disallowedTools "mcp__plugin_doable-code-context_doable__ask_code_agent"',
+  // What the bypass mode lets the session do, said plainly, and that only the rules stop a write to production.
+  "The session can run any command and use any tool on this machine with your rights",
+  "and use Chrome with the sign-ins that it holds",
+  "No permission rule stops a write to production: only the rules of the start prompt and of the Skill do.",
+  // Managed settings can turn the bypass mode off: then the session cannot work with nobody at the terminal.
+  "If managed settings on this machine turn off the bypass mode (`disableBypassPermissionsMode`)",
+  // The start prompt's first rule.
+  "- Never write to production",
+  // The person's user settings reach the serving session: the tools of their plugins, servers, connectors and features.
   "Your own Claude Code settings apply to this session too",
   // The setup keeps the key on the person's disk: say where, and that it can be revoked.
   "Revoke it in Settings > API Keys",
@@ -608,28 +613,45 @@ for (const requiredCodeAgentSetup of [
   "Before the Doable MCP release, stop the 0.5.0 session",
   "claude plugin update doable-code-context@doable --scope user",
   "code-agent-service.mjs start --machine <machine>",
-  "`start` writes the start script again with this release's five rules",
+  "`start` writes the start script again with this release's command line",
   "The one exception: the password of a new test login goes in that login of the result.",
-  // A 0.6.0 machine gets the rule for the third machine tool, read_code_agent_mail, only from a `start` of 0.6.1: an
-  // update alone leaves the running session and its start script on the 0.6.0 rules.
+  // A 0.6.0 machine gets this release's command line (no permission check, Claude in Chrome) only from a `start` of
+  // 0.6.1: an update alone leaves the running session and its start script on the 0.6.0 rules.
   "### Update from 0.6.0",
-  // A sign-up opens a page, types and clicks, and dontAsk refuses each tool that no rule names: a browser needs a rule
-  // for all its tools, and Claude in Chrome also needs `claude --chrome`, which only the setup's `--chrome` adds.
+  "It does not use the `allow` list that 0.6.0 kept in that file",
+  // Nobody at the terminal answers a prompt of the Claude in Chrome extension.
   "### A browser for a mail's link",
-  "add one `--allow` rule for the whole server, such as `--allow mcp__playwright`",
-  "add `--chrome` to the Always on setup",
+  "Keep Chrome open, with the Claude in Chrome extension installed and connected.",
+  "Set the extension to act on the test environments' sites without asking.",
   // On a machine without launchd, a setup while the session runs starts a second session with the same name.
-  "Run the setup only after the `stop` of step 1",
+  "Run the setup again only after `stop`",
 ]) {
   assert(includesPhrase(readme, requiredCodeAgentSetup), `README is missing code agent setup: ${requiredCodeAgentSetup}`);
 }
-// An allow rule for the whole Doable MCP server lets a serving session in dontAsk mode call `ask_code_agent`, with which
-// a person's Claude Code asks the machine: the README allows only the three tools of a machine.
+// An allow rule for the whole Doable MCP server lets a session that a person started by hand call `ask_code_agent` with
+// no prompt, and with it the session can ask its own organization's code agent: the README names no such rule.
 for (const wholeServerRule of ['"mcp__plugin_doable-code-context_doable"', '"mcp__doable"']) {
   assert(
     !readme.includes(wholeServerRule),
     `README allows the whole Doable MCP server (${wholeServerRule}): allow only wait_for_code_agent_request, update_code_agent_request and read_code_agent_mail`,
   );
+}
+// The serving session runs in the bypass permission mode, with no allow rules. A text that still names the dontAsk mode
+// or its allow list sends a person to rules that no release of the service script writes. CHANGELOG.md keeps them as
+// history, and the service script names the dontAsk mode only to read an older start script.
+for (const path of [
+  join(root, "plugins", "doable-code-context", "skills", "doable-code-agent", "SKILL.md"),
+  join(root, "README.md"),
+  join(root, "PRIVACY.md"),
+  join(root, "TESTING.md"),
+]) {
+  const text = readFileSync(path, "utf8");
+  for (const retired of ["dontAsk", "--allowedTools"]) {
+    assert(
+      !text.includes(retired),
+      `${relative(root, path)} names ${retired}: the serving session runs in the bypass permission mode with no allow rules`,
+    );
+  }
 }
 
 // Without DOABLE_MACHINE_NAME every machine shows as `unnamed-machine`, and people cannot tell the machines apart: the
