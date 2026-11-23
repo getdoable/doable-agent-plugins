@@ -36,7 +36,9 @@ const ANY_DOABLE_KEY = /sk-doable-[A-Za-z0-9_-]+/;
 // connection recovery of doable-connect add one). Claude Code skips the plugin's server when such a server has the
 // same address, so the second name can be the only one. A name of a server that this machine does not have does nothing.
 const ASKING_TOOLS = ["mcp__plugin_doable-code-context_doable__ask_code_agent", "mcp__doable__ask_code_agent"];
-// The options of plugin 0.6.0's setup that this release refuses: the session allows every tool and has Chrome on.
+// The options that this release refuses with the reason, because the session allows every tool and has Chrome on:
+// `--allow`, the option of plugin 0.6.0's setup for its allow rules, and `--chrome`, which no released setup took (a
+// draft of this release did), but which a person can give because Claude Code has an option of that name.
 const RETIRED_OPTIONS = ["--allow", "--chrome"];
 const RESTART_WAIT_S = 300;
 const LOG_MAX_BYTES = 20 * 1024 * 1024;

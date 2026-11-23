@@ -338,10 +338,17 @@ start script again with the command line of the installed plugin. `remove` stops
 its files and its key. After a plugin update, run `stop` and `start`, so that the serving session
 loads the new plugin (see [Update from 0.6.0](#update-from-060)). To change the session's prompt,
 edit `~/.doable/code-agent/<machine>/prompt.md`, then run `stop` and `start`. To change its folder
-or its key, run `stop`, then the setup again (`. ~/.doable/code-agent/<machine>/env` exports the
-saved key, and prints nothing). Run the setup again only after `stop`: on a machine without
-launchd, a setup while the session runs starts a second session with the same machine name. The
-key stays in its file until `remove`.
+or its key, run `stop`, then the setup again, with the saved prompt as the prompt file. Export
+the new key first, or, to keep the saved key, run `. ~/.doable/code-agent/<machine>/env`, which
+exports it and prints nothing:
+
+```bash
+node <installPath>/scripts/code-agent-service.mjs setup --folder <folder> --machine <machine> --prompt-file ~/.doable/code-agent/<machine>/prompt.md
+```
+
+Run the setup again only after `stop`: on a machine without launchd, a setup while the session
+runs starts a second session with the same machine name. The key stays in its file until
+`remove`.
 Revoke it in Settings > API Keys when you no longer need it.
 
 ### By hand
@@ -422,7 +429,8 @@ environments.
 0.6.1 adds the third Doable MCP tool of a machine, `read_code_agent_mail`, with which the session
 reads the mail of a request's test inbox. It also runs the session with no permission check and
 with Claude in Chrome (see [With nobody at the terminal](#with-nobody-at-the-terminal)): the
-allow rules of 0.6.0 are gone, and the setup and `start` take no `--allow` or `--chrome` option.
+allow rules of 0.6.0 and the setup's `--allow` option are gone. The setup and `start` refuse
+`--allow`, and also `--chrome`, because the session always has Chrome.
 A 0.6.0 session goes on serving requests, but it cannot read that mail. On each Always on
 machine:
 
