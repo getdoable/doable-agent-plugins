@@ -709,8 +709,10 @@ it as "When a call fails" says.
   here. A session with nobody at the terminal runs with no permission check, so no permission rule
   or prompt stops a tool, and nothing but these rules stops a write to production.
 - Use Doable MCP only through its three tools of a machine: `wait_for_code_agent_request`,
-  `update_code_agent_request` and `read_code_agent_mail`. Its other tools write to the
-  organization's production data in Doable: never call them.
+  `update_code_agent_request` and `read_code_agent_mail`. Its other tools are for people who
+  work in Doable: they read and change the organization's suites, tests, runs and chats, or ask a
+  machine (see "Ask the asker"). Never call them, also the ones that only read: what a request
+  needs from Doable comes in the request, or from its asker.
 - Never push: no `git push` in any form, no pull request, no merge, no deploy, no release. Try a
   fix only on a separate local branch or worktree.
 - Never touch production (see "Words"): no request, login, data change, or command against it,

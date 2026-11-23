@@ -385,11 +385,11 @@ for (const plugin of plugins) {
           "`doable-code-context:doable-code-agent`",
           "run the shell command `sleep 20`, exactly so",
           // A session with nobody at the terminal runs with no permission check: only the rules stop a write to
-          // production, and the other Doable MCP tools write to the organization's data in Doable, which is
-          // production too.
+          // production, and only the rules keep it off the other Doable MCP tools, which are for people (some of them
+          // change the organization's data in Doable, and `ask_code_agent` asks a machine).
           "The one hard rule for permissions: never write to a production system",
           "Use Doable MCP only through its three tools of a machine",
-          "Its other tools write to the organization's production data in Doable: never call them.",
+          "Never call them, also the ones that only read",
           // The session's browser is Claude in Chrome. Its tools fail when Chrome is closed or the extension is not
           // connected, and a person on the machine fixes that: the result says so.
           "If Chrome is not open or the extension is not connected, its tools fail when you call them",

@@ -32,9 +32,12 @@ Update each Always on machine with stop, the plugin update, and start, with Chro
 - The skill's `allowed-tools` names the tool under both server names.
 - `doable-code-agent`: the session's browser is Claude in Chrome. It opens a mail's link in a new
   tab of this machine's Chrome, and when Chrome is not open or the extension is not connected, it
-  says so in the result. The session uses Doable MCP only through the three tools of a machine,
-  because the other tools write to the organization's production data in Doable. The one hard rule
-  for permissions is never to write to a production system; every other tool and command that a
+  says so in the result. It checks that the browser answers before it invites a user, signs out
+  of the test environment's app before it opens the link, and signs the new login out after its
+  check. A session with no browser tools says that a person must start it with `claude --chrome`.
+  The session uses Doable MCP only through the three tools of a machine, and calls none of its
+  other tools, which are for people, also the ones that only read. The one hard rule for
+  permissions is never to write to a production system; every other tool and command that a
   request's work needs is allowed.
 
 ### Changed
@@ -48,8 +51,9 @@ Update each Always on machine with stop, the plugin update, and start, with Chro
   `start` writes this command line into the start script, also on a machine that 0.6.0 set up.
 - README: the sign-up by email, the new command for a session with nobody at the terminal and what
   the bypass mode lets it do, managed settings that turn the bypass mode off, "A browser for a
-  mail's link" (keep Chrome open with the extension connected, and let it act on the test sites
-  without asking), and "Update from 0.6.0" (stop, the plugin update, start). The start prompt's
+  mail's link" (keep Chrome open with the extension connected, let it act on the test sites
+  without asking, and keep its profile signed out of the test environments' apps), a session by
+  hand started with `claude --chrome`, and "Update from 0.6.0" (stop, the plugin update, start). The start prompt's
   first rule says "Never write to production". PRIVACY and TESTING (scenarios 49, 56, 60, 65, 66
   and 67) say the same.
 
