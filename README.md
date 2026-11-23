@@ -7,7 +7,7 @@ Official agent plugins for [Doable](https://getdoable.ai), supporting Codex, Cla
 
 | Plugin | Version | Purpose | Network |
 | --- | --- | --- | --- |
-| `doable-code-context` | `0.6.0` | Resolve context requests and serve code agent requests | Doable MCP |
+| `doable-code-context` | `0.6.1` | Resolve context requests and serve code agent requests | Doable MCP |
 
 ## Workflows
 
@@ -222,6 +222,18 @@ For example:
 | Backend state to read | Reads backend state, read only. | The state it found, and where and when it read it. |
 | A failed run to debug | Reproduces the failure, finds the root cause, suggests a fix. | The cause, file paths and line numbers, the steps, and the fix. It never pushes. |
 
+Some test environments give a new user its password only through a link or a code in an email
+(an invitation, a confirmation). For such a login, the session invites the user at a `+` address
+of the organization's test inbox in Doable (for the inbox `acme-tests@mail.getdoable.ai`, an
+address such as `acme-tests+ca-20261111-0930@mail.getdoable.ai`), reads that mail with the Doable
+MCP tool `read_code_agent_mail`, opens the link on this machine, signs in once, and returns the
+login with its password. The link and the code stay on the machine: they are in no progress text,
+question or result. The tool reads only the organization's own test inbox, only the mail to the
+address that the session names, and only the mail that came after the request was asked. When the
+organization has no test inbox, the session says so in the result. To open the link, the session
+needs a tool that opens a web page, for example a browser that it drives (see
+[With nobody at the terminal](#with-nobody-at-the-terminal)).
+
 A session runs [Always on](#always-on), in the background, or [by hand](#by-hand), in a terminal.
 Doable counts it as connected while it waits for requests or works on one, and sends it each new
 request with no person. When the session goes away after a request was sent, the request waits up
@@ -301,7 +313,7 @@ from the session's environment, so that its usage is not billed to the API.
 
 This plugin's `scripts/code-agent-service.mjs setup` keeps the key in a file that only you can
 read (`~/.doable/code-agent/<machine>/env`), starts the serving session in the background in the
-`dontAsk` permission mode with the four rules below and your commands, starts it again 5 minutes
+`dontAsk` permission mode with the five rules below and your commands, starts it again 5 minutes
 after it stops (for example at a plan limit), keeps a Mac awake while it runs, and on a Mac starts
 it at each login. On a machine that an older plugin set up, it also deletes that plugin's policy
 file. It tells you whether the session is connected.
@@ -321,7 +333,7 @@ output is in `~/.doable/code-agent/<machine>/session.jsonl`. That output holds t
 new test login that the session sends to Doable, and only you can read it. `start` writes the
 start script again with the rules of the installed plugin. `remove` stops it and deletes its files
 and its key. After a plugin update, run `stop` and `start`, so that the serving session loads the
-new plugin (see [Update from 0.5.0](#update-from-050)). The key stays in its file until `remove`.
+new plugin (see [Update from 0.6.0](#update-from-060)). The key stays in its file until `remove`.
 Revoke it in Settings > API Keys when you no longer need it.
 
 ### By hand
@@ -350,21 +362,23 @@ a machine that nobody watches, start the session in the `dontAsk` permission mod
 tools on the command line (the Always on setup does this for you):
 
 ```bash
-claude --permission-mode dontAsk --allowedTools "Skill(doable-code-context:doable-code-agent)" "mcp__plugin_doable-code-context_doable__wait_for_code_agent_request" "mcp__plugin_doable-code-context_doable__update_code_agent_request" "Bash(sleep 20)"
+claude --permission-mode dontAsk --allowedTools "Skill(doable-code-context:doable-code-agent)" "mcp__plugin_doable-code-context_doable__wait_for_code_agent_request" "mcp__plugin_doable-code-context_doable__update_code_agent_request" "mcp__plugin_doable-code-context_doable__read_code_agent_mail" "Bash(sleep 20)"
 ```
 
-A session that nobody watches needs these four rules:
+A session that nobody watches needs these five rules:
 
 - `Skill(doable-code-context:doable-code-agent)`: the Skill itself. After each new message from a
   person, for example "continue" after a plan limit, the Skill loads itself again, and Claude Code
   asks before it loads a Skill that no rule allows.
-- `mcp__plugin_doable-code-context_doable__wait_for_code_agent_request` and
-  `mcp__plugin_doable-code-context_doable__update_code_agent_request`: the two Doable MCP tools
-  that serve requests (`mcp__doable__wait_for_code_agent_request` and
-  `mcp__doable__update_code_agent_request` if you set up a user-scoped `doable` server instead).
+- `mcp__plugin_doable-code-context_doable__wait_for_code_agent_request`,
+  `mcp__plugin_doable-code-context_doable__update_code_agent_request` and
+  `mcp__plugin_doable-code-context_doable__read_code_agent_mail`: the three Doable MCP tools of a
+  machine. The first two serve requests, and the third reads the mail of a request's test inbox
+  (`mcp__doable__wait_for_code_agent_request`, `mcp__doable__update_code_agent_request` and
+  `mcp__doable__read_code_agent_mail` if you set up a user-scoped `doable` server instead).
   The Skill allows them while it runs, but Claude Code forgets that at each new message from a
-  person. Allow these two, not the whole Doable MCP server: then the session cannot call its other
-  tools, such as `ask_code_agent`, with which a person's Claude Code asks this machine.
+  person. Allow these three, not the whole Doable MCP server: then the session cannot call its
+  other tools, such as `ask_code_agent`, with which a person's Claude Code asks this machine.
 - `Bash(sleep 20)`: the wait before the Skill calls Doable again after an error. Claude Code blocks
   a `sleep` of 25 seconds or more.
 
@@ -382,9 +396,13 @@ folder: the session goes on without it, or declines the request. A session that 
 reads tickets and docs only through a tool that an allow rule names (for example a connector's
 read tools); without the rule, it answers from the code and says in the result which source it
 could not read and why. In the same way, it runs the app or a script only when an allow rule
-names that command; without the rule, it names the work that it could not do. Then paste the
-start prompt, and leave. In Codex and
-Cursor, allow the two Doable MCP tools and the same commands in that host's settings.
+names that command; without the rule, it names the work that it could not do. In the same way,
+it opens the link of a test inbox mail only with a browser tool that a rule allows (for example
+the tools of a browser MCP server that you added to Claude Code); without one, it names the login
+that it could not finish. A browser tool can open any host, production too, so the session's
+rules, not the allow rule, keep it on the test environments. Then paste the start prompt, and
+leave. In Codex and Cursor, allow the three Doable MCP tools and the same commands in that host's
+settings.
 
 Your own Claude Code settings apply to this session too: your user settings
 (`~/.claude/settings.json`), with their allow rules and the features they turn on, your
@@ -394,6 +412,42 @@ allow list before you leave the machine. A feature that your user settings turn 
 session try its tool: for example, when they turn on multi-agent workflows, the session may try
 the Workflow tool. `dontAsk` refuses a tool that no rule allows, and the session goes on without
 it.
+
+### Update from 0.6.0
+
+0.6.1 adds the third Doable MCP tool of a machine, `read_code_agent_mail`, with which the session
+reads the mail of a request's test inbox. A 0.6.0 session goes on serving requests, but it cannot
+read that mail. On each Always on machine:
+
+1. Stop the session:
+
+   ```bash
+   node <installPath>/scripts/code-agent-service.mjs stop --machine <machine>
+   ```
+
+2. Update the plugin:
+
+   ```bash
+   claude plugin marketplace update doable
+   claude plugin update doable-code-context@doable --scope user
+   ```
+
+   Read `installPath` in `claude plugin list --json` again: it changes with the version.
+3. Start the session:
+
+   ```bash
+   node <installPath>/scripts/code-agent-service.mjs start --machine <machine>
+   ```
+
+`start` writes the start script again with this release's five rules, so the session can call
+`read_code_agent_mail` with nobody at the terminal. The session's prompt
+(`~/.doable/code-agent/<machine>/prompt.md`) does not change. To let the session also open a
+mail's link with a browser tool, run the setup of [Always on](#always-on) again, with
+`--prompt-file ~/.doable/code-agent/<machine>/prompt.md`, your `--allow` rules, and one more
+`--allow` rule for that tool. You can update before or after the Doable MCP release that adds the
+tool: until that release, the session says in a result that it cannot read the test inbox. Stop a
+session that you started by hand, update the plugin, and start it again (with the new `dontAsk`
+command when nobody watches it).
 
 ### Update from 0.5.0
 
@@ -427,10 +481,10 @@ Always on machine:
    node <installPath>/scripts/code-agent-service.mjs start --machine <machine>
    ```
 
-The serving session runs the installed plugin, so the new session loads 0.6.0, and `start` writes
-the start script again with this release's four rules. It keeps the `PATH` and the `claude`
-command that the 0.5.0 setup took from your terminal, so you can run it from another shell, for
-example over SSH. It also prints a line that reminds you of the sentence of step 3.
+The serving session runs the installed plugin, so the new session loads the new release, and
+`start` writes the start script again with this release's five rules. It keeps the `PATH` and the
+`claude` command that the 0.5.0 setup took from your terminal, so you can run it from another
+shell, for example over SSH. It also prints a line that reminds you of the sentence of step 3.
 
 If you cannot stop a machine before the release, update it at once after the release: run `stop`,
 then steps 2 to 4. Stop a session that you started by hand before the release too, and after the
@@ -450,8 +504,8 @@ session makes for the tests, asked for or not, reach Doable only in the logins o
 with its password: for a chat's request, Doable saves each one, encrypted, in the suite's test
 accounts and shows only its username; for a request from a person's Claude Code, Doable gives
 them to that person's Claude Code and saves nothing. A login that reproduced a bug is not in the
-result's logins. The result lists all that the session made, changed, deleted or ran without a
-request for it. It never pushes, never touches production, only reads the team's work tools,
+result's logins. The link or the code of a test inbox mail stays on the machine. The result lists
+all that the session made, changed, deleted or ran without a request for it. It never pushes, never touches production, only reads the team's work tools,
 causes no real payment and no message to a real person, and puts no other secret in a result.
 Doable refuses a result, a progress text, a question, or a capability summary that holds a Doable
 API key.
@@ -488,7 +542,12 @@ See [CHANGELOG.md](CHANGELOG.md) for version history and [CONTRIBUTING.md](CONTR
   `update_code_agent_request`, and a Doable server that takes the capability summary (the
   `capabilities` argument of `wait_for_code_agent_request`) and the logins of a result with their
   passwords. A Doable server that does not take the summary refuses the call with `422`. On a
-  Doable MCP server without `update_code_agent_request`, the Skill tells you so and stops.
+  Doable MCP server without `update_code_agent_request`, the Skill tells you so and stops. On a
+  Doable MCP server or a Doable server that cannot read the test inbox (`read_code_agent_mail`),
+  the Skill goes on serving and says in a result that it could not read the mail.
+- The session reads only the mail of its organization's test inbox. A test environment that sends
+  its sign-up mail only to another address, or that refuses a `+` in an email address, cannot use
+  this way.
 
 ## Verify
 

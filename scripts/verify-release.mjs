@@ -11,7 +11,7 @@ const semver = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:
 const plugins = [
   {
     name: "doable-code-context",
-    version: "0.6.0",
+    version: "0.6.1",
     skillNames: ["doable-connect", "doable-answer-questions", "doable-code-agent"],
     network: "bundled-doable-mcp-config",
   },
@@ -246,8 +246,9 @@ for (const plugin of plugins) {
     const codeAgentSkillPath = join(pluginRoot, "skills", "doable-code-agent", "SKILL.md");
     const codeAgentSkill = readFileSync(codeAgentSkillPath, "utf8");
     // A serving session can run with nobody at the terminal, so a permission prompt for one of its
-    // own Doable tools stops the watch. Its frontmatter allows exactly the two Doable MCP tools that
-    // serve requests, under the plugin's server name and under a user-scoped `doable` server, and
+    // own Doable tools stops the watch. Its frontmatter allows exactly the three Doable MCP tools of a
+    // machine (the wait for a request, the update of a request, and the read of the request's test
+    // inbox mail), under the plugin's server name and under a user-scoped `doable` server, and
     // nothing else: no other Doable MCP tool (a serving session never calls `ask_code_agent`, with
     // which a person's Claude Code asks the machine) and no shell command (the person allows the
     // commands that their rules need, at the prompt or with `--allowedTools`).
@@ -258,7 +259,7 @@ for (const plugin of plugins) {
       .filter(Boolean);
     const codeAgentToolPrefixes = ["mcp__plugin_doable-code-context_doable__", "mcp__doable__"];
     const servingTools = codeAgentToolPrefixes.flatMap((prefix) =>
-      ["wait_for_code_agent_request", "update_code_agent_request"].map((tool) => `${prefix}${tool}`),
+      ["wait_for_code_agent_request", "update_code_agent_request", "read_code_agent_mail"].map((tool) => `${prefix}${tool}`),
     );
     for (const tool of servingTools) {
       assert(allowedTools.includes(tool), `${relative(root, codeAgentSkillPath)} allowed-tools must name ${tool}`);
@@ -266,7 +267,7 @@ for (const plugin of plugins) {
     for (const tool of allowedTools) {
       assert(
         servingTools.includes(tool),
-        `${relative(root, codeAgentSkillPath)} allowed-tools may name only the two Doable MCP tools that serve requests, not ${tool}`,
+        `${relative(root, codeAgentSkillPath)} allowed-tools may name only the three Doable MCP tools of a code agent machine, not ${tool}`,
       );
     }
     // The MCP library puts "Error executing tool <name>: " before a tool's error text, so the key refusal is in the
@@ -308,6 +309,14 @@ for (const plugin of plugins) {
           // `no_environment` and `logins_not_saved_here`, each one named with no password.
           "Make a new login with a new username in the app, put it in place of the refused one, and send the result again.",
           'send the result again with no `logins`, and name each login in the summary with "not in Doable", with no password.',
+          // A test environment that gives a new user its password only through an email link: the machine invites the
+          // user at a `+` address of the request's test inbox, reads that mail itself, and opens the link on this
+          // machine. The link or the code works like a password, so it never leaves the machine, and it is the one
+          // link that acts when it opens that the machine may open.
+          "Invite the user, or sign it up, at a `+` address of the test inbox",
+          "If the request's `test_inbox` is `null`, the request cannot use this way",
+          "Never put the link or the code in a progress text, a question or a result",
+          "The one exception: the link of a mail from the test inbox that finishes a sign-up that you started for the request",
           // A 409 for a login is not the end of the request: only a 409 that says so stops the work with no result.
           "When a call answers `409` that says that the request has ended or that another machine has it, stop the same way.",
           // A request from a person's Claude Code has no chat, no suite and no environment: the result is all that
@@ -564,7 +573,7 @@ for (const requiredSetup of [
 // A code agent session starts Always on, with the service script, or by hand. In the default permission mode the
 // person answers the first prompts at the terminal. A session that nobody watches runs in dontAsk mode, which refuses
 // with no prompt every tool and command that no rule allows: its start command must allow the Skill (which loads
-// itself again after a new message from the person), the two Doable MCP tools that serve requests (which that message
+// itself again after a new message from the person), the three Doable MCP tools of a machine (which that message
 // takes from the Skill) and the wait.
 for (const requiredCodeAgentSetup of [
   "The Skill's own rules always apply too: a rule in the message joins them and never replaces them.",
@@ -575,7 +584,7 @@ for (const requiredCodeAgentSetup of [
   "starts it again 5 minutes after it stops",
   "code-agent-service.mjs stop --machine <machine>",
   "Stay at the terminal: Claude Code asks before it runs a new command.",
-  'claude --permission-mode dontAsk --allowedTools "Skill(doable-code-context:doable-code-agent)" "mcp__plugin_doable-code-context_doable__wait_for_code_agent_request" "mcp__plugin_doable-code-context_doable__update_code_agent_request" "Bash(sleep 20)"',
+  'claude --permission-mode dontAsk --allowedTools "Skill(doable-code-context:doable-code-agent)" "mcp__plugin_doable-code-context_doable__wait_for_code_agent_request" "mcp__plugin_doable-code-context_doable__update_code_agent_request" "mcp__plugin_doable-code-context_doable__read_code_agent_mail" "Bash(sleep 20)"',
   "Put `--allowedTools` last, because it reads every word after it as a rule.",
   "`dontAsk` refuses every other tool and command with no prompt",
   // The person's user settings reach the serving session: their allow rules and the tools their features add.
@@ -590,17 +599,20 @@ for (const requiredCodeAgentSetup of [
   "Before the Doable MCP release, stop the 0.5.0 session",
   "claude plugin update doable-code-context@doable --scope user",
   "code-agent-service.mjs start --machine <machine>",
-  "`start` writes the start script again with this release's four rules",
+  "`start` writes the start script again with this release's five rules",
   "The one exception: the password of a new test login goes in that login of the result.",
+  // A 0.6.0 machine gets the rule for the third machine tool, read_code_agent_mail, only from a `start` of 0.6.1: an
+  // update alone leaves the running session and its start script on the 0.6.0 rules.
+  "### Update from 0.6.0",
 ]) {
   assert(includesPhrase(readme, requiredCodeAgentSetup), `README is missing code agent setup: ${requiredCodeAgentSetup}`);
 }
 // An allow rule for the whole Doable MCP server lets a serving session in dontAsk mode call `ask_code_agent`, with which
-// a person's Claude Code asks the machine: the README allows only the two tools that serve requests.
+// a person's Claude Code asks the machine: the README allows only the three tools of a machine.
 for (const wholeServerRule of ['"mcp__plugin_doable-code-context_doable"', '"mcp__doable"']) {
   assert(
     !readme.includes(wholeServerRule),
-    `README allows the whole Doable MCP server (${wholeServerRule}): allow only wait_for_code_agent_request and update_code_agent_request`,
+    `README allows the whole Doable MCP server (${wholeServerRule}): allow only wait_for_code_agent_request, update_code_agent_request and read_code_agent_mail`,
   );
 }
 

@@ -9,6 +9,29 @@ All notable changes to Doable Agent Plugins are documented here.
 - Verify template integrity and syntax in CI. Local plugin version remains 0.2.10.
 - Clarify the GitHub integration's repository metadata and model-provider boundary.
 
+## [0.6.1] - 2026-11-23
+
+A machine reads its request's test inbox, so that it can finish a sign-up that a test environment
+sends by email. Update each Always on machine with stop, the plugin update, and start (README,
+"Update from 0.6.0"); the session's prompt does not change.
+
+### Added
+
+- `doable-code-agent` uses a third Doable MCP tool of a machine, `read_code_agent_mail`. When a
+  test environment gives a new user its password only through a link or a code in an email, the
+  session invites the user at a `+` address of the request's `test_inbox`, reads the mail with
+  the tool (`wait_seconds` up to 60, again for about 5 minutes), opens the link or uses the code
+  on the machine with the tools that its rules allow, signs in once, and returns the login with
+  its password. The link and the code go in no progress text, question, result or file. With no
+  test inbox (`test_inbox: null`, or Doable's `no_test_inbox`), the session says so in the result;
+  on `not_test_inbox`, it reads a `+` address of the test inbox. The skill's rule that forbids
+  opening a link that acts when it opens has one exception: the link of such a mail.
+- The skill's `allowed-tools` names the tool under both server names.
+- `scripts/code-agent-service.mjs`: the serving session's rules are five: the Skill, the three
+  Doable MCP tools of a machine and `Bash(sleep 20)`. `start` writes them into the start script.
+- README: the sign-up by email, the five rules, the new `dontAsk` command, a browser tool to open
+  the link, and "Update from 0.6.0". PRIVACY and TESTING (scenarios 66 and 67) say the same.
+
 ## [0.6.0] - 2026-11-20
 
 Two Doable MCP tools serve requests, and a person's own Claude Code can ask the code agent too.

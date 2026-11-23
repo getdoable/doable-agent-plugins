@@ -37,7 +37,7 @@ function verifyWith(directory, path, change) {
   }
 }
 
-test('the release verifier lets the code agent skill allow only the two tools that serve requests, and refuses a text that names a removed tool', () => {
+test('the release verifier lets the code agent skill allow only the three tools of a machine, and refuses a text that names a removed tool', () => {
   withReleaseCopy((directory) => {
     // The skill as released names ask_code_agent (a serving session never calls it): that is not the removed ask_agent.
     const unchanged = verifyWith(directory, skill, (text) => text);
@@ -48,12 +48,18 @@ test('the release verifier lets the code agent skill allow only the two tools th
     const allowsAskTool = verifyWith(directory, skill, (text) =>
       text.replace('  mcp__doable__update_code_agent_request\n', '  mcp__doable__update_code_agent_request\n  mcp__doable__ask_code_agent\n'));
     assert.notEqual(allowsAskTool.status, 0, 'a skill that allows ask_code_agent must fail');
-    assert.match(allowsAskTool.stderr, /allowed-tools may name only the two Doable MCP tools that serve requests, not mcp__doable__ask_code_agent/);
+    assert.match(allowsAskTool.stderr, /allowed-tools may name only the three Doable MCP tools of a code agent machine, not mcp__doable__ask_code_agent/);
 
     const noUpdateTool = verifyWith(directory, skill, (text) =>
       text.replace('  mcp__doable__update_code_agent_request\n', ''));
     assert.notEqual(noUpdateTool.status, 0, 'a skill that does not allow update_code_agent_request must fail');
     assert.match(noUpdateTool.stderr, /allowed-tools must name mcp__doable__update_code_agent_request/);
+
+    // The mail read of a machine: without it in allowed-tools, its first call stops at a permission prompt.
+    const noMailTool = verifyWith(directory, skill, (text) =>
+      text.replace('  mcp__plugin_doable-code-context_doable__read_code_agent_mail\n', ''));
+    assert.notEqual(noMailTool.status, 0, 'a skill that does not allow read_code_agent_mail must fail');
+    assert.match(noMailTool.stderr, /allowed-tools must name mcp__plugin_doable-code-context_doable__read_code_agent_mail/);
 
     const namesOldTool = verifyWith(directory, skill, (text) =>
       `${text}\nSend the result with \`submit_code_agent_result\`, or ask with \`mcp__doable__ask_agent\`.\n`);
@@ -74,7 +80,7 @@ test('the release verifier lets the code agent skill allow only the two tools th
   });
 });
 
-test('the release verifier refuses a README that allows the whole Doable MCP server, a skill without its login rules, and a text that names the removed policy file', () => {
+test('the release verifier refuses a README that allows the whole Doable MCP server or misses an update, a skill without its login and mail rules, and a text that names the removed policy file', () => {
   withReleaseCopy((directory) => {
     const wholeServer = verifyWith(directory, 'README.md', (text) =>
       `${text}\n\`\`\`bash\nclaude --permission-mode dontAsk --allowedTools "mcp__plugin_doable-code-context_doable"\n\`\`\`\n`);
@@ -98,6 +104,19 @@ test('the release verifier refuses a README that allows the whole Doable MCP ser
       text.replace('put it in place of the refused one, and send the result again.', 'and stop.'));
     assert.notEqual(noUsernameExists.status, 0, 'a skill that does not send the result again after username_exists must fail');
     assert.match(noUsernameExists.stderr, /missing machine rule: Make a new login with a new username in the app/);
+
+    // A test inbox mail's link or code works like a password: a skill that drops the rule can put it in a result. The
+    // rule wraps across lines in the skill.
+    const mailLinkRule = /Never put the link or the code in a progress text, a\s+question or a result/;
+    assert.match(readFileSync(join(directory, skill), 'utf8'), mailLinkRule);
+    const noMailLinkRule = verifyWith(directory, skill, (text) => text.replace(mailLinkRule, 'Use the link or the code'));
+    assert.notEqual(noMailLinkRule.status, 0, 'a skill without the rule for the link of a test inbox mail must fail');
+    assert.match(noMailLinkRule.stderr, /missing machine rule: Never put the link or the code in a progress text, a question or a result/);
+
+    // A 0.6.0 machine gets the mail tool's rule only from a start of this release: the README says how.
+    const noUpdateFrom060 = verifyWith(directory, 'README.md', (text) => text.replace('### Update from 0.6.0', '### Update'));
+    assert.notEqual(noUpdateFrom060.status, 0, 'a README without the update from 0.6.0 must fail');
+    assert.match(noUpdateFrom060.stderr, /README is missing code agent setup: ### Update from 0\.6\.0/);
 
     const namesPolicyFile = verifyWith(directory, 'README.md', (text) =>
       `${text}\nWrite the policy file \`${removedPolicyFile}\`.\n`);
