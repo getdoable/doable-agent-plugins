@@ -590,9 +590,8 @@ for (const requiredSetup of [
 // A code agent session starts Always on, with the service script, or by hand. In the default permission mode the
 // person answers the first prompts at the terminal. A session that nobody watches runs in the bypass permission mode
 // (no permission check) with Claude in Chrome, and cannot load `ask_code_agent`, with which it could send a request to
-// itself, under the plugin's server name or under `doable` (a user-scoped or project-scoped Doable MCP server, which
-// Claude Code loads in place of the plugin's server when both have the same address). The README says what the bypass
-// mode lets the session do, and what the person does on the machine.
+// itself, under the plugin's server name or under `doable` (a user-scoped or project-scoped Doable MCP server). The
+// README says what the bypass mode lets the session do, and what the person does on the machine.
 for (const requiredCodeAgentSetup of [
   "The Skill's own rules always apply too: a rule in the message joins them and never replaces them.",
   "### Always on",
@@ -609,6 +608,9 @@ for (const requiredCodeAgentSetup of [
   "No permission rule stops a write to production: only the rules of the start prompt and of the Skill do.",
   // Managed settings can turn the bypass mode off: then the session cannot work with nobody at the terminal.
   "If managed settings on this machine turn off the bypass mode (`disableBypassPermissionsMode`)",
+  // A server of the person's settings with the plugin server's address takes the place of the plugin's server, with its
+  // own key and machine header: the session must have no other Doable MCP server.
+  "Remove each other Doable MCP server from the Claude Code settings of the user that runs the session.",
   // The start prompt's first rule.
   "- Never write to production",
   // The person's user settings reach the serving session: the tools of their plugins, servers, connectors and features.
@@ -637,7 +639,7 @@ for (const requiredCodeAgentSetup of [
   "Do not sign in to the test environments' apps yourself in the Chrome profile that the extension acts in",
   // A session started by hand without --chrome has no browser for a mail's link.
   "4. Start `claude --chrome` in that folder",
-  // On a machine without launchd, a setup while the session runs starts a second session with the same name.
+  // On a machine without launchd, the setup and `start` refuse while the session runs: the person runs `stop` first.
   "Run the setup again only after `stop`",
 ]) {
   assert(includesPhrase(readme, requiredCodeAgentSetup), `README is missing code agent setup: ${requiredCodeAgentSetup}`);

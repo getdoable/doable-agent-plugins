@@ -299,11 +299,14 @@ no permission check and with Claude in Chrome: read
 [With nobody at the terminal](#with-nobody-at-the-terminal) for what that lets it do.
 
 1. Install the plugin as above, and read its `installPath` in `claude plugin list --json`.
-2. Write the start prompt, with your own lines, to a new file outside the folder that holds the
+2. Remove each other Doable MCP server from your Claude Code settings, as
+   [With nobody at the terminal](#with-nobody-at-the-terminal) says. The serving session must
+   call Doable through the plugin's server, which sends the setup's key and machine name.
+3. Write the start prompt, with your own lines, to a new file outside the folder that holds the
    repositories.
-3. Open Chrome on this machine, with the Claude in Chrome extension connected, as
+4. Open Chrome on this machine, with the Claude in Chrome extension connected, as
    [A browser for a mail's link](#a-browser-for-a-mails-link) says.
-4. In the folder that holds the repositories, export `DOABLE_API_KEY` (an organization API key
+5. In the folder that holds the repositories, export `DOABLE_API_KEY` (an organization API key
    from Doable's Settings > MCP), and run the setup. Give the machine its own name in
    `--machine`, by the rule of `DOABLE_MACHINE_NAME`:
 
@@ -311,7 +314,7 @@ no permission check and with Claude in Chrome: read
    node <installPath>/scripts/code-agent-service.mjs setup --folder "$PWD" --machine <machine> --prompt-file <file>
    ```
 
-5. Delete the prompt file: the setup keeps its own copy.
+6. Delete the prompt file: the setup keeps its own copy.
 
 This plugin's `scripts/code-agent-service.mjs setup` keeps the key in a file that only you can
 read (`~/.doable/code-agent/<machine>/env`), starts the serving session in the background with the
@@ -319,7 +322,9 @@ command of [With nobody at the terminal](#with-nobody-at-the-terminal) (the bypa
 mode, Claude in Chrome, and no `ask_code_agent`), starts it again 5 minutes
 after it stops (for example at a plan limit), keeps a Mac awake while it runs, and on a Mac starts
 it at each login. On a machine that an older plugin set up, it also deletes that plugin's policy
-file. It tells you whether the session is connected.
+file. It tells you whether the session is connected: whether its first wait for a request
+returned with no error. It also tells you when the session runs in another permission mode than
+the bypass mode, and when it waits through another Doable MCP server than the plugin's.
 
 Manage an Always on agent with the same script, from the plugin's folder that
 `claude plugin list --json` names (`installPath`):
@@ -347,9 +352,9 @@ exports it and prints nothing:
 node <installPath>/scripts/code-agent-service.mjs setup --folder <folder> --machine <machine> --prompt-file ~/.doable/code-agent/<machine>/prompt.md
 ```
 
-Run the setup again only after `stop`: on a machine without launchd, a setup while the session
-runs starts a second session with the same machine name. The key stays in its file until
-`remove`.
+Run the setup again only after `stop`. On a machine without launchd, the setup and `start` refuse
+while the session runs, so that two sessions do not serve with the same machine name: run `stop`
+first. The key stays in its file until `remove`.
 Revoke it in Settings > API Keys when you no longer need it.
 
 ### By hand
@@ -384,13 +389,22 @@ claude --permission-mode bypassPermissions --chrome --disallowedTools "mcp__plug
 ```
 
 The command names `ask_code_agent` two times: as the plugin's server gives it, and as a
-user-scoped or project-scoped Doable MCP server named `doable` gives it (when both servers have the
-same address, Claude Code loads only the `doable` server). Keep `--disallowedTools` last: it takes
-each word after it as a tool name. A Doable MCP server with another name keeps its
-`ask_code_agent` in the session: give that server the name `doable`, or remove it from this
-machine. If Claude Code asks you to accept the bypass mode, accept it. Then paste the start
-prompt, and leave. In Codex and Cursor, let the session use its tools with no prompt in
-that host's settings, and turn off Doable MCP's `ask_code_agent` there.
+user-scoped or project-scoped Doable MCP server named `doable` gives it. Keep `--disallowedTools`
+last: it takes each word after it as a tool name. If Claude Code asks you to accept the bypass
+mode, accept it. Then paste the start prompt, and leave. In Codex and Cursor, let the session use
+its tools with no prompt in that host's settings, and turn off Doable MCP's `ask_code_agent` there.
+
+The session must call Doable through the plugin's Doable MCP server. That server sends the key in
+`DOABLE_API_KEY` and the machine name in `DOABLE_MACHINE_NAME`: in Always on, the setup's key and
+`--machine`. Remove each other Doable MCP server from the Claude Code settings of the user that
+runs the session. Doable MCP's README and the connection recovery of doable-connect add such a
+server. In the folder that holds the repositories, `claude mcp list` shows the servers, and
+`claude mcp remove <name> --scope <scope>` removes one. A server of your settings that has the
+plugin server's address takes the place of the plugin's server, whatever its name. The session
+then calls Doable with that server's key and machine header: it can serve the requests of another
+organization, or show as `unnamed-machine`. A server with another address keeps its own
+`ask_code_agent` in the session when its name is not `doable`. The Always on setup and `start`
+tell you when the session waits through another server than the plugin's.
 
 What the bypass mode means: Claude Code checks no permission. The session can run any command and
 use any tool on this machine with your rights: it can read, change and delete each file that you
@@ -400,7 +414,8 @@ Skill do. Keep the start prompt's first rule, never write to production.
 
 If managed settings on this machine turn off the bypass mode (`disableBypassPermissionsMode`), the
 session starts in the default permission mode. With nobody at the terminal, it then refuses each
-command and tool that needs a permission, and it cannot do the work of a request.
+command and tool that needs a permission, and it cannot do the work of a request. The Always on
+setup and `start` tell you when the session runs in another permission mode than the bypass mode.
 
 Your own Claude Code settings apply to this session too: your user settings
 (`~/.claude/settings.json`) and the features they turn on, your user-level plugins and MCP
@@ -467,11 +482,13 @@ machine:
 
 `start` writes the start script again from `~/.doable/code-agent/<machine>/config.json`, with this
 release's command line. It does not use the `allow` list that 0.6.0 kept in that file: the session
-now uses every tool and command with no rule. Then `start` waits up to 2 minutes and tells you
-whether the session is connected. If it says that the session did not start to wait, read the end
-of `~/.doable/code-agent/<machine>/service.log` and `session.jsonl` there: for example, managed
-settings that turn off the bypass mode keep the session from its work (see
-[With nobody at the terminal](#with-nobody-at-the-terminal)). The session's prompt
+now uses every tool and command with no rule. Then `start` waits up to 2 minutes for the result of
+the session's first wait for a request, and tells you whether the session is connected. It also
+tells you when the session runs in another permission mode than the bypass mode (for example,
+managed settings turn the bypass mode off), and when it waits through another Doable MCP server
+than the plugin's (see [With nobody at the terminal](#with-nobody-at-the-terminal)). If it says
+that the session did not start to wait, read the end of
+`~/.doable/code-agent/<machine>/service.log` and `session.jsonl` there. The session's prompt
 (`~/.doable/code-agent/<machine>/prompt.md`) does not change. You can update before or after the
 Doable releases that add the tool and the test inbox: until then, a request names no test inbox,
 and the session says in the result that it could not read the mail. Stop a session that you
