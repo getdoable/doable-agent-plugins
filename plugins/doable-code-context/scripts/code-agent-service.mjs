@@ -1,18 +1,20 @@
 #!/usr/bin/env node
 
-// Runs the Doable code agent in the background on this machine: one serving session of Claude Code in the dontAsk
-// permission mode, started again when it stops (a plan limit, a crash), kept awake on a Mac, and started at login by
-// launchd on a Mac. A person runs `setup` (the README's "Always on"), then `status`, `stop`, `start` and `remove`.
-// `start` writes the start script again with the rules of the plugin release that runs it, so a plugin update, then
-// `stop` and `start`, gives the serving session the new release and its rules. Fixed code does these steps, not the
-// model: they must be the same on every machine.
+// Runs the Doable code agent in the background on this machine: one serving session of Claude Code in the bypass
+// permission mode (no permission check) with Claude in Chrome, started again when it stops (a plan limit, a crash),
+// kept awake on a Mac, and started at login by launchd on a Mac. A person runs `setup` (the README's "Always on"),
+// then `status`, `stop`, `start` and `remove`. `start` writes the start script again with the command line of the
+// plugin release that runs it, so a plugin update, then `stop` and `start`, gives the serving session the new release
+// and its command line. Fixed code does these steps, not the model: they must be the same on every machine.
 //
 // Usage:
-//   DOABLE_API_KEY=... node code-agent-service.mjs setup --folder DIR --machine NAME --prompt-file FILE [--allow RULE]... [--chrome]
+//   DOABLE_API_KEY=... node code-agent-service.mjs setup --folder DIR --machine NAME --prompt-file FILE
 //   node code-agent-service.mjs status|stop|start|remove --machine NAME
 //
-// `--chrome` starts the serving session with Claude in Chrome and allows its tools, so that the session can open a
-// page in this machine's Chrome, for example the link of a sign-up mail from the request's test inbox.
+// The serving session can use every tool with no permission check, and Claude in Chrome, so that it can open a page in
+// this machine's Chrome, for example the link of a sign-up mail from the request's test inbox. Only the rules of its
+// prompt and of the Skill keep it from a write to production. It cannot load one tool: Doable MCP's `ask_code_agent`,
+// with which a person's Claude Code asks a machine, so that the session cannot send a request to itself.
 //
 // For development, DOABLE_CODE_AGENT_PLUGIN_DIR at setup makes the serving session load the plugin from that folder
 // (`claude --plugin-dir`) in place of the installed plugin.
@@ -27,21 +29,11 @@ const MACHINE_NAME = /^[A-Za-z0-9._-]{1,64}$/;
 // An organization API key: the code agent tools refuse a personal key and a login token.
 const ORGANIZATION_KEY = /^sk-doable-(?!personal-)[A-Za-z0-9_-]{16,}$/;
 const ANY_DOABLE_KEY = /sk-doable-[A-Za-z0-9_-]+/;
-// The five rules that every serving session with nobody at the terminal needs (README, "With nobody at the terminal"):
-// the Skill, the three Doable MCP tools of a machine (the wait for a request, the update of a request, and the read of
-// the request's test inbox mail), and the wait after an error. They name the three tools, not the whole Doable MCP
-// server: a rule for the whole server would let the serving session call `ask_code_agent`, the tool with which a
-// person's Claude Code asks this machine.
-const BASE_RULES = [
-  "Skill(doable-code-context:doable-code-agent)",
-  "mcp__plugin_doable-code-context_doable__wait_for_code_agent_request",
-  "mcp__plugin_doable-code-context_doable__update_code_agent_request",
-  "mcp__plugin_doable-code-context_doable__read_code_agent_mail",
-  "Bash(sleep 20)",
-];
-// The rule for every tool of Claude in Chrome, which `--chrome` adds: a sign-up opens a page, types and clicks, and
-// dontAsk refuses each tool that no rule names, so a rule for one tool is not enough.
-const CHROME_RULE = "mcp__claude-in-chrome";
+// The one tool that the serving session cannot load (README, "With nobody at the terminal"): the tool with which a
+// person's Claude Code asks a machine. With it, the session could send a request to itself.
+const ASKING_TOOL = "mcp__plugin_doable-code-context_doable__ask_code_agent";
+// The options of plugin 0.6.0's setup that this release refuses: the session allows every tool and has Chrome on.
+const RETIRED_OPTIONS = ["--allow", "--chrome"];
 const RESTART_WAIT_S = 300;
 const LOG_MAX_BYTES = 20 * 1024 * 1024;
 // Plugin 0.3.0's policy file in the workspace. A session takes its rules from its prompt now, so setup deletes the
@@ -90,11 +82,8 @@ export function findClaude(env) {
   fail("Claude Code (`claude`) is not on PATH. Install it, sign in on the Claude plan, and run setup again.");
 }
 
-export function runScript({ dir, folder, claude, rules, path, wake, pluginDir = null, chrome = false }) {
-  const allowed = rules.map(shellQuote).join(" ");
+export function runScript({ dir, folder, claude, path, wake, pluginDir = null }) {
   const plugin = pluginDir ? `--plugin-dir ${shellQuote(pluginDir)} ` : "";
-  // After the permission mode, so that scriptEnvironment still reads the claude command and the plugin folder.
-  const chromeFlag = chrome ? "--chrome " : "";
   const wakeLock = wake ? "/usr/bin/caffeinate -i -s " : "";
   return `#!/bin/bash
 # Written by doable-code-context's code-agent-service.mjs. It serves Doable requests in ${folder}
@@ -114,7 +103,7 @@ while [ ! -e "$dir/stopped" ]; do
     mv -f "$dir/session.jsonl" "$dir/session.1.jsonl"
   fi
   echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) the serving session starts" >> "$dir/service.log"
-  ${wakeLock}${shellQuote(claude)} -p ${plugin}--permission-mode dontAsk ${chromeFlag}--output-format stream-json --verbose --allowedTools ${allowed} < "$dir/prompt.md" >> "$dir/session.jsonl" 2>&1
+  ${wakeLock}${shellQuote(claude)} -p ${plugin}--permission-mode bypassPermissions --chrome --disallowedTools ${shellQuote(ASKING_TOOL)} --output-format stream-json --verbose < "$dir/prompt.md" >> "$dir/session.jsonl" 2>&1
   echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) the serving session ended with code $?" >> "$dir/service.log"
   [ -e "$dir/stopped" ] && break
   sleep ${RESTART_WAIT_S}
@@ -137,7 +126,7 @@ export function launchdPlist({ machine, dir }) {
 `;
 }
 
-// What the start script runs with, besides the rules: setup takes it from its environment and keeps it in config.json.
+// What the start script runs with: setup takes it from its environment and keeps it in config.json.
 // `kept` holds the values that an older start script gives (scriptEnvironment): they win over the environment.
 function runEnvironment(env, kept = {}) {
   return {
@@ -157,12 +146,17 @@ function shellUnquote(quoted) {
 
 // What a start script that runScript wrote runs with: the PATH of its `export PATH=` line, and the claude command and
 // the development plugin folder of its session's command line. A value that the script does not hold is left out.
+// The permission mode after them is `dontAsk` in a start script of plugin 0.5.0 or 0.6.0, and `bypassPermissions` in
+// one of this release.
 function scriptEnvironment(script) {
   const kept = {};
   const path = script.match(new RegExp(`^export PATH=(${SHELL_QUOTED})$`, "m"));
   if (path) kept.path = shellUnquote(path[1]);
   const session = script.match(
-    new RegExp(`^\\s*(?:/usr/bin/caffeinate -i -s )?(${SHELL_QUOTED}) -p (?:--plugin-dir (${SHELL_QUOTED}) )?--permission-mode dontAsk `, "m"),
+    new RegExp(
+      `^\\s*(?:/usr/bin/caffeinate -i -s )?(${SHELL_QUOTED}) -p (?:--plugin-dir (${SHELL_QUOTED}) )?--permission-mode (?:dontAsk|bypassPermissions) `,
+      "m",
+    ),
   );
   if (session) {
     kept.claude = shellUnquote(session[1]);
@@ -171,18 +165,16 @@ function scriptEnvironment(script) {
   return kept;
 }
 
-// The start script, from config.json and this release's BASE_RULES. A config.json of an older setup has no `chrome`.
+// The start script, from config.json and this release's command line. A config.json of plugin 0.5.0 or 0.6.0 also
+// holds the person's `allow` list: this release does not use it, because the session allows every tool.
 function writeRunScript(dir, config) {
-  const chrome = config.chrome === true;
   const script = runScript({
     dir,
     folder: config.folder,
     claude: config.claude,
-    rules: [...BASE_RULES, ...(chrome ? [CHROME_RULE] : []), ...config.allow],
     path: config.path,
     wake: config.wake,
     pluginDir: config.pluginDir,
-    chrome,
   });
   writeFileSync(join(dir, "run.sh"), script, { mode: 0o700 });
   chmodSync(join(dir, "run.sh"), 0o700);
@@ -193,9 +185,9 @@ function writeConfig(dir, config) {
 }
 
 // config.json of a machine that setup set up, and whether plugin 0.5.0's setup wrote it. That setup kept only the
-// folder, the machine and the person's rules. It wrote the rest into the start script, from the person's terminal, and
-// the shell that runs start can have another PATH (for example over SSH). So the rest comes from that start script,
-// else from this environment, and is kept from now on.
+// folder, the machine and the person's allow rules (which this release does not use). It wrote the rest into the start
+// script, from the person's terminal, and the shell that runs start can have another PATH (for example over SSH). So
+// the rest comes from that start script, else from this environment, and is kept from now on.
 function savedConfig(dir, env) {
   const config = JSON.parse(readFileSync(join(dir, "config.json"), "utf8"));
   if ("claude" in config) return { config, fromOlderSetup: false };
@@ -209,6 +201,13 @@ function savedConfig(dir, env) {
 // The sentence of the README's start prompt that lets a new test login's password go in the result. A 0.5.0 prompt's
 // secret rule has no such exception, so its session cannot hand a new login to Doable.
 const PASSWORD_EXCEPTION = "The one exception: the password of a new test login goes in that login of the result.";
+
+// What setup and start tell the person about the session's permissions and its browser (README, "With nobody at the
+// terminal" and "A browser for a mail's link"). Nobody answers a prompt of the Claude in Chrome extension.
+const NO_PERMISSION_CHECK_NOTE =
+  "It runs in the bypass permission mode: it can use every tool and command of this machine with no prompt, and only the rules of its prompt and of the Skill keep it from a write to production.";
+const CHROME_NOTE =
+  "It uses Claude in Chrome: keep Chrome open on this machine with the Claude in Chrome extension connected, and let the extension act on the test sites without asking.";
 
 function plistPath(env, machine) {
   return join(env.DOABLE_LAUNCH_AGENTS_DIR || join(homedir(), "Library", "LaunchAgents"), `${launchdLabel(machine)}.plist`);
@@ -262,7 +261,7 @@ function waitForFirstWait(env, dir) {
 }
 
 export function setup(options, env, print = console.log) {
-  const { folder, machine, promptFile, allow = [], chrome = false } = options;
+  const { folder, machine, promptFile } = options;
   checkMachine(machine);
   const key = env.DOABLE_API_KEY || "";
   if (!ORGANIZATION_KEY.test(key)) {
@@ -275,9 +274,6 @@ export function setup(options, env, print = console.log) {
   const prompt = readFileSync(promptFile, "utf8").trim();
   if (!prompt) fail("The prompt file is empty.");
   if (ANY_DOABLE_KEY.test(prompt)) fail("The prompt file holds a Doable API key. Take the key out: setup keeps it in its own file.");
-  for (const rule of allow) {
-    if (!rule || /[\n\r]/.test(rule)) fail(`--allow "${rule}" is not one rule.`);
-  }
 
   const dir = serviceDir(env, machine);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
@@ -286,7 +282,7 @@ export function setup(options, env, print = console.log) {
   chmodSync(join(dir, "env"), 0o600);
   writeFileSync(join(dir, "prompt.md"), `${prompt}\n`, { mode: 0o600 });
   const folderPath = resolve(folder);
-  const config = { folder: folderPath, machine, allow, chrome: chrome === true, ...runEnvironment(env) };
+  const config = { folder: folderPath, machine, ...runEnvironment(env) };
   writeRunScript(dir, config);
   writeConfig(dir, config);
   if (useLaunchd(env)) {
@@ -303,9 +299,8 @@ export function setup(options, env, print = console.log) {
   const how = launch(env, machine, dir);
   const connected = env.DOABLE_CODE_AGENT_NO_LAUNCH ? null : waitForFirstWait(env, dir);
   print(`The Doable code agent "${machine}" serves ${folderPath}: ${how}.`);
-  if (config.chrome) {
-    print("It uses Claude in Chrome: keep Chrome open on this machine, with the Claude in Chrome extension installed.");
-  }
+  print(NO_PERMISSION_CHECK_NOTE);
+  print(CHROME_NOTE);
   if (connected === true) print("It is connected: it waits for Doable's requests.");
   if (connected === false) print(`It did not start to wait in 2 minutes. Read ${join(dir, "session.jsonl")} and ${join(dir, "service.log")}.`);
   print(`Its files are in ${dir} (the key is in ${join(dir, "env")}, readable only by you).`);
@@ -338,6 +333,7 @@ export function start(machine, env, print = console.log) {
   const { config, fromOlderSetup } = savedConfig(dir, env);
   writeRunScript(dir, config);
   print(`The code agent "${machine}": ${launch(env, machine, dir)}.`);
+  print(CHROME_NOTE);
   if (fromOlderSetup) {
     print(
       `If the secret rule in ${join(dir, "prompt.md")} has no exception for a new test login's password, add this sentence to it, then run stop and start again: "${PASSWORD_EXCEPTION}"`,
@@ -371,20 +367,14 @@ export function remove(machine, env, print = console.log) {
 
 export function parseArgs(argv) {
   const [command, ...rest] = argv;
-  const options = { allow: [], chrome: false };
+  const options = {};
   let i = 0;
   while (i < rest.length) {
     const name = rest[i];
-    // The one option with no value.
-    if (name === "--chrome") {
-      options.chrome = true;
-      i += 1;
-      continue;
-    }
+    if (RETIRED_OPTIONS.includes(name)) fail(`${name} is not needed: this release allows every tool and has Chrome on.`);
     const value = rest[i + 1];
     if (value === undefined) fail(`${name} needs a value.`);
-    if (name === "--allow") options.allow.push(value);
-    else if (name === "--folder") options.folder = value;
+    if (name === "--folder") options.folder = value;
     else if (name === "--machine") options.machine = value;
     else if (name === "--prompt-file") options.promptFile = value;
     else fail(`Unknown option ${name}.`);
