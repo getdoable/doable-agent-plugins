@@ -9,6 +9,83 @@ All notable changes to Doable Agent Plugins are documented here.
 - Verify template integrity and syntax in CI. Local plugin version remains 0.2.10.
 - Clarify the GitHub integration's repository metadata and model-provider boundary.
 
+## [0.6.1] - 2026-11-23
+
+A machine reads its request's test inbox, so that it can finish a sign-up that a test environment
+sends by email, and the serving session runs with no permission check and with Claude in Chrome.
+The session may read production when a request's goal needs it, and never writes to it.
+Update each Always on machine with stop, the plugin update, and start, with Chrome open (README,
+"Update from 0.6.0"); the session's prompt does not change by itself, and a 0.6.0 prompt still
+tells the session not to call production.
+
+### Added
+
+- `doable-code-agent` uses a third Doable MCP tool of a machine, `read_code_agent_mail`. When a
+  test environment gives a new user its password only through a link or a code in an email, the
+  session invites the user at a `+` address of the request's `test_inbox`, reads the mail with
+  the tool (`wait_seconds` up to 60, again for about 5 minutes), opens the link in a new tab of
+  the machine's Chrome or uses the code, signs in once, and returns the login with its password.
+  The link and the code go in no progress text, question, result or file. When a request names no
+  test inbox (`test_inbox` is `null` or not there: the organization has none, or Doable is older
+  than this release, or the request is older than it), the session makes no such login and says
+  in the result that the request named no test inbox, and that a person can ask the Doable team. On Doable's `no_test_inbox`, it gives Doable's reason; on `not_test_inbox`, it
+  reads a `+` address of the test inbox. The skill's rule that forbids opening a link that acts
+  when it opens has one exception: the link of such a mail.
+- The skill's `allowed-tools` names the tool under both server names.
+- `doable-code-agent`: the session's browser is Claude in Chrome. It opens a mail's link in a new
+  tab of this machine's Chrome, and when Chrome is not open or the extension is not connected, it
+  says so in the result. It checks that the browser answers before it invites a user, signs out
+  of the test environment's app before it opens the link, and signs the new login out after its
+  check. A session with no browser tools says that a person must start it with `claude --chrome`.
+  The session uses Doable MCP only through the three tools of a machine, and calls none of its
+  other tools, which are for people, also the ones that only read. The one hard rule for
+  permissions is never to write to a production system; every other tool and command that a
+  request's work needs is allowed.
+
+### Changed
+
+- `doable-code-agent`: the rule "Never touch production" is now "Never write to production". The
+  session may read production (a page, a `GET` request, a read-only query, a log) when the goal
+  needs a fact that the repositories and the test environments do not give, with the access that
+  the machine already has. It reads only the records that the goal needs, says what it read and
+  when, and puts no real person's data in a result. An action that it cannot tell from a write is a
+  write. It still starts the app and runs the repository's tests only on a local copy that is a
+  test environment. The start prompt's first rule, PRIVACY and TESTING (scenarios 40, 49, 63 and
+  64) say the same.
+- `scripts/code-agent-service.mjs`: the serving session runs with
+  `--permission-mode bypassPermissions --chrome --disallowedTools
+  'mcp__plugin_doable-code-context_doable__ask_code_agent' 'mcp__doable__ask_code_agent'`: every
+  tool with no permission check, Claude in Chrome, and no `ask_code_agent` under the plugin's
+  server name or under `doable` (a user-scoped or project-scoped Doable MCP server), so that the
+  session cannot send a request to itself with it.
+  `start` writes this command line into the start script, also on a machine that 0.6.0 set up.
+  Then, as the setup does, it waits up to 2 minutes for the result of the session's first wait
+  for a request, and says whether the session is connected: a wait call that Claude Code or
+  Doable refused does not count. Both also say when the session runs in another permission mode
+  than the bypass mode, and when it waits through another Doable MCP server than the plugin's (a
+  server of the person's settings with the plugin server's address takes the place of the
+  plugin's server, with its own key and machine header). Both read only the session's output
+  after the launch, and on a machine without launchd they refuse while the session runs, so that
+  a call of an earlier session does not count.
+- `scripts/code-agent-service.mjs status`: on a machine without launchd, it says `not running`
+  when the start script does not run (for example after a reboot), not `on`.
+- README: the sign-up by email, the new command for a session with nobody at the terminal and what
+  the bypass mode lets it do, that the serving session must have no other Doable MCP server than
+  the plugin's, managed settings that turn the bypass mode off, "A browser for a
+  mail's link" (keep Chrome open with the extension connected, let it act on the test sites
+  without asking, and keep its profile signed out of the test environments' apps), a session by
+  hand started with `claude --chrome`, and "Update from 0.6.0" (stop, the plugin update, start). The start prompt's
+  first rule says "Never write to production". PRIVACY and TESTING (scenarios 49, 56, 60, 65, 66
+  and 67) say the same.
+
+### Removed
+
+- The serving session's allow rules (`--allowedTools` in the `dontAsk` mode) and the setup's
+  `--allow` option. Setup and `start` refuse `--allow` and `--chrome` with a line that this
+  release allows every tool and has Chrome on. `start` does not use the `allow` list of a 0.6.0
+  `config.json`.
+- The skill's texts about allow rules and refusals in the `dontAsk` mode.
+
 ## [0.6.0] - 2026-11-20
 
 Two Doable MCP tools serve requests, and a person's own Claude Code can ask the code agent too.
