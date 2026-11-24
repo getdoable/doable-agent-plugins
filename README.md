@@ -451,8 +451,9 @@ machine's Chrome holds. Only the rules of the start prompt and of the Skill limi
 there: they let it act on the test environments, and read production and the team's work tools in
 which Chrome is signed in as you (the issue tracker, docs, the wiki, shared chat channels), as
 you. They let it change nothing in production, and nothing in the work tools unless a line of
-yours names that action. A result leaves out what a source says about people, and all that comes
-from a private message, mail or a page with restricted access.
+yours names that action. From production, a result holds no real person's data. From the work
+tools, it leaves out what a source says about people, and all that comes from a private message,
+mail or a page with restricted access.
 
 ### Update from 0.6.0
 
