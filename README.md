@@ -462,7 +462,11 @@ reads the mail of a request's test inbox. It also runs the session with no permi
 with Claude in Chrome (see [With nobody at the terminal](#with-nobody-at-the-terminal)): the
 allow rules of 0.6.0 and the setup's `--allow` option are gone. The setup and `start` refuse
 `--allow`, and also `--chrome`, because the session always has Chrome.
-A 0.6.0 session goes on serving requests, but it cannot read that mail. On each Always on
+A session that is open while the Doable MCP release with that tool deploys, of 0.6.0 or 0.6.1,
+keeps the tools' old output schemas. Claude Code then refuses the answer of each request that it
+takes, Doable still shows the machine as connected, and each such request ends lost after about 30
+minutes. So stop each session before that release, and start it 2 minutes after it. A 0.6.0 session
+that starts after it goes on serving requests, but it cannot read that mail. On each Always on
 machine:
 
 1. Stop the session:
@@ -499,8 +503,9 @@ that the session did not start to wait, read the end of
 session not to call production, and a rule of the prompt joins the Skill's rules: to let the
 session read production, replace that line with the first rule of the
 [start prompt](#the-start-prompt) before step 3. You can update before or after the
-Doable releases that add the tool and the test inbox: until then, a request names no test inbox,
-and the session says in the result that it could not read the mail. Stop a session that you
+Doable releases that add the tool and the test inbox, but stop and start a session that is open
+across the Doable MCP release: until the releases, a request names no test inbox, and the session
+says in the result that it could not read the mail. Stop a session that you
 started by hand, update the plugin, and start it again, with the command of
 [With nobody at the terminal](#with-nobody-at-the-terminal) when nobody watches it.
 
