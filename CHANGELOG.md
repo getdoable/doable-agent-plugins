@@ -13,8 +13,10 @@ All notable changes to Doable Agent Plugins are documented here.
 
 A machine reads its request's test inbox, so that it can finish a sign-up that a test environment
 sends by email, and the serving session runs with no permission check and with Claude in Chrome.
+The session may read production when a request's goal needs it, and never writes to it.
 Update each Always on machine with stop, the plugin update, and start, with Chrome open (README,
-"Update from 0.6.0"); the session's prompt does not change.
+"Update from 0.6.0"); the session's prompt does not change by itself, and a 0.6.0 prompt still
+tells the session not to call production.
 
 ### Added
 
@@ -42,6 +44,14 @@ Update each Always on machine with stop, the plugin update, and start, with Chro
 
 ### Changed
 
+- `doable-code-agent`: the rule "Never touch production" is now "Never write to production". The
+  session may read production (a page, a `GET` request, a read-only query, a log) when the goal
+  needs a fact that the repositories and the test environments do not give, with the access that
+  the machine already has. It reads only the records that the goal needs, says what it read and
+  when, and puts no real person's data in a result. An action that it cannot tell from a write is a
+  write. It still starts the app and runs the repository's tests only on a local copy that is a
+  test environment. The start prompt's first rule, PRIVACY and TESTING (scenarios 40, 49, 63 and
+  64) say the same.
 - `scripts/code-agent-service.mjs`: the serving session runs with
   `--permission-mode bypassPermissions --chrome --disallowedTools
   'mcp__plugin_doable-code-context_doable__ask_code_agent' 'mcp__doable__ask_code_agent'`: every
