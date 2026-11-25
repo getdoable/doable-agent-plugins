@@ -653,10 +653,10 @@ for (const requiredCodeAgentSetup of [
   // this release: an update alone leaves the running session and its start script on the 0.6.0 rules.
   "### Update from 0.6.0",
   "It does not use the `allow` list that 0.6.0 kept in that file",
-  // Nobody at the terminal answers a prompt of the Claude in Chrome extension.
   "### A browser for a mail's link",
   "Keep Chrome open, with the Claude in Chrome extension installed and connected.",
-  "Set the extension to act on the test environments' sites without asking.",
+  // In the bypass mode, Claude Code tells the Claude in Chrome extension not to ask, so the person sets nothing there.
+  "You do not need to allow sites in the extension.",
   // Nobody answers when Claude Code asks which of several browsers to use, and with one connected it asks nobody: the
   // person chooses this machine's Chrome, and the session uses no other.
   "- Choose this machine's Chrome in Claude Code one time",

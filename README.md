@@ -444,8 +444,11 @@ Chrome, with Claude in Chrome. The Always on setup always starts the session wit
   keeps the choice for each later session of that user, yours too. Choose it again after you
   install the extension again, use it in another Chrome profile, or choose another Chrome in a
   session of your own. If the code agent's session runs, stop and start it.
-- Set the extension to act on the test environments' sites without asking. Nobody answers the
-  extension's prompt, so the session cannot act on a site that asks.
+- You do not need to allow sites in the extension. In the bypass permission mode, Claude Code tells
+  the extension not to ask before it acts on a site. In another mode, Claude Code asks you at the
+  terminal. Two checks stay in the bypass mode, and nobody answers them: Claude Code can review a
+  browser call with its safety classifier and refuse it, and the extension asks about some kinds of
+  sites or blocks them. The session then says in the result what it could not do.
 - Do not sign in to the test environments' apps yourself in the Chrome profile that the extension
   acts in, for example as your own admin: use another profile for that. A sign-up link opens
   under the sign-in that Chrome holds for its site. The session signs out of a test environment's

@@ -75,7 +75,7 @@ function sessionLine(claudeQuoted) {
 const SETUP_CLAUDE = "'\\/opt\\/claude'\\\\''s bin\\/claude'";
 const NOT_STARTED = 'The code agent "mac-mini-1": not started (DOABLE_CODE_AGENT_NO_LAUNCH is set).';
 const KEEP_CHROME_OPEN =
-  "It uses Claude in Chrome: keep Chrome open on this machine with the Claude in Chrome extension connected, and let the extension act on the test sites without asking.";
+  "It uses Claude in Chrome: keep Chrome open on this machine with the Claude in Chrome extension connected.";
 // The note of a machine on which the person chose no Chrome in Claude Code.
 const CHOOSE_CHROME =
   "close Chrome on your other computers, run `claude --chrome`, then /chrome, \"Select browser\", and choose this machine's Chrome. Then run stop and start.";

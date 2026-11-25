@@ -241,11 +241,12 @@ function savedConfig(dir, env) {
 const PASSWORD_EXCEPTION = "The one exception: the password of a new test login goes in that login of the result.";
 
 // What setup and start tell the person about the session's permissions and its browser (README, "With nobody at the
-// terminal" and "A browser for a mail's link"). Nobody answers a prompt of the Claude in Chrome extension.
+// terminal" and "A browser for a mail's link"). The person allows no site in the Claude in Chrome extension: in the
+// bypass mode, Claude Code tells the extension not to ask.
 const NO_PERMISSION_CHECK_NOTE =
   "It runs in the bypass permission mode: it can use every tool and command of this machine with no prompt, and only the rules of its prompt and of the Skill keep it from a write to production.";
 const CHROME_NOTE =
-  "It uses Claude in Chrome: keep Chrome open on this machine with the Claude in Chrome extension connected, and let the extension act on the test sites without asking.";
+  "It uses Claude in Chrome: keep Chrome open on this machine with the Claude in Chrome extension connected.";
 
 // The Chrome that the person chose in Claude Code (`/chrome`, "Select browser"), or null when the person chose none.
 // Claude Code keeps the choice in its config file, and each later session uses that Chrome when it is connected. When it
