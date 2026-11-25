@@ -41,6 +41,12 @@ choice, the session uses no browser.
   before, it ended with no output.
 - PRIVACY says which Chrome the session may use, and TESTING scenarios 60 and 65 to 67 say the same.
 
+### Fixed
+
+- 2026-11-25, with no new version: the README and the line that the setup and `start` print no longer
+  tell the person to let the Claude in Chrome extension act on the test sites without asking. In the
+  bypass permission mode, Claude Code tells the extension not to ask.
+
 ### Known limit
 
 - The session cannot tell this machine's Chrome from one on another computer with the same operating
