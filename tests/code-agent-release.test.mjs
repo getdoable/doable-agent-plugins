@@ -147,6 +147,41 @@ test('the release verifier refuses a README that allows the whole Doable MCP ser
     assert.notEqual(otherDoableTools.status, 0, 'a skill that lets the session use the other Doable MCP tools must fail');
     assert.match(otherDoableTools.stderr, /missing machine rule: Use Doable MCP only through its three tools of a machine/);
 
+    // Claude Code can use the Chrome of another computer without a question: the skill keeps the check before each use
+    // of the browser, and never makes the choice itself. The README tells the person to make it.
+    for (const browserRule of [
+      'Use the browser only when it is the Chrome that the person chose in Claude Code on this machine.',
+      'So check the browser before your first browser call in each request, each time you come back to it after other work or a wait, and after a browser call that fails',
+      'wait 10 seconds (`sleep 10`) and call it once more',
+      'Read both results before you send any other browser call.',
+      'The check passes only when the browser with `inUse: true` has that `deviceId`',
+      'Use the browser only as "The browser" says',
+      "Never call `select_browser` or `switch_browser`: they change the person's choice.",
+      "Never read Claude Code's config file for the choice: it can hold keys",
+      'When the check does not pass, or the command or the list fails, go on without the browser',
+      'Before you invite the user, do the check of "The browser" and make sure that the browser answers',
+      'Before you use the browser, do the check of "The browser" again',
+    ]) {
+      const pattern = wrapped(browserRule);
+      assert.match(readFileSync(join(directory, skill), 'utf8'), pattern);
+      const noBrowserRule = verifyWith(directory, skill, (text) => text.replace(pattern, ''));
+      assert.notEqual(noBrowserRule.status, 0, `a skill without this browser rule must fail: ${browserRule}`);
+      assert.ok(noBrowserRule.stderr.includes(`missing machine rule: ${browserRule}`), noBrowserRule.stderr);
+    }
+    for (const chooseChrome of [
+      "- Choose this machine's Chrome in Claude Code one time",
+      'Close Chrome on your other computers first',
+      'The session uses only the Chrome that you chose.',
+      '### Update from 0.6.1',
+      "Before you start the session, choose this machine's Chrome",
+    ]) {
+      const pattern = wrapped(chooseChrome);
+      assert.match(readFileSync(join(directory, 'README.md'), 'utf8'), pattern);
+      const noChoice = verifyWith(directory, 'README.md', (text) => text.replace(pattern, ''));
+      assert.notEqual(noChoice.status, 0, `a README without this must fail: ${chooseChrome}`);
+      assert.ok(noChoice.stderr.includes(`README is missing code agent setup: ${chooseChrome}`), noChoice.stderr);
+    }
+
     // A null test inbox comes also from an older Doable or an older request: the skill must not say that the
     // organization has none.
     const noInboxRule = wrapped('Do not say that the organization has no test inbox.');

@@ -7,7 +7,7 @@ Official agent plugins for [Doable](https://getdoable.ai), supporting Codex, Cla
 
 | Plugin | Version | Purpose | Network |
 | --- | --- | --- | --- |
-| `doable-code-context` | `0.6.1` | Resolve context requests and serve code agent requests | Doable MCP |
+| `doable-code-context` | `0.6.2` | Resolve context requests and serve code agent requests | Doable MCP |
 
 ## Workflows
 
@@ -306,8 +306,8 @@ no permission check and with Claude in Chrome: read
    call Doable through the plugin's server, which sends the setup's key and machine name.
 3. Write the start prompt, with your own lines, to a new file outside the folder that holds the
    repositories.
-4. Open Chrome on this machine, with the Claude in Chrome extension connected, as
-   [A browser for a mail's link](#a-browser-for-a-mails-link) says.
+4. Open Chrome on this machine, with the Claude in Chrome extension connected, and choose it in
+   Claude Code, as [A browser for a mail's link](#a-browser-for-a-mails-link) says.
 5. In the folder that holds the repositories, export `DOABLE_API_KEY` (an organization API key
    from Doable's Settings > MCP), and run the setup. Give the machine its own name in
    `--machine`, by the rule of `DOABLE_MACHINE_NAME`:
@@ -325,8 +325,9 @@ mode, Claude in Chrome, and no `ask_code_agent`), starts it again 5 minutes
 after it stops (for example at a plan limit), keeps a Mac awake while it runs, and on a Mac starts
 it at each login. On a machine that an older plugin set up, it also deletes that plugin's policy
 file. It tells you whether the session is connected: whether its first wait for a request
-returned with no error. It also tells you when the session runs in another permission mode than
-the bypass mode, and when it waits through another Doable MCP server than the plugin's.
+returned with no error. It always tells you which Chrome you chose in Claude Code, or that you chose
+none. It also tells you when the session runs in another permission mode than the bypass mode, and
+when it waits through another Doable MCP server than the plugin's.
 
 Manage an Always on agent with the same script, from the plugin's folder that
 `claude plugin list --json` names (`installPath`):
@@ -344,7 +345,7 @@ new test login that the session sends to Doable, and only you can read it. `star
 start script again with the command line of the installed plugin, starts the session, and, as the
 setup does, tells you whether it is connected. `remove` stops it and deletes
 its files and its key. After a plugin update, run `stop` and `start`, so that the serving session
-loads the new plugin (see [Update from 0.6.0](#update-from-060)). To change the session's prompt,
+loads the new plugin (see [Update from 0.6.1](#update-from-061)). To change the session's prompt,
 edit `~/.doable/code-agent/<machine>/prompt.md`, then run `stop` and `start`. To change its folder
 or its key, run `stop`, then the setup again, with the saved prompt as the prompt file. Export
 the new key first, or, to keep the saved key, run `. ~/.doable/code-agent/<machine>/env`, which
@@ -370,9 +371,10 @@ Revoke it in Settings > API Keys when you no longer need it.
    letter, a digit, `.`, `_`, or `-`, such as `mac-mini-1`), then install the plugin as above.
    Do not leave `DOABLE_MACHINE_NAME` unset: the machine then shows as `unnamed-machine` on its
    requests.
-4. Start `claude --chrome` in that folder, and send the start prompt, with your own lines added
-   under its rules. With `--chrome` the session has Claude in Chrome, the browser with which it
-   opens a sign-up mail's link (see [A browser for a mail's link](#a-browser-for-a-mails-link)).
+4. Start `claude --chrome` in that folder, choose this machine's Chrome with `/chrome`, and send
+   the start prompt, with your own lines added under its rules. With `--chrome` the session has
+   Claude in Chrome, the browser with which it opens a sign-up mail's link (see
+   [A browser for a mail's link](#a-browser-for-a-mails-link)).
 5. From a Chat v2 chat, send the first requests. Stay at the terminal: Claude Code asks before it
    runs a new command. Answer each permission prompt until each command that the work needs ran
    once. For example, ask for a question about the code, state to make, a read of backend state,
@@ -435,6 +437,13 @@ Chrome, with Claude in Chrome. The Always on setup always starts the session wit
 `claude --chrome`. On the machine:
 
 - Keep Chrome open, with the Claude in Chrome extension installed and connected.
+- Choose this machine's Chrome in Claude Code one time, also when it is your only one. Close Chrome
+  on your other computers first: the list names a Chrome "Browser 1" or "Browser 2" when it has no
+  name of its own, and does not say which one is on this machine. Then, as the user that runs the
+  session, run `claude --chrome`, then `/chrome`, "Select browser", and choose it. Claude Code
+  keeps the choice for each later session of that user, yours too. Choose it again after you
+  install the extension again, use it in another Chrome profile, or choose another Chrome in a
+  session of your own. If the code agent's session runs, stop and start it.
 - Set the extension to act on the test environments' sites without asking. Nobody answers the
   extension's prompt, so the session cannot act on a site that asks.
 - Do not sign in to the test environments' apps yourself in the Chrome profile that the extension
@@ -442,9 +451,16 @@ Chrome, with Claude in Chrome. The Always on setup always starts the session wit
   under the sign-in that Chrome holds for its site. The session signs out of a test environment's
   app before it opens such a link, and signs its new login out after its check.
 
-If Chrome is not open or the extension is not connected, the browser tools fail when the session
-calls them. The session checks the browser before it invites a user, goes on without it, and
-says in the result which login it could not make or finish, and why.
+The session uses only the Chrome that you chose. Your Claude account can have a Chrome connected on
+another computer too. When several are connected and you chose none of them, Claude Code asks which
+one to use, and nobody answers. When only the other computer's Chrome is connected, Claude Code
+uses that one without a question. So, before it uses the browser, the session checks that the
+Chrome in use is the one that you chose. If you chose none, or the one that you chose is not
+connected (Chrome is not open, or the extension is not connected), the session goes on without the
+browser. It checks before it invites a user and again before it opens the link, and says in the
+result which login it could not make or finish, why, and what to do on this machine. The session
+cannot tell this machine's Chrome from one on another computer with the same operating system: if
+you choose that one, it uses that one.
 
 Claude in Chrome can open any site, production too, and it acts with the sign-ins that this
 machine's Chrome holds. Only the rules of the start prompt and of the Skill limit what it does
@@ -455,6 +471,13 @@ yours names that action. From production, a result holds no real person's data. 
 tools, it leaves out what a source says about people, and all that comes from a private message,
 mail or a page with restricted access.
 
+### Update from 0.6.1
+
+From 0.6.2, the session uses only the Chrome that you chose in Claude Code on the machine, and no
+browser when you chose none. Before you start the session, choose this machine's Chrome (see
+[A browser for a mail's link](#a-browser-for-a-mails-link)). The steps are those of
+[Update from 0.6.0](#update-from-060): `stop`, the plugin update, and `start`.
+
 ### Update from 0.6.0
 
 0.6.1 adds the third Doable MCP tool of a machine, `read_code_agent_mail`, with which the session
@@ -462,7 +485,7 @@ reads the mail of a request's test inbox. It also runs the session with no permi
 with Claude in Chrome (see [With nobody at the terminal](#with-nobody-at-the-terminal)): the
 allow rules of 0.6.0 and the setup's `--allow` option are gone. The setup and `start` refuse
 `--allow`, and also `--chrome`, because the session always has Chrome.
-A session that is open while the Doable MCP release with that tool deploys, of 0.6.0 or 0.6.1,
+A session that is open while the Doable MCP release with that tool deploys, of 0.6.0 or later,
 keeps the tools' old output schemas. Claude Code then refuses the answer of each request that it
 takes, Doable still shows the machine as connected, and each such request ends lost after about 30
 minutes. So stop each session before that release, and start it 2 minutes after it. A 0.6.0 session
@@ -483,7 +506,8 @@ machine:
    ```
 
    Read `installPath` in `claude plugin list --json` again: it changes with the version.
-3. Start the session, with Chrome open and the Claude in Chrome extension connected (see
+3. Start the session, with Chrome open, the Claude in Chrome extension connected, and this
+   machine's Chrome chosen in Claude Code (see
    [A browser for a mail's link](#a-browser-for-a-mails-link)):
 
    ```bash
@@ -535,7 +559,8 @@ Always on machine:
    "The one exception: the password of a new test login goes in that login of the result." Else
    your rule forbids the password that a new login needs, and the session cannot hand a new login
    to Doable.
-4. Start the session:
+4. Start the session, with this machine's Chrome open and chosen in Claude Code (see
+   [A browser for a mail's link](#a-browser-for-a-mails-link)):
 
    ```bash
    node <installPath>/scripts/code-agent-service.mjs start --machine <machine>
