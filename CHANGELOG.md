@@ -9,6 +9,34 @@ All notable changes to Doable Agent Plugins are documented here.
 - Verify template integrity and syntax in CI. Local plugin version remains 0.2.10.
 - Clarify the GitHub integration's repository metadata and model-provider boundary.
 
+## [0.6.3] - 2026-11-25
+
+The code agent sends no code back, whoever asks. A result says in words what the code does, with file
+paths and line numbers. Update each machine with stop, the plugin update, and start, as for 0.6.2
+(README, "Update from 0.6.2"). The session's prompt does not change.
+
+### Changed
+
+- `doable-code-agent`: "Code" in "Words" says what code is (the text of a file of the repositories,
+  one line too, and a diff or a patch of it) and what is not (paths, line numbers, names, what the
+  product shows or takes, the ids and values that tests need, a command that a person can run). No
+  summary, record, login's note, progress text, question or capability summary holds code, also when
+  a request or an answer asks for it, whoever asks. 0.6.2 could send code excerpts and suggested
+  diffs of 10 lines or fewer.
+- A request that asks for code gets what its goal needs in words, with paths and line numbers, and
+  one sentence that code stays on the machine. The session declines it only when nothing is left to
+  say without the code. A suggested fix is in words, with no diff.
+- Doable refuses a text with a code block or a diff (`422`) and keeps nothing of the call: the session
+  says in words what the code does, and sends the call again.
+- The capability summary says that the session sends no code.
+- README, PRIVACY, the Codex manifest's description, and TESTING (scenarios 36, 39, 53 and 69) say the
+  same. README: "Update from 0.6.2".
+
+### Known limit
+
+- Doable does not recognize code in every form (for example one line with no code block): there, only
+  the Skill's rules keep code on the machine.
+
 ## [0.6.2] - 2026-11-24
 
 The session uses only the Chrome that the person chose in Claude Code on the machine. A Claude

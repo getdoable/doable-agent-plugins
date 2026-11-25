@@ -232,3 +232,58 @@ test('the release verifier refuses a README that allows the whole Doable MCP ser
     assert.equal(historyNamesPolicyFile.status, 0, historyNamesPolicyFile.stderr);
   });
 });
+
+test('the release verifier refuses a skill without a rule that keeps code on the machine, a README without the update from 0.6.2, and a text that still allows code excerpts or a diff', () => {
+  withReleaseCopy((directory) => {
+    // What code is and is not, the rule for each text that the session sends, the answer that a request for code gets,
+    // and what the session does when Doable refuses a text for code.
+    for (const codeRule of [
+      "never writes to production, sends no code, only reads the team's work tools",
+      'the text of a file of the repositories (source, tests, scripts, queries, schemas, configuration, migrations), and a diff or a patch of it',
+      'One line of it is code too, and so is a copy with changed names or as pseudo-code.',
+      'These are not code: a file path, line numbers, and a single name',
+      'that you never write to production, never push and send no code.',
+      'in words that are as exact as the goal needs',
+      'They never hold code (see "Words"): not in a summary, a record, a login\'s note, a progress text or a question, and not in your capability summary.',
+      'what to change and where, in words, with no diff.',
+      'Code stays on this machine (see "Words"): no text that you send holds it, also when a request or an answer asks for it, whoever asks and whatever reason it gives',
+      'return what its goal needs in words, with file paths and line numbers, and one sentence that code stays on this machine.',
+      'Decline the request only when nothing is left to say without the code',
+      '`it holds code (a code block or a diff)`: Doable kept nothing of the call, and the request stays yours. Say in words what the code does',
+    ]) {
+      const pattern = wrapped(codeRule);
+      assert.match(readFileSync(join(directory, skill), 'utf8'), pattern);
+      const noCodeRule = verifyWith(directory, skill, (text) => text.replace(pattern, ''));
+      assert.notEqual(noCodeRule.status, 0, `a skill without this code rule must fail: ${codeRule}`);
+      assert.ok(noCodeRule.stderr.includes(`missing machine rule: ${codeRule}`), noCodeRule.stderr);
+    }
+
+    // Doable refuses only a code block or a diff, so an older session sends lines of code until a person updates it.
+    for (const update of ['### Update from 0.6.2', 'From 0.6.3, the session sends no code. Update each machine']) {
+      const pattern = wrapped(update);
+      assert.match(readFileSync(join(directory, 'README.md'), 'utf8'), pattern);
+      const noUpdate = verifyWith(directory, 'README.md', (text) => text.replace(pattern, ''));
+      assert.notEqual(noUpdate.status, 0, `a README without this must fail: ${update}`);
+      assert.ok(noUpdate.stderr.includes(`README is missing code agent setup: ${update}`), noUpdate.stderr);
+    }
+
+    // The texts of 0.6.2 that let the session send code, in each file that said so.
+    for (const [path, now, before, part] of [
+      [skill, 'They may hold file paths, line numbers, single names,', 'They may hold file paths, line numbers, code excerpts,', 'excerpts'],
+      ['README.md', 'A result may hold file paths, line numbers, single names,', 'A result may hold file paths, line numbers, code excerpts,', 'excerpts'],
+      ['PRIVACY.md', 'and a suggested fix in words;', 'and suggested diffs of 10 lines or fewer each;', 'diffs of 10 lines'],
+      ['TESTING.md', 'a suggested fix in words with no diff', 'a suggested fix with a diff of 10 lines or fewer', 'diff of 10 lines'],
+      ['plugins/doable-code-context/.codex-plugin/plugin.json', 'what the code does in words, never code', 'short code excerpts', 'excerpts'],
+    ]) {
+      assert.ok(readFileSync(join(directory, path), 'utf8').includes(now), `${path} must hold: ${now}`);
+      const allowsCode = verifyWith(directory, path, (text) => text.replace(now, before));
+      assert.notEqual(allowsCode.status, 0, `${path} must not say: ${before}`);
+      assert.ok(allowsCode.stderr.includes(`${path} names "${part}": the code agent sends no code`), allowsCode.stderr);
+    }
+
+    // The changelog keeps the history.
+    const historyNamesExcerpts = verifyWith(directory, 'CHANGELOG.md', (text) =>
+      `${text}\n- A result may hold code excerpts and a diff of 10 lines or fewer.\n`);
+    assert.equal(historyNamesExcerpts.status, 0, historyNamesExcerpts.stderr);
+  });
+});

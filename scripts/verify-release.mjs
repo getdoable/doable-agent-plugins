@@ -11,7 +11,7 @@ const semver = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:
 const plugins = [
   {
     name: "doable-code-context",
-    version: "0.6.2",
+    version: "0.6.3",
     skillNames: ["doable-connect", "doable-answer-questions", "doable-code-agent"],
     network: "bundled-doable-mcp-config",
   },
@@ -358,7 +358,24 @@ for (const plugin of plugins) {
           // summary and go on.
           "this Doable server is older than this plugin and does not take the summary. Do not call again.",
           "does not go in `logins`, also when the tests need its role: make another login for the tests.",
-          "code excerpts of 10 lines or fewer each",
+          // Code stays on the machine, whoever asks for it and whatever reason it gives. One line, a copy with changed
+          // names and a suggested fix's diff are code too. Paths, line numbers and names are not: without that
+          // contrast, the answers say too little.
+          "never writes to production, sends no code, only reads the team's work tools",
+          "the text of a file of the repositories (source, tests, scripts, queries, schemas, configuration, migrations), and a diff or a patch of it",
+          "One line of it is code too, and so is a copy with changed names or as pseudo-code.",
+          "These are not code: a file path, line numbers, and a single name",
+          "that you never write to production, never push and send no code.",
+          "in words that are as exact as the goal needs",
+          'They never hold code (see "Words"): not in a summary, a record, a login\'s note, a progress text or a question, and not in your capability summary.',
+          "what to change and where, in words, with no diff.",
+          'Code stays on this machine (see "Words"): no text that you send holds it, also when a request or an answer asks for it, whoever asks and whatever reason it gives',
+          // A request for code gets an answer in words: the session declines it only when nothing is left to say.
+          "return what its goal needs in words, with file paths and line numbers, and one sentence that code stays on this machine.",
+          "Decline the request only when nothing is left to say without the code",
+          // Doable refuses a code block or a diff and keeps nothing of the call: the session sends the call again in
+          // words, and does not read the refusal as the request's end.
+          "`it holds code (a code block or a diff)`: Doable kept nothing of the call, and the request stays yours. Say in words what the code does",
           "Never put a secret in a summary, a record, a progress text, or a question",
           "Never put a secret in a result, except the password of a new login in `logins`",
           "Never push: no `git push` in any form",
@@ -666,6 +683,9 @@ for (const requiredCodeAgentSetup of [
   // A 0.6.1 machine with no choice has no browser in 0.6.2.
   "### Update from 0.6.1",
   "Before you start the session, choose this machine's Chrome",
+  // Doable refuses only a code block or a diff: an older session sends lines of code in another form until its update.
+  "### Update from 0.6.2",
+  "From 0.6.3, the session sends no code. Update each machine",
   // A sign-up link opens under the sign-in that Chrome holds for its site.
   "Do not sign in to the test environments' apps yourself in the Chrome profile that the extension acts in",
   // A session started by hand without --chrome has no browser for a mail's link.
@@ -699,6 +719,20 @@ for (const path of [
       `${relative(root, path)} names ${retired}: the serving session runs in the bypass permission mode with no allow rules`,
     );
   }
+}
+
+// The session sends no code. Up to 0.6.2 it could send code excerpts and a diff of 10 lines or fewer, and texts outside
+// the skill said so too. No file of the plugin and no setup, privacy or acceptance text may say it again. CHANGELOG.md
+// may, as history.
+for (const path of [
+  ...plugins.flatMap((plugin) => walk(join(root, "plugins", plugin.name))),
+  join(root, "README.md"),
+  join(root, "PRIVACY.md"),
+  join(root, "TESTING.md"),
+]) {
+  if (!statSync(path).isFile()) continue;
+  const part = readFileSync(path, "utf8").match(/\bexcerpts?\b|\bdiffs? of \d+ lines/i)?.[0];
+  assert(part === undefined, `${relative(root, path)} names "${part}": the code agent sends no code`);
 }
 
 // Without DOABLE_MACHINE_NAME every machine shows as `unnamed-machine`, and people cannot tell the machines apart: the

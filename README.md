@@ -7,7 +7,7 @@ Official agent plugins for [Doable](https://getdoable.ai), supporting Codex, Cla
 
 | Plugin | Version | Purpose | Network |
 | --- | --- | --- | --- |
-| `doable-code-context` | `0.6.2` | Resolve context requests and serve code agent requests | Doable MCP |
+| `doable-code-context` | `0.6.3` | Resolve context requests and serve code agent requests | Doable MCP |
 
 ## Workflows
 
@@ -216,11 +216,15 @@ For example:
 
 | A request can ask | What the session does | What it returns |
 | --- | --- | --- |
-| A question about the product or its code | Answers it from the code, and from the team's tickets and docs that it can read. | The answer, with what each fact rests on: file paths and line numbers, or a ticket's key. |
+| A question about the product or its code | Answers it from the code, and from the team's tickets and docs that it can read. | The answer in words, with what each fact rests on: file paths and line numbers, or a ticket's key. |
 | Whether the session can do something | Answers from its rules, and does not do the thing. | Yes or no, with the limits, and for a no, the rule that forbids it. |
 | State to make | Makes state in a test environment, such as a login or a pending record. | The new logins (username and password) and the ids the tests need. For a chat, Doable saves each login in the suite's test accounts and shows only its username. |
 | Backend state to read | Reads backend state, read only. | The state it found, and where and when it read it. |
-| A failed run to debug | Reproduces the failure, finds the root cause, suggests a fix. | The cause, file paths and line numbers, the steps, and the fix. It never pushes. |
+| A failed run to debug | Reproduces the failure, finds the root cause, suggests a fix. | The cause, file paths and line numbers, the steps, and the fix in words. It never pushes. |
+
+The session sends no code to either asker, also when a request asks for it: the answer says in words
+what the goal needs, and that code stays on the machine (see
+[Shared grounding and privacy boundary](#shared-grounding-and-privacy-boundary)).
 
 Some test environments give a new user its password only through a link or a code in an email
 (an invitation, a confirmation). For such a login, the session invites the user at a `+` address
@@ -269,8 +273,8 @@ asker changes them.
 At each start and resume, a session writes a capability summary: a few plain lines, 600
 characters or fewer, from the repositories in its folder and from its rules. It shows the summary
 to you in its start line and sends it to Doable, which shows it to the askers and on the chat's
-page. The summary holds no secret, no name or value of an environment variable, no command line,
-no host name and no connection string.
+page. The summary holds no secret, no code, no name or value of an environment variable, no command
+line, no host name and no connection string.
 
 ### The start prompt
 
@@ -345,7 +349,7 @@ new test login that the session sends to Doable, and only you can read it. `star
 start script again with the command line of the installed plugin, starts the session, and, as the
 setup does, tells you whether it is connected. `remove` stops it and deletes
 its files and its key. After a plugin update, run `stop` and `start`, so that the serving session
-loads the new plugin (see [Update from 0.6.1](#update-from-061)). To change the session's prompt,
+loads the new plugin (see [Update from 0.6.2](#update-from-062)). To change the session's prompt,
 edit `~/.doable/code-agent/<machine>/prompt.md`, then run `stop` and `start`. To change its folder
 or its key, run `stop`, then the setup again, with the saved prompt as the prompt file. Export
 the new key first, or, to keep the saved key, run `. ~/.doable/code-agent/<machine>/env`, which
@@ -474,6 +478,14 @@ yours names that action. From production, a result holds no real person's data. 
 tools, it leaves out what a source says about people, and all that comes from a private message,
 mail or a page with restricted access.
 
+### Update from 0.6.2
+
+From 0.6.3, the session sends no code. Update each machine: Doable itself refuses only a text with a
+code block or a diff, and an older session still sends lines of code in another form. The steps are
+those of [Update from 0.6.0](#update-from-060): `stop`, the plugin update, and `start`. The
+session's prompt needs no new line, and you can update before or after the Doable release that
+refuses such a text.
+
 ### Update from 0.6.1
 
 From 0.6.2, the session uses only the Chrome that you chose in Claude Code on the machine, and no
@@ -594,10 +606,10 @@ accounts and shows only its username; for a request from a person's Claude Code,
 them to that person's Claude Code and saves nothing. A login that reproduced a bug is not in the
 result's logins. The link or the code of a test inbox mail stays on the machine. The result lists
 all that the session made, changed, deleted or ran without a request for it. It never pushes,
-never writes to production, only reads the team's work tools,
+never writes to production, sends no code, only reads the team's work tools,
 causes no real payment and no message to a real person, and puts no other secret in a result.
 Doable refuses a result, a progress text, a question, or a capability summary that holds a Doable
-API key.
+API key, a code block or a diff.
 
 ## Shared grounding and privacy boundary
 
@@ -611,9 +623,10 @@ The connected plugin:
 
 Through Code Context, Doable never receives source code or snippets, real repository names or paths, branches, commits, the code graph, secrets or environment values, private URLs, raw logs, internal topology, or real customer data.
 
-A code agent result may hold file paths, line numbers, and code excerpts of 10 lines or fewer
-each, unless the session's rules forbid excerpts. Its only secret is the password of each new test
-login, in that login. It never holds keys, tokens, session cookies, or customer personal data.
+A code agent result holds no code, whoever asks for it, and neither does a progress text, a question
+or a capability summary. A result may hold file paths, line numbers, single names, and what the code
+does, in words. Its only secret is the password of each new test login, in that login. It never
+holds keys, tokens, session cookies, or customer personal data.
 
 See [PRIVACY.md](PRIVACY.md) for the exact per-plugin boundary.
 
