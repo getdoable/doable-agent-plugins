@@ -11,7 +11,7 @@ const semver = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:
 const plugins = [
   {
     name: "doable-code-context",
-    version: "0.6.1",
+    version: "0.6.2",
     skillNames: ["doable-connect", "doable-answer-questions", "doable-code-agent"],
     network: "bundled-doable-mcp-config",
   },
@@ -319,8 +319,10 @@ for (const plugin of plugins) {
           "Do not say that the organization has no test inbox.",
           "Never put the link or the code in a progress text, a question or a result",
           "The one exception: the link of a mail from the test inbox that finishes a sign-up that you started for the request",
-          // The link opens only in the browser: a user invited while the browser does not answer stays unfinished.
-          "Before you invite the user, check that the browser answers",
+          // The link opens only in the browser: a user invited while this machine's Chrome does not answer stays
+          // unfinished. The wait for the mail takes minutes, and Chrome can close in them.
+          'Before you invite the user, do the check of "The browser" and make sure that the browser answers',
+          'Before you use the browser, do the check of "The browser" again',
           // Chrome holds the sign-ins of its profile: the link must open under no other sign-in to the app, and the new
           // login must not stay signed in for the next request.
           "if Chrome is signed in to the test environment's app",
@@ -397,9 +399,22 @@ for (const plugin of plugins) {
           "The one hard rule for permissions: never write to a production system",
           "Use Doable MCP only through its three tools of a machine",
           "Never call them, also the ones that only read",
-          // The session's browser is Claude in Chrome. Its tools fail when Chrome is closed or the extension is not
-          // connected, and a person on the machine fixes that: the result says so.
-          "If Chrome is not open or the extension is not connected, its tools fail when you call them",
+          // The session's browser is Claude in Chrome. When the Chrome that the person chose is not connected, Claude
+          // Code can use the Chrome of another computer without a question: the session compares the one in use with
+          // the choice, which the service script prints, and it never makes the choice itself.
+          "Use the browser only when it is the Chrome that the person chose in Claude Code on this machine.",
+          "So check the browser before your first browser call in each request, each time you come back to it after other work or a wait, and after a browser call that fails",
+          "Run `node <plugin-directory>/scripts/code-agent-service.mjs browser`.",
+          // An extension that reconnects leaves the list for a few seconds.
+          "wait 10 seconds (`sleep 10`) and call it once more",
+          // A browser call in the same message as the check acts before the model reads the check's answer.
+          "Read both results before you send any other browser call.",
+          "The check passes only when the browser with `inUse: true` has that `deviceId`",
+          // Every other tool is allowed by the rule above: this one has a limit.
+          'Use the browser only as "The browser" says',
+          "Never call `select_browser` or `switch_browser`: they change the person's choice.",
+          "Never read Claude Code's config file for the choice: it can hold keys",
+          "When the check does not pass, or the command or the list fails, go on without the browser",
           // Opening Chrome does not give browser tools to a session that started without them.
           "then say that a person must start the session again with `claude --chrome`.",
           // Doable MCP refuses a machine name that breaks the rule itself, with no status: the stop
@@ -635,13 +650,22 @@ for (const requiredCodeAgentSetup of [
   "`start` writes the start script again with this release's command line",
   "The one exception: the password of a new test login goes in that login of the result.",
   // A 0.6.0 machine gets this release's command line (no permission check, Claude in Chrome) only from a `start` of
-  // 0.6.1: an update alone leaves the running session and its start script on the 0.6.0 rules.
+  // this release: an update alone leaves the running session and its start script on the 0.6.0 rules.
   "### Update from 0.6.0",
   "It does not use the `allow` list that 0.6.0 kept in that file",
   // Nobody at the terminal answers a prompt of the Claude in Chrome extension.
   "### A browser for a mail's link",
   "Keep Chrome open, with the Claude in Chrome extension installed and connected.",
   "Set the extension to act on the test environments' sites without asking.",
+  // Nobody answers when Claude Code asks which of several browsers to use, and with one connected it asks nobody: the
+  // person chooses this machine's Chrome, and the session uses no other.
+  "- Choose this machine's Chrome in Claude Code one time",
+  // Its list names browsers "Browser 1" and "Browser 2" and does not mark this machine's.
+  "Close Chrome on your other computers first",
+  "The session uses only the Chrome that you chose.",
+  // A 0.6.1 machine with no choice has no browser in 0.6.2.
+  "### Update from 0.6.1",
+  "Before you start the session, choose this machine's Chrome",
   // A sign-up link opens under the sign-in that Chrome holds for its site.
   "Do not sign in to the test environments' apps yourself in the Chrome profile that the extension acts in",
   // A session started by hand without --chrome has no browser for a mail's link.

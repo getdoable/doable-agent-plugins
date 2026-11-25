@@ -10,6 +10,10 @@
 // Usage:
 //   DOABLE_API_KEY=... node code-agent-service.mjs setup --folder DIR --machine NAME --prompt-file FILE
 //   node code-agent-service.mjs status|stop|start|remove --machine NAME
+//   node code-agent-service.mjs browser
+//
+// `browser` prints the Chrome that the person chose in Claude Code: the serving session runs it before it uses the
+// browser (the Skill's "The browser").
 //
 // The serving session can use every tool with no permission check, and Claude in Chrome, so that it can open a page in
 // this machine's Chrome, for example the link of a sign-up mail from the request's test inbox. Only the rules of its
@@ -35,6 +39,7 @@ import {
   openSync,
   readFileSync,
   readSync,
+  realpathSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -242,6 +247,39 @@ const NO_PERMISSION_CHECK_NOTE =
 const CHROME_NOTE =
   "It uses Claude in Chrome: keep Chrome open on this machine with the Claude in Chrome extension connected, and let the extension act on the test sites without asking.";
 
+// The Chrome that the person chose in Claude Code (`/chrome`, "Select browser"), or null when the person chose none.
+// Claude Code keeps the choice in its config file, and each later session uses that Chrome when it is connected. When it
+// is not, a session uses the one Chrome that is connected to the Claude account, with no question, also when that one is
+// on another computer. So the Skill uses the browser only when it is this one, and it reads the choice from here: the
+// config file can hold keys (of MCP servers), and neither the choice nor an error may carry another value of it.
+export function chosenBrowser(env) {
+  const file = join(env.CLAUDE_CONFIG_DIR || homedir(), ".claude.json");
+  if (!existsSync(file)) return null;
+  const text = readFileSync(file, "utf8");
+  let config;
+  try {
+    config = JSON.parse(text);
+  } catch {
+    // The error of JSON.parse quotes the text that it could not read.
+    fail(`${file}, the config file of Claude Code, is not valid JSON.`);
+  }
+  const chosen = config.chromeExtension;
+  if (!chosen?.pairedDeviceId) return null;
+  return { deviceId: chosen.pairedDeviceId, name: chosen.pairedDeviceName };
+}
+
+// Claude Code names a Chrome with no name of its own "Browser 1", "Browser 2" by its place in the list, so a name alone
+// does not say which computer it is on: the list holds only this machine's Chrome while it is closed on the others.
+const CHOOSE_CHROME =
+  'close Chrome on your other computers, run `claude --chrome`, then /chrome, "Select browser", and choose this machine\'s Chrome. Then run stop and start.';
+
+function chromeNote(chosen) {
+  if (chosen === null) {
+    return `${CHROME_NOTE} No Chrome is chosen in Claude Code on this machine, so it does not use the browser. To choose one, ${CHOOSE_CHROME}`;
+  }
+  return `${CHROME_NOTE} It uses only the Chrome that you chose in Claude Code, "${chosen.name}". If that can be the Chrome of another computer, ${CHOOSE_CHROME}`;
+}
+
 function plistPath(env, machine) {
   return join(env.DOABLE_LAUNCH_AGENTS_DIR || join(homedir(), "Library", "LaunchAgents"), `${launchdLabel(machine)}.plist`);
 }
@@ -423,6 +461,7 @@ export function setup(options, env, print = console.log) {
   const prompt = readFileSync(promptFile, "utf8").trim();
   if (!prompt) fail("The prompt file is empty.");
   if (ANY_DOABLE_KEY.test(prompt)) fail("The prompt file holds a Doable API key. Take the key out: setup keeps it in its own file.");
+  const chosen = chosenBrowser(env);
 
   const dir = serviceDir(env, machine);
   checkNotRunning(env, machine, dir);
@@ -450,7 +489,7 @@ export function setup(options, env, print = console.log) {
   print(`The Doable code agent "${machine}" serves ${folderPath}: ${how}.`);
   // When the session says that it runs in another mode, printStart says so in place of this note.
   if (seen === null || seen.permissionMode === null || seen.permissionMode === "bypassPermissions") print(NO_PERMISSION_CHECK_NOTE);
-  print(CHROME_NOTE);
+  print(chromeNote(chosen));
   printStart(seen, dir, print);
   print(`Its files are in ${dir} (the key is in ${join(dir, "env")}, readable only by you).`);
   print(`Status: node ${fileURLToPath(import.meta.url)} status --machine ${machine}`);
@@ -480,6 +519,7 @@ export function start(machine, env, print = console.log) {
   const dir = serviceDir(env, machine);
   if (!existsSync(join(dir, "config.json"))) fail(`No code agent "${machine}" is set up on this machine: run setup first.`);
   checkNotRunning(env, machine, dir);
+  const chosen = chosenBrowser(env);
   const { config, fromOlderSetup } = savedConfig(dir, env);
   writeRunScript(dir, config);
   // A new command line can fail where the old one worked: the person who starts the session learns, as at setup,
@@ -487,7 +527,7 @@ export function start(machine, env, print = console.log) {
   // whether it waits through the plugin's server.
   const { how, seen } = launchAndWait(env, machine, dir);
   print(`The code agent "${machine}": ${how}.`);
-  print(CHROME_NOTE);
+  print(chromeNote(chosen));
   printStart(seen, dir, print);
   if (fromOlderSetup) {
     print(
@@ -512,6 +552,12 @@ export function status(machine, env, print = console.log) {
   if (existsSync(log)) {
     for (const line of readFileSync(log, "utf8").trim().split("\n").slice(-5)) print(`  ${line.replace(ANY_DOABLE_KEY, "sk-doable-****")}`);
   }
+}
+
+export function browser(env, print = console.log) {
+  const chosen = chosenBrowser(env);
+  if (chosen === null) print("No Chrome is chosen in Claude Code on this machine.");
+  else print(`The chosen Chrome: deviceId ${chosen.deviceId}, name "${chosen.name}".`);
 }
 
 export function remove(machine, env, print = console.log) {
@@ -549,10 +595,12 @@ function main() {
   else if (command === "start") start(options.machine, env);
   else if (command === "status") status(options.machine, env);
   else if (command === "remove") remove(options.machine, env);
-  else fail("Use setup, status, stop, start or remove (see the comment at the top of this file).");
+  else if (command === "browser") browser(env);
+  else fail("Use setup, status, stop, start, remove or browser (see the comment at the top of this file).");
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+// The real path: with a link in the path (a linked ~/.claude), the script must run, not end with no output.
+if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
     main();
   } catch (error) {

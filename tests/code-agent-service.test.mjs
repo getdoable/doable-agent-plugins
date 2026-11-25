@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import {
+  browser,
   launchdPlist,
   parseArgs,
   remove,
@@ -38,9 +39,23 @@ function machine() {
     DOABLE_CODE_AGENT_HOME: join(base, "home"),
     DOABLE_CLAUDE_BIN: "/opt/claude's bin/claude",
     DOABLE_CODE_AGENT_NO_LAUNCH: "1",
+    // No config file of Claude Code, so no chosen Chrome. Without it, the tests would read the developer's own file.
+    CLAUDE_CONFIG_DIR: join(base, "claude-config"),
   };
   return { base, folder, prompt, env };
 }
+
+// A key of an MCP server in Claude Code's config file, next to the choice of the Chrome.
+const CONFIG_SECRET = "mcp-server-secret";
+
+// Claude Code's config file on the machine, with this choice of a Chrome (undefined: none).
+function writeClaudeConfig(m, chromeExtension) {
+  mkdirSync(m.env.CLAUDE_CONFIG_DIR, { recursive: true });
+  const config = { mcpServers: { tracker: { env: { TOKEN: CONFIG_SECRET } } }, chromeExtension, numStartups: 7 };
+  writeFileSync(join(m.env.CLAUDE_CONFIG_DIR, ".claude.json"), JSON.stringify(config, null, 2));
+}
+
+const CHOSEN_CHROME = { pairedDeviceId: "0b6c2a4e-1111-4222-8333-944445555666", pairedDeviceName: "QA Mac" };
 
 // The rest of the serving session's command line in this release, after the claude command and the plugin folder:
 // the bypass permission mode (no permission check), Claude in Chrome, and no ask_code_agent (with which a person's
@@ -59,8 +74,12 @@ function sessionLine(claudeQuoted) {
 
 const SETUP_CLAUDE = "'\\/opt\\/claude'\\\\''s bin\\/claude'";
 const NOT_STARTED = 'The code agent "mac-mini-1": not started (DOABLE_CODE_AGENT_NO_LAUNCH is set).';
-const CHROME_NOTE =
+const KEEP_CHROME_OPEN =
   "It uses Claude in Chrome: keep Chrome open on this machine with the Claude in Chrome extension connected, and let the extension act on the test sites without asking.";
+// The note of a machine on which the person chose no Chrome in Claude Code.
+const CHOOSE_CHROME =
+  "close Chrome on your other computers, run `claude --chrome`, then /chrome, \"Select browser\", and choose this machine's Chrome. Then run stop and start.";
+const CHROME_NOTE = `${KEEP_CHROME_OPEN} No Chrome is chosen in Claude Code on this machine, so it does not use the browser. To choose one, ${CHOOSE_CHROME}`;
 
 // Nothing of an allow list or of plugin 0.6.0's permission mode is left in a start script of this release.
 function assertNoAllowRules(run) {
@@ -581,6 +600,65 @@ test("on a machine without launchd, start goes on when another process has the p
   setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt }, m.env, () => {});
   writeFileSync(join(m.dir, "pid"), `${process.pid}\n`);
   assert.deepEqual(printedBy((print) => start("mac-mini-1", m.launching, print)), [STARTED, CHROME_NOTE, CONNECTED]);
+});
+
+test("setup and start say which Chrome the person chose in Claude Code, and when none is chosen", () => {
+  const m = machine();
+  writeClaudeConfig(m, CHOSEN_CHROME);
+  const chosenNote = `${KEEP_CHROME_OPEN} It uses only the Chrome that you chose in Claude Code, "QA Mac". If that can be the Chrome of another computer, ${CHOOSE_CHROME}`;
+  const atSetup = printedBy((print) => setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt }, m.env, print));
+  assert.ok(atSetup.includes(chosenNote), atSetup.join("\n"));
+  stop("mac-mini-1", m.env, () => {});
+  assert.deepEqual(printedBy((print) => start("mac-mini-1", m.env, print)), [NOT_STARTED, chosenNote]);
+  assert.ok(!atSetup.join("\n").includes(CONFIG_SECRET), atSetup.join("\n"));
+
+  // Contrast: the same config file with no choice, also after the person started Claude Code many times.
+  writeClaudeConfig(m, undefined);
+  stop("mac-mini-1", m.env, () => {});
+  assert.deepEqual(printedBy((print) => start("mac-mini-1", m.env, print)), [NOT_STARTED, CHROME_NOTE]);
+});
+
+test("the browser command prints the deviceId of the Chrome that the person chose in Claude Code, and nothing else of its config file", () => {
+  const m = machine();
+  const run = () => execFileSync(process.execPath, [script, "browser"], { env: m.env, stdio: "pipe" }).toString();
+  assert.equal(run(), "No Chrome is chosen in Claude Code on this machine.\n");
+  for (const none of [undefined, {}]) {
+    writeClaudeConfig(m, none);
+    assert.equal(run(), "No Chrome is chosen in Claude Code on this machine.\n");
+  }
+  writeClaudeConfig(m, CHOSEN_CHROME);
+  assert.equal(run(), `The chosen Chrome: deviceId ${CHOSEN_CHROME.pairedDeviceId}, name "QA Mac".\n`);
+  // Without CLAUDE_CONFIG_DIR, Claude Code keeps the file in the home folder.
+  const { CLAUDE_CONFIG_DIR: home, ...env } = m.env;
+  const inHome = execFileSync(process.execPath, [script, "browser"], { env: { ...env, HOME: home }, stdio: "pipe" }).toString();
+  assert.equal(inHome, `The chosen Chrome: deviceId ${CHOSEN_CHROME.pairedDeviceId}, name "QA Mac".\n`);
+  // The session names the script by a path that can hold a link (a linked ~/.claude).
+  const link = join(m.base, "linked-scripts");
+  symlinkSync(dirname(script), link);
+  const linked = execFileSync(process.execPath, [join(link, "code-agent-service.mjs"), "browser"], { env: m.env, stdio: "pipe" }).toString();
+  assert.equal(linked, `The chosen Chrome: deviceId ${CHOSEN_CHROME.pairedDeviceId}, name "QA Mac".\n`);
+});
+
+test("a config file of Claude Code that is not valid JSON stops the browser command, setup and start before they change anything, and none of its text is printed", () => {
+  const m = machine();
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt }, m.env, () => {});
+  stop("mac-mini-1", m.env, () => {});
+  mkdirSync(m.env.CLAUDE_CONFIG_DIR, { recursive: true });
+  const file = join(m.env.CLAUDE_CONFIG_DIR, ".claude.json");
+  // The error of JSON.parse would quote the text at the place that it could not read.
+  writeFileSync(file, CONFIG_SECRET);
+  const refusal = { message: `${file}, the config file of Claude Code, is not valid JSON.` };
+  assert.throws(() => browser(m.env, () => {}), refusal);
+
+  const dir = serviceDir(m.env, "mac-mini-1");
+  writeFileSync(join(dir, "run.sh"), "#!/bin/bash\n# the start script before\n");
+  assert.throws(() => start("mac-mini-1", m.env, () => {}), refusal);
+  const otherPrompt = join(m.base, "other-prompt.md");
+  writeFileSync(otherPrompt, "Another prompt.\n");
+  assert.throws(() => setup({ folder: m.folder, machine: "mac-mini-1", promptFile: otherPrompt }, m.env, () => {}), refusal);
+  assert.equal(readFileSync(join(dir, "run.sh"), "utf8"), "#!/bin/bash\n# the start script before\n");
+  assert.ok(!readFileSync(join(dir, "prompt.md"), "utf8").includes("Another prompt."));
+  assert.ok(existsSync(join(dir, "stopped")));
 });
 
 test("start refuses a wait time that is not a whole number of seconds, and launches nothing", () => {

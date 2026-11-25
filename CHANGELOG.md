@@ -9,6 +9,43 @@ All notable changes to Doable Agent Plugins are documented here.
 - Verify template integrity and syntax in CI. Local plugin version remains 0.2.10.
 - Clarify the GitHub integration's repository metadata and model-provider boundary.
 
+## [0.6.2] - 2026-11-24
+
+The session uses only the Chrome that the person chose in Claude Code on the machine. A Claude
+account can have a Chrome connected on several computers. With several and no choice, Claude Code
+asks which one to use and nobody answers, so a 0.6.1 session declined a sign-up by email. With only
+another computer's Chrome connected, Claude Code uses that one without a question.
+Choose this machine's Chrome before you update a machine (README, "Update from 0.6.1"): with no
+choice, the session uses no browser.
+
+### Added
+
+- `scripts/code-agent-service.mjs browser`: prints the Chrome that the person chose in Claude Code
+  (`/chrome`, "Select browser"), or that none is chosen, and nothing else of Claude Code's config
+  file (`.claude.json` in `CLAUDE_CONFIG_DIR`, else in the home folder).
+- README: "Choose this machine's Chrome in Claude Code one time", and "Update from 0.6.1". TESTING:
+  scenario 68.
+
+### Changed
+
+- `doable-code-agent`: "The browser". Before the first browser call of each request, each time it
+  comes back to the browser after other work or a wait (for example before it opens a mail's link),
+  and after a browser call that fails, the session compares the browser in use
+  (`list_connected_browsers`) with the choice that `browser` prints. When they differ, none is
+  chosen, or the chosen one is on another operating system, it goes on without the browser and says
+  what a person does on the machine. It never calls `select_browser` or `switch_browser`, because
+  they change the person's choice.
+- `scripts/code-agent-service.mjs`: the setup and `start` say which Chrome is chosen, or that none
+  is and how to choose one. A config file of Claude Code that is not valid JSON stops them before
+  they change anything. The script also runs when its path holds a link (a linked `~/.claude`);
+  before, it ended with no output.
+- PRIVACY says which Chrome the session may use, and TESTING scenarios 60 and 65 to 67 say the same.
+
+### Known limit
+
+- The session cannot tell this machine's Chrome from one on another computer with the same operating
+  system. A person who chooses the other one gives the session that one.
+
 ## [0.6.1] - 2026-11-23
 
 A machine reads its request's test inbox, so that it can finish a sign-up that a test environment
