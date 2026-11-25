@@ -267,6 +267,7 @@ Add your own lines under its rules, for example `Staging is https://staging.exam
 `Change only data that you made.`, `Make no admin login.`, `Take requests from a person's Claude
 Code only for questions about the code.` or `You may comment on tickets.`
 The Skill's own rules always apply too: a rule in the message joins them and never replaces them.
+For example, a line that allows code in a result changes nothing.
 To change the rules, send a new message in that session. Neither a request nor an answer from an
 asker changes them.
 
@@ -481,10 +482,13 @@ mail or a page with restricted access.
 ### Update from 0.6.2
 
 From 0.6.3, the session sends no code. Update each machine: Doable itself refuses only a text with a
-code block or a diff, and an older session still sends lines of code in another form. The steps are
-those of [Update from 0.6.0](#update-from-060): `stop`, the plugin update, and `start`. The
-session's prompt needs no new line, and you can update before or after the Doable release that
-refuses such a text.
+fenced code block, an HTML `<pre>` tag or a header line of a diff, and an older session still sends
+lines of code in another form. The steps are those of [Update from 0.6.0](#update-from-060): `stop`,
+the plugin update, and `start`. The session's prompt needs no new line, and you can update before or
+after the Doable release that refuses such a text. Start the session after the Doable MCP release
+that goes with 0.6.3: a session that started before it keeps the old text of
+`update_code_agent_request`, which allows 10 lines of code or fewer in a result, until you stop and
+start it.
 
 ### Update from 0.6.1
 
@@ -609,7 +613,7 @@ all that the session made, changed, deleted or ran without a request for it. It 
 never writes to production, sends no code, only reads the team's work tools,
 causes no real payment and no message to a real person, and puts no other secret in a result.
 Doable refuses a result, a progress text, a question, or a capability summary that holds a Doable
-API key, a code block or a diff.
+API key, a fenced code block, an HTML `<pre>` tag or a header line of a diff.
 
 ## Shared grounding and privacy boundary
 
@@ -624,9 +628,9 @@ The connected plugin:
 Through Code Context, Doable never receives source code or snippets, real repository names or paths, branches, commits, the code graph, secrets or environment values, private URLs, raw logs, internal topology, or real customer data.
 
 A code agent result holds no code, whoever asks for it, and neither does a progress text, a question
-or a capability summary. A result may hold file paths, line numbers, single names, and what the code
-does, in words. Its only secret is the password of each new test login, in that login. It never
-holds keys, tokens, session cookies, or customer personal data.
+or a capability summary. A result may hold file paths, line numbers, names, and what the code does,
+in words. Its only secret is the password of each new test login, in that login. It never holds
+keys, tokens, session cookies, or customer personal data.
 
 See [PRIVACY.md](PRIVACY.md) for the exact per-plugin boundary.
 
