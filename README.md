@@ -336,10 +336,11 @@ read (`~/.doable/code-agent/<machine>/env`), starts the serving session in the b
 command of [With nobody at the terminal](#with-nobody-at-the-terminal) (the bypass permission
 mode, Claude in Chrome, and no `ask_code_agent`), starts it again 5 minutes
 after it stops (for example at a plan limit), keeps a Mac awake while it runs, and on a Mac starts
-it at each login. Before each start of the session, it updates the plugin when Doable needs a newer
-release (see [Self-update](#self-update)). On a machine that an older plugin set up, it also
-deletes that plugin's policy file. It tells you whether the session is connected: whether its first wait for a request
-returned with no error. It always tells you which Chrome you chose in Claude Code, or that you chose
+it at each login. When Doable asks for a newer release of the plugin, it updates the plugin after
+that session ends, and at no other time (see [Self-update](#self-update)). On a machine that an
+older plugin set up, it also deletes that plugin's policy file. It tells you whether the session is
+connected: whether its first wait for a request returned with no error, and was not Doable's ask for
+a newer release. It always tells you which Chrome you chose in Claude Code, or that you chose
 none. It also tells you when the session runs in another permission mode than the bypass mode, and
 when it waits through another Doable MCP server than the plugin's.
 
@@ -353,13 +354,17 @@ node <installPath>/scripts/code-agent-service.mjs start --machine <machine>
 node <installPath>/scripts/code-agent-service.mjs remove --machine <machine>
 ```
 
-`status` shows whether it is on, whether self-update is on, its last activity, and the end of its
-log; the serving session's output is in `~/.doable/code-agent/<machine>/session.jsonl`. That output
+Each update of the plugin, a self-update too, changes its `installPath`: run these commands from
+the path that `claude plugin list --json` names at that time.
+
+`status` shows whether it is on, whether self-update is on, the version that Doable asked for (while
+the machine runs a lower one), its last activity, and the end of its log; the serving session's
+output is in `~/.doable/code-agent/<machine>/session.jsonl`. That output
 holds the password of each new test login that the session sends to Doable, and only you can read
 it. `start` writes the start script again with the command line of the installed plugin, starts the
 session, and, as the setup does, tells you whether it is connected. `remove` stops it and deletes
-its files and its key. With self-update on, the start script updates the plugin itself (see
-[Self-update](#self-update)). After an update that you make by hand, run `stop` and `start`, so that
+its files and its key. With self-update on, the start script updates the plugin itself when Doable
+asks (see [Self-update](#self-update)). After an update that you make by hand, run `stop` and `start`, so that
 the serving session loads the new plugin (see [Update from 0.6.2](#update-from-062)). To change the
 session's prompt, edit `~/.doable/code-agent/<machine>/prompt.md`, then run `stop` and `start`. To change its folder
 or its key, run `stop`, then the setup again, with the saved prompt as the prompt file. Export
@@ -377,10 +382,15 @@ Revoke it in Settings > API Keys when you no longer need it.
 
 #### Self-update
 
-Self-update is on unless you turn it off. Doable asks for it: Doable MCP sends the plugin's version
-with each wait for a request (the `X-Doable-Plugin-Version` header), and when Doable needs a newer
-release, its answer tells the session to end. Then fixed code, not the model, updates the plugin.
-Before each start of the session, the start script runs Claude Code's own commands, each with a
+Self-update is on unless you turn it off. The machine updates only when Doable asks. Doable MCP
+sends the plugin's version with each wait for a request (the `X-Doable-Plugin-Version` header).
+When Doable needs a newer release, the wait's answer is only the words "Doable needs the plugin
+<version> on this machine. ...", and the session ends. Then fixed code, not the model, acts. After
+each session ends, the start script reads that session's part of `session.jsonl` for this answer
+of `wait_for_code_agent_request`. The same words in a request, or in any other text, do not count.
+When it finds the answer, it writes the asked version to
+`~/.doable/code-agent/<machine>/update-asked` and the line "Doable asked for the plugin <version>;
+this release is <version>" to `service.log`. Then it runs Claude Code's own commands, each with a
 time limit:
 
 ```bash
@@ -391,11 +401,19 @@ claude plugin list --json
 
 They use the marketplace and the scope that `claude plugin list --json` named for the plugin when
 you ran the setup or `start`. When Claude Code installed a new release, that release writes the
-start script again with its own command line, and the session starts with it. Each step writes one
-line to `~/.doable/code-agent/<machine>/service.log`: the versions, or the failed command's exit
-code and its last lines, with secrets masked. `status` and the page show the last lines. If an
-update fails, the current release starts the session: the session ends again at its first wait
-for a request, and the start script tries again 5 minutes later.
+start script again with its own command line, and the next session starts with it at once. Each
+step writes one line to `~/.doable/code-agent/<machine>/service.log`: the versions, or the failed
+command's exit code and its last lines, with secrets masked. `status` and the page show the last
+lines, and `status` shows the asked version while `update-asked` names one. The setup and `start`
+never update: their first session starts with the installed release.
+
+When the machine still runs a lower release than the one that Doable asked for, a line names both
+versions and says that a person must act, and the next session starts 30 minutes later, not 5.
+This happens when the release is not in the marketplace yet, or when a command failed. Each such
+session uses the Claude plan for a short time, ends at its first wait for a request, and serves no
+request. Read `service.log`, check that the plugin's marketplace holds that release, or update the
+plugin by hand as [Check the version and update](#check-the-version-and-update) says and run `stop`
+and `start` from the new `installPath`. To start no more sessions until then, run `stop`.
 
 The setup and `start` find the installed plugin by the folder of the script that you run: run them
 from the `installPath` that `claude plugin list --json` names. With self-update on, they stop with
@@ -410,11 +428,22 @@ node <installPath>/scripts/code-agent-service.mjs start --machine <machine> --au
 ```
 
 With self-update off, or with a development folder (`DOABLE_CODE_AGENT_PLUGIN_DIR` at setup),
-nothing updates the plugin. When Doable needs a newer release, each session ends at its first wait
-for a request, and `service.log` says which version Doable needs and that a person must update the
-plugin. Update it as [Check the version and update](#check-the-version-and-update) says, then run
-`stop` and `start` from the new `installPath`. A session that you started by hand ends the same way:
-update the plugin, and start the session again.
+nothing updates the plugin. When Doable asks for a newer release, each session ends at its first
+wait for a request, `service.log` says which version Doable asked for and that a person must update
+the plugin, and the next session starts 30 minutes later. Update it as
+[Check the version and update](#check-the-version-and-update) says, then run `stop` and `start` from
+the new `installPath`. A session that you started by hand ends the same way: update the plugin, and
+start the session again.
+
+For the maintainers of this repository, a release N goes out in this order:
+
+1. Merge release N to this repository's `main`, which is the plugin's marketplace. This updates no
+   Always on machine by itself, unless Claude Code's own auto-update of the marketplace is on there.
+2. Deploy the Doable MCP and the Doable server that N needs. They must still serve release N-1.
+3. Only then raise `CODE_AGENT_PLUGIN_VERSION_NEEDED` to N in the Doable server, and deploy it.
+
+If the Doable server asks for a release that is not in the marketplace yet, each machine ends its
+session at its first wait and waits 30 minutes, again and again, and its `service.log` says why.
 
 #### The code agent's page
 
@@ -574,7 +603,7 @@ start it.
 
 0.6.3 also adds two things. A result names the files that its answer rests on (repository, commit
 and path, never code), and Doable shows them on the chat's Sources tab. An Always on machine updates
-itself when Doable needs a newer release (see [Self-update](#self-update)). Update to 0.6.3 by hand
+itself when Doable asks for a newer release, and only then (see [Self-update](#self-update)). Update to 0.6.3 by hand
 this one time, and run `start` from the new `installPath`: `start` turns self-update on, and finds
 the installed plugin by that folder. To keep updates by hand, run `start` with `--auto-update off`.
 The session's prompt needs no new line for either.
@@ -748,10 +777,10 @@ See [CHANGELOG.md](CHANGELOG.md) for version history and [CONTRIBUTING.md](CONTR
   its sign-up mail only to another address, or that refuses a `+` in an email address, cannot use
   this way.
 - Self-update: Doable's chat page shows no state for a machine that needs an update. Read it in the
-  machine's `service.log`, `status` or page. A session that Doable asks to update serves no request
-  for about 5 minutes: the start script waits 5 minutes after a session ends, then updates the
-  plugin and starts the next session. With self-update off, the machine serves no request until a
-  person updates the plugin. When a command of the self-update passes its time limit, the start
+  machine's `service.log`, `status` or page. With self-update off, or while the marketplace does
+  not hold the release that Doable asks for, the machine serves no request until a person acts: a
+  session starts every 30 minutes, uses the Claude plan until its first wait for a request, and
+  ends there. Run `stop` until the update is done. When a command of the self-update passes its time limit, the start
   script stops it, but a program that the command started (for example `git`) can go on until it
   ends.
 

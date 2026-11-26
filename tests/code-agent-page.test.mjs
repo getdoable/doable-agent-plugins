@@ -1462,10 +1462,10 @@ test("the page's words: one step, a request whose asking time is not known, the 
 test("the page says whether self-update is on, and what happens when it is off, and reads the choice again when it changes", async (t) => {
   const m = machine(t);
   const words = {
-    on: "Self-update is on: before each start of a session, the start script updates the plugin with Claude Code. The service's log below shows each update and each failure.",
-    off: "Self-update is off: when Doable needs a newer plugin, each session ends at its first wait for a request, until a person updates the plugin on this computer.",
+    on: "Self-update is on: when Doable asks for a newer plugin, the session ends, and the start script updates the plugin with Claude Code and starts the new release. It updates at no other time. The service's log below shows each ask, each update and each failure.",
+    off: "Self-update is off: when Doable asks for a newer plugin, each session ends at its first wait for a request, and the next one starts 30 minutes later, until a person updates the plugin on this computer.",
     "development folder":
-      "Self-update is off: the session loads the plugin from a development folder. When Doable needs a newer plugin, each session ends at its first wait for a request, until a person updates that folder.",
+      "Self-update is off: the session loads the plugin from a development folder. When Doable asks for a newer plugin, each session ends at its first wait for a request, and the next one starts 30 minutes later, until a person updates that folder.",
   };
   // One page's data, as the page command keeps it: it reads config.json again at each read.
   const data = new PageData({ machine: m.name, env: m.env });

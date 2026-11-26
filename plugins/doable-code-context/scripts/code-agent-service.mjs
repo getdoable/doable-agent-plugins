@@ -7,12 +7,15 @@
 // plugin release that runs it, so a plugin update, then `stop` and `start`, gives the serving session the new release
 // and its command line. Fixed code does these steps, not the model: they must be the same on every machine.
 //
-// Self-update (on unless setup or start got `--auto-update off`): before each start of the serving session, the start
-// script runs `self-update`, which updates the plugin with Claude Code's own commands. When Claude Code installed a new
-// release, that release writes the start script again (`write-start-script`), and the loop goes on in the new script.
-// Doable asks for an update through the wait for a request: the session then ends, and the next start updates it. With
-// self-update off, or with a development plugin folder, `update-request` writes to service.log that a person must
-// update the plugin when Doable asked for a newer one.
+// Self-update (on unless setup or start got `--auto-update off`) runs only when Doable asks. Doable asks through the
+// wait for a request: its answer is then only the words "Doable needs the plugin X.Y.Z on this machine. ...", and the
+// session ends. After each session, the start script runs `update-request`, which reads that session's output. When a
+// wait got Doable's ask, it writes the asked version to `update-asked` in the machine's folder and a line to
+// service.log. With self-update on, it updates the plugin with Claude Code's own commands; when Claude Code installed
+// a new release, that release writes the start script again (`write-start-script`), and the loop goes on in the new
+// script at once. When the machine still runs a lower release than the asked one, or with self-update off or a
+// development plugin folder, a line says that a person must act, and the next session starts 30 minutes later, not 5.
+// The first start (setup, start) never updates.
 //
 // Usage:
 //   DOABLE_API_KEY=... node code-agent-service.mjs setup --folder DIR --machine NAME --prompt-file FILE [--auto-update on|off]
@@ -20,10 +23,9 @@
 //   node code-agent-service.mjs status|stop|remove --machine NAME
 //   node code-agent-service.mjs page --machine NAME [--port N]
 //   node code-agent-service.mjs browser
-// The start script runs these (DIR is the machine's folder):
-//   node code-agent-service.mjs self-update --dir DIR --plugin doable-code-context@MARKETPLACE --scope SCOPE
+// The start script runs these (DIR is the machine's folder; --plugin and --scope only with self-update on):
+//   node code-agent-service.mjs update-request --dir DIR --from BYTES [--plugin doable-code-context@MARKETPLACE --scope SCOPE]
 //   node code-agent-service.mjs write-start-script --dir DIR
-//   node code-agent-service.mjs update-request --dir DIR --from BYTES
 //
 // `page` serves a page at http://127.0.0.1:N/ (N is 47615 unless --port gives another) that other computers cannot open
 // (any account of this computer can): the serving session and the requests that it served, from its files on this
@@ -40,7 +42,8 @@
 // (`claude --plugin-dir`) in place of the installed plugin. For tests, DOABLE_CODE_AGENT_NO_LAUNCH writes the files and
 // starts nothing, DOABLE_CODE_AGENT_NO_LAUNCHD starts the start script on a Mac as on a machine without launchd, and
 // DOABLE_CODE_AGENT_WAIT_S sets how many seconds (a whole number) setup and start wait for the session's first wait for a
-// request.
+// request. In the environment of the start script, DOABLE_CODE_AGENT_RESTART_WAIT_S and DOABLE_CODE_AGENT_ASKED_WAIT_S
+// take the place of its waits of 5 and 30 minutes between two sessions.
 
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import {
@@ -90,6 +93,9 @@ const PLUGIN_WAIT_TOOL = `${PLUGIN_TOOLS}wait_for_code_agent_request`;
 // draft of this release did), but which a person can give because Claude Code has an option of that name.
 const RETIRED_OPTIONS = ["--allow", "--chrome"];
 const RESTART_WAIT_S = 300;
+// The wait after a session that Doable asked for a release that this machine does not run (no update, or an update that
+// did not give it): each session then ends at its first wait, and uses the Claude plan for nothing.
+const ASKED_WAIT_S = 1800;
 const LOG_MAX_BYTES = 20 * 1024 * 1024;
 // This script, and the plugin's folder above scripts/: for an installed plugin, the `installPath` that
 // `claude plugin list --json` names.
@@ -101,8 +107,14 @@ const PLUGIN_NAME = "doable-code-context";
 const UPDATE_LIMIT_S = 300;
 const LIST_LIMIT_S = 60;
 const WRITE_LIMIT_S = 120;
-// The exit code of `self-update` when a new release wrote the start script: the start script then runs the new one.
+// The exit codes of `update-request` that are not 0: a new release wrote the start script (the start script then runs
+// the new one), or Doable asked for a release that this machine does not run (the start script waits ASKED_WAIT_S).
 export const NEW_START_SCRIPT = 3;
+export const ASKED_WAIT = 4;
+// The file in the machine's folder that holds the version that Doable asked for last, until a release at or above it
+// writes the start script.
+const UPDATE_ASKED = "update-asked";
+const VERSION = /^\d+\.\d+\.\d+$/;
 // The installation scopes of Claude Code (`claude plugin update --scope`).
 const SCOPES = ["user", "project", "local", "managed"];
 const PLUGIN_ID = /^doable-code-context@[A-Za-z0-9._-]{1,100}$/;
@@ -139,11 +151,11 @@ function checkMachine(machine) {
   }
 }
 
-// The Claude Code executable on PATH, so that launchd, which starts with a short PATH, runs the same one.
-export function findClaude(env) {
-  if (env.DOABLE_CLAUDE_BIN) return env.DOABLE_CLAUDE_BIN;
-  for (const dir of (env.PATH || "").split(delimiter).filter(Boolean)) {
-    const candidate = join(dir, "claude");
+// An executable named `name` in a folder of `path` (a PATH value), as that folder names it: a link is not resolved, so
+// that a link that a package manager keeps (for example /opt/homebrew/bin/node) still works after an upgrade; or null.
+function onPath(path, name) {
+  for (const dir of (path || "").split(delimiter).filter(Boolean)) {
+    const candidate = join(dir, name);
     try {
       accessSync(candidate, constants.X_OK);
       if (statSync(candidate).isFile()) return candidate;
@@ -151,48 +163,80 @@ export function findClaude(env) {
       // Not in this folder of PATH: the next one may hold it.
     }
   }
-  fail("Claude Code (`claude`) is not on PATH. Install it, sign in on the Claude plan, and run setup again.");
+  return null;
 }
 
-// The lines of the start script's loop before the session starts, when self-update is on. `update` names the installed
-// plugin (`doable-code-context@<marketplace>`) and its scope, from `claude plugin list --json` when this release wrote
-// the script. Bash reads a script while it runs, but it has read the whole loop before the loop runs: so the new
-// release writes the new script (by a rename, see writeRunScript) while this loop runs, and `exec` then leaves this
-// script for the new one before bash reads more of it.
-function selfUpdateStep(update, version) {
-  return `  # Self-update: Claude Code updates ${update.plugin} (${update.scope} scope, ${version} when this script was written).
-  # When it installed a new release, that release wrote this script again: the loop goes on in the new script.
-  node ${shellQuote(SCRIPT)} self-update --dir "$dir" --plugin ${shellQuote(update.plugin)} --scope ${shellQuote(update.scope)} >> "$dir/service.log" 2>&1
-  updated=$?
-  case $updated in
-    0) ;;
+// The Claude Code executable on PATH, so that launchd, which starts with a short PATH, runs the same one.
+export function findClaude(env) {
+  if (env.DOABLE_CLAUDE_BIN) return env.DOABLE_CLAUDE_BIN;
+  const claude = onPath(env.PATH, "claude");
+  if (claude === null) fail("Claude Code (`claude`) is not on PATH. Install it, sign in on the Claude plan, and run setup again.");
+  return claude;
+}
+
+// The node executable on the PATH that the start script runs with (config.json's `path`): the start script runs this
+// script's `update-request` with it after each session.
+function findNode(path) {
+  const node = onPath(path, "node");
+  if (node === null) {
+    fail(
+      `Node.js (\`node\`) is not on the PATH that the start script runs with (${path}). Run setup again from a shell whose PATH holds node and claude.`,
+    );
+  }
+  return node;
+}
+
+// The lines of the start script's loop after each session: `update-request` reads what Doable answered this session's
+// waits for a request, and its exit code gives the next step. `update` names the installed plugin
+// (`doable-code-context@<marketplace>`) and its scope, from `claude plugin list --json` when this release wrote the
+// script, or is null: self-update is off, or the session loads the plugin from a development folder. Bash reads a
+// script while it runs, but it has read the whole loop before the loop runs: so the new release writes the new script
+// (by a rename, see writeRunScript) while this loop runs, and `exec` then leaves this script for the new one before
+// bash reads more of it. A session that ended after `stop` gets no step.
+function afterSessionStep(node, update) {
+  const target = update === null ? "" : ` --plugin ${shellQuote(update.plugin)} --scope ${shellQuote(update.scope)}`;
+  const comment =
+    update === null
+      ? "  # When Doable asked for a newer plugin, update-request says that a person must update it.\n"
+      : `  # When Doable asked for a newer plugin, Claude Code updates ${update.plugin} (${update.scope} scope, ${ownVersion()} when this
+  # script was written). When it installed a new release, that release wrote this script again: the loop goes on in it.
+`;
+  const restart = `sleep "\${DOABLE_CODE_AGENT_RESTART_WAIT_S:-${RESTART_WAIT_S}}"`;
+  const askedWait = `sleep "\${DOABLE_CODE_AGENT_ASKED_WAIT_S:-${ASKED_WAIT_S}}"`;
+  return `  [ -e "$dir/stopped" ] && break
+${comment}  ${shellQuote(node)} ${shellQuote(SCRIPT)} update-request --dir "$dir" --from "$from"${target} >> "$dir/service.log" 2>&1
+  after=$?
+  case $after in
+    0) ${restart} ;;
     ${NEW_START_SCRIPT})
       /bin/bash -n "$dir/run.sh" && exec /bin/bash "$dir/run.sh"
-      echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) self-update: the new release's start script is not valid bash; this script goes on" >> "$dir/service.log" ;;
-    *) echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) self-update: the step failed with code $updated; this release starts the session" >> "$dir/service.log" ;;
+      echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) self-update: the new release's start script is not valid bash; this script goes on" >> "$dir/service.log"
+      ${askedWait} ;;
+    ${ASKED_WAIT}) ${askedWait} ;;
+    *)
+      echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) update-request: the step failed with code $after" >> "$dir/service.log"
+      ${restart} ;;
   esac
 `;
 }
 
-// The start script. `service` is null in a script with no self-update and no check for Doable's request of an update
-// (the tests of the session's command line). Else it gives the installed plugin to update (`update`, see
-// selfUpdateStep), or null: self-update is off, or the session loads the plugin from a development folder. Then, after
-// each session, `update-request` writes to service.log when Doable asked for a newer plugin.
+// The start script. `service` is null in a script with no step after a session (the tests of the session's command
+// line). Else it gives `node` (findNode) and the installed plugin to update (`update`, see afterSessionStep).
 export function runScript({ dir, folder, claude, path, wake, pluginDir = null, service = null }) {
   const plugin = pluginDir ? `--plugin-dir ${shellQuote(pluginDir)} ` : "";
   const wakeLock = wake ? "/usr/bin/caffeinate -i -s " : "";
   // --disallowedTools takes each word after it as a tool name, so an option must come next.
   const disallowed = ASKING_TOOLS.map(shellQuote).join(" ");
   let before = "";
-  let after = "";
-  if (service !== null && service.update !== null) before = selfUpdateStep(service.update, ownVersion());
-  else if (service !== null) {
+  let after = `  [ -e "$dir/stopped" ] && break
+  sleep ${RESTART_WAIT_S}
+`;
+  if (service !== null) {
     before = `  # The size of the session's output before this session: update-request reads only what this session adds.
   from=0
   [ -f "$dir/session.jsonl" ] && from=$(wc -c < "$dir/session.jsonl" | tr -d ' ')
 `;
-    after = `  node ${shellQuote(SCRIPT)} update-request --dir "$dir" --from "$from" >> "$dir/service.log" 2>&1
-`;
+    after = afterSessionStep(service.node, service.update);
   }
   return `#!/bin/bash
 # Written by doable-code-context's code-agent-service.mjs. It serves Doable requests in ${folder}
@@ -214,9 +258,7 @@ while [ ! -e "$dir/stopped" ]; do
 ${before}  echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) the serving session starts" >> "$dir/service.log"
   ${wakeLock}${shellQuote(claude)} -p ${plugin}--permission-mode bypassPermissions --chrome --disallowedTools ${disallowed} --output-format stream-json --verbose < "$dir/prompt.md" >> "$dir/session.jsonl" 2>&1
   echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) the serving session ended with code $?" >> "$dir/service.log"
-${after}  [ -e "$dir/stopped" ] && break
-  sleep ${RESTART_WAIT_S}
-done
+${after}done
 `;
 }
 
@@ -274,11 +316,12 @@ function scriptEnvironment(script) {
   return kept;
 }
 
-// The start script, from config.json and this release's command line, with the self-update step for `update` (the
-// installed plugin, or null: see runScript). A config.json of plugin 0.5.0 or 0.6.0 also holds the person's `allow`
-// list: this release does not use it, because the session allows every tool. The new script takes the place of the old
-// one by a rename: a start script that runs keeps reading its own file, which does not change.
-function writeRunScript(dir, config, update) {
+// The start script, from config.json and this release's command line, with `node` (findNode) and the installed plugin
+// to update (`update`, or null: see afterSessionStep). A config.json of plugin 0.5.0 or 0.6.0 also holds the person's
+// `allow` list: this release does not use it, because the session allows every tool. The new script takes the place of
+// the old one by a rename: a start script that runs keeps reading its own file, which does not change. A release at or
+// above the version that Doable asked for removes `update-asked`.
+function writeRunScript(dir, config, update, node) {
   const script = runScript({
     dir,
     folder: config.folder,
@@ -286,12 +329,30 @@ function writeRunScript(dir, config, update) {
     path: config.path,
     wake: config.wake,
     pluginDir: config.pluginDir,
-    service: { update },
+    service: { node, update },
   });
   const next = join(dir, "run.sh.next");
   writeFileSync(next, script, { mode: 0o700 });
   chmodSync(next, 0o700);
   renameSync(next, join(dir, "run.sh"));
+  const asked = askedRelease(dir);
+  if (asked !== null && compareVersions(ownVersion(), asked) >= 0) rmSync(join(dir, UPDATE_ASKED));
+}
+
+// The version that Doable asked this machine for last (`update-asked`), or null when it asked for none that the machine
+// does not run.
+function askedRelease(dir) {
+  const file = join(dir, UPDATE_ASKED);
+  if (!existsSync(file)) return null;
+  const version = readFileSync(file, "utf8").trim();
+  if (!VERSION.test(version)) fail(`${file} does not hold a version (MAJOR.MINOR.PATCH): ${JSON.stringify(version.slice(0, 40))}.`);
+  return version;
+}
+
+// Below 0, 0 or above 0 when the version `a` is lower than, the same as or higher than `b` (each MAJOR.MINOR.PATCH).
+function compareVersions(a, b) {
+  const [x, y] = [a, b].map((version) => version.split(".").map(Number));
+  return x[0] - y[0] || x[1] - y[1] || x[2] - y[2];
 }
 
 // "on", "off", or "development folder" (the session loads the plugin from a folder: no update). A config.json from
@@ -350,10 +411,17 @@ function samePath(a, b) {
   return existsSync(a) && existsSync(b) && realpathSync(a) === realpathSync(b);
 }
 
+// Whether an install that `claude plugin list --json` lists applies in the folder of the repositories, where the start
+// script runs: a project or local install belongs to its own folder (`projectPath`), and Claude Code lists those of
+// every folder.
+function appliesIn(entry, folder) {
+  return entry.projectPath === undefined || (typeof entry.projectPath === "string" && samePath(entry.projectPath, folder));
+}
+
 // The plugin that self-update updates: this release as Claude Code installed it (its `installPath` is this script's
-// plugin folder), with its id and scope; null when self-update is off or the session loads the plugin from a
-// development folder. setup, start and write-start-script fail when self-update is on and Claude Code lists no install
-// of this release: the start script could not update a plugin that it cannot name.
+// plugin folder) for the folder of the repositories, with its id and scope; null when self-update is off or the session
+// loads the plugin from a development folder. setup, start and write-start-script fail when self-update is on and
+// Claude Code lists no install of this release: the start script could not update a plugin that it cannot name.
 function pluginToUpdate(config, env) {
   if (selfUpdateOf(config) !== "on") return null;
   const { list, problem } = readPluginList(config.claude, config.folder, env, maskBasic);
@@ -363,7 +431,8 @@ function pluginToUpdate(config, env) {
       typeof entry.id === "string" &&
       entry.id.startsWith(`${PLUGIN_NAME}@`) &&
       typeof entry.installPath === "string" &&
-      samePath(entry.installPath, PLUGIN_ROOT),
+      samePath(entry.installPath, PLUGIN_ROOT) &&
+      appliesIn(entry, config.folder),
   );
   // Claude Code can list one folder in two scopes; the user scope is the README's.
   const entry = mine.length === 1 ? mine[0] : mine.find((one) => one.scope === "user");
@@ -387,12 +456,23 @@ function maskBasic(text) {
 
 const SELF_UPDATE_WORDS = {
   on: (machine) =>
-    `Self-update is on: before each start of the session, the start script updates the plugin with Claude Code's own commands, and when Doable needs a newer release, the session ends and starts again with it. To turn it off, run stop, then start --machine ${machine} --auto-update off.`,
+    `Self-update is on: when Doable asks for a newer release of the plugin, the session ends, and the start script updates the plugin with Claude Code's own commands and starts the new release. It updates at no other time. To turn it off, run stop, then start --machine ${machine} --auto-update off.`,
   off: (machine) =>
-    `Self-update is off: when Doable needs a newer release of the plugin, the session ends at once, and a person must update the plugin (README, "Self-update"). To turn it on, run stop, then start --machine ${machine} --auto-update on.`,
+    `Self-update is off: when Doable asks for a newer release of the plugin, each session ends at its first wait for a request, and the next one starts 30 minutes later, until a person updates the plugin (README, "Self-update"). To turn it on, run stop, then start --machine ${machine} --auto-update on.`,
   "development folder": () =>
-    "Self-update is off: the session loads the plugin from a development folder (DOABLE_CODE_AGENT_PLUGIN_DIR at setup). When Doable needs a newer release, the session ends at once, and a person must update that folder.",
+    "Self-update is off: the session loads the plugin from a development folder (DOABLE_CODE_AGENT_PLUGIN_DIR at setup). When Doable asks for a newer release, each session ends at its first wait for a request, and the next one starts 30 minutes later, until a person updates that folder.",
 };
+
+// What setup and start say when the session's first wait got Doable's ask for a newer release: what happens next.
+const ASKED_NEXT = {
+  on: "The start script updates the plugin now and starts the new release; service.log says how each step went.",
+  off: 'Self-update is off: update the plugin by hand, then run stop and start (README, "Self-update"). Until then, a session starts every 30 minutes and ends at its first wait for a request.',
+  "development folder": "The session loads the plugin from a development folder: update that folder, then run stop and start.",
+};
+
+// What setup prints under its Status and Stop lines: their paths name this release's folder.
+const INSTALL_PATH_NOTE =
+  "Each update of the plugin, a self-update too, changes its folder: run these commands from the installPath that `claude plugin list --json` names at that time.";
 
 function writeConfig(dir, config) {
   writeFileSync(join(dir, "config.json"), `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
@@ -517,15 +597,35 @@ function launch(env, machine, dir) {
   return "started in the background; after a reboot, run `start` again";
 }
 
+// The text of a tool's result: a string, or the text parts of a list.
+function toolText(content) {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .filter((part) => part?.type === "text" && typeof part.text === "string")
+    .map((part) => part.text)
+    .join("\n");
+}
+
+// The version that one answer of the wait for a request asks for, or null. Doable MCP's ask is only its words, with no
+// JSON record: "Doable needs the plugin 0.6.4 on this machine. End the session now, ...". Only a text that starts with
+// that sentence counts. A normal answer is a JSON record, and the same words in a request's text, inside that record,
+// are the asker's words, not Doable's ask.
+function updateVersion(text) {
+  return /^Doable needs the plugin (\d+\.\d+\.\d+) on this machine\./.exec(text.trim())?.[1] ?? null;
+}
+
 // What the output of a serving session (`claude -p --output-format stream-json`) says about its start: the permission
-// mode of its `system` `init` line (null when the output has none), and the name of the first wait tool whose call
-// returned with no error (null when none did). Claude Code writes the line of a call before it checks the call's
-// permission and before the call runs: only the call's result (a `tool_result` with the call's id) says that the session
-// waits. The result of a refused call, or of a call that Doable refused (for example a revoked key), has
-// `"is_error": true`. The init line also names each tool, so a tool's name alone says nothing.
+// mode of its `system` `init` line (null when the output has none), the name of the first wait tool whose call
+// returned with no error (null when none did), and the version that Doable asked for in that call's answer (null when it
+// asked for none). Claude Code writes the line of a call before it checks the call's permission and before the call
+// runs: only the call's result (a `tool_result` with the call's id) says that the session waits. The result of a
+// refused call, or of a call that Doable refused (for example a revoked key), has `"is_error": true`. The init line also
+// names each tool, so a tool's name alone says nothing.
 function sessionStart(output) {
   let permissionMode = null;
   let waitTool = null;
+  let updateAsked = null;
   const waitCalls = new Map();
   for (const line of output.split("\n")) {
     let event;
@@ -544,10 +644,11 @@ function sessionStart(output) {
       if (part.type === "tool_use" && WAIT_TOOL.test(part.name)) waitCalls.set(part.id, part.name);
       if (part.type === "tool_result" && waitCalls.has(part.tool_use_id) && part.is_error !== true && waitTool === null) {
         waitTool = waitCalls.get(part.tool_use_id);
+        updateAsked = updateVersion(toolText(part.content));
       }
     }
   }
-  return { permissionMode, waitTool };
+  return { permissionMode, waitTool, updateAsked };
 }
 
 function outputSize(dir) {
@@ -608,15 +709,20 @@ function launchAndWait(env, machine, dir) {
   return { how, seen };
 }
 
-function printStart(seen, dir, print) {
+// `selfUpdate` is the machine's self-update: "on", "off" or "development folder" (selfUpdateOf).
+function printStart(seen, dir, print, selfUpdate) {
   if (seen === null) return;
-  const { permissionMode, waitTool } = seen;
-  if (waitTool === PLUGIN_WAIT_TOOL) print("It is connected: it waits for Doable's requests.");
-  else if (waitTool !== null) {
+  const { permissionMode, waitTool, updateAsked } = seen;
+  if (waitTool === null) print(`It did not start to wait in 2 minutes. Read ${join(dir, "session.jsonl")} and ${join(dir, "service.log")}.`);
+  // Doable records no machine whose wait it answers with its ask: the session ended, and it is not connected.
+  else if (updateAsked !== null) {
+    print(`Doable needs the plugin ${updateAsked} on this machine, so the session ended at its first wait for a request. ${ASKED_NEXT[selfUpdate]}`);
+  } else if (waitTool === PLUGIN_WAIT_TOOL) print("It is connected: it waits for Doable's requests.");
+  if (waitTool !== null && waitTool !== PLUGIN_WAIT_TOOL) {
     print(
       `It waits for Doable's requests through another Doable MCP server of your Claude Code settings (its tool ${waitTool}), not through the plugin's server, so it does not use this setup's key and machine name. Remove that server (README, "With nobody at the terminal"), then run stop and start.`,
     );
-  } else print(`It did not start to wait in 2 minutes. Read ${join(dir, "session.jsonl")} and ${join(dir, "service.log")}.`);
+  }
   if (permissionMode !== null && permissionMode !== "bypassPermissions") {
     print(
       `It runs in the ${permissionMode} permission mode, not in the bypass mode, so with nobody at the terminal it cannot do the work of a request. Settings of this machine can turn the bypass mode off (\`disableBypassPermissionsMode\`): read the README's "With nobody at the terminal".`,
@@ -641,6 +747,7 @@ export function setup(options, env, print = console.log) {
   const chosen = chosenBrowser(env);
   const folderPath = resolve(folder);
   const config = { folder: folderPath, machine, autoUpdate, ...runEnvironment(env) };
+  const node = findNode(config.path);
   const update = pluginToUpdate(config, env);
 
   const dir = serviceDir(env, machine);
@@ -650,7 +757,7 @@ export function setup(options, env, print = console.log) {
   writeFileSync(join(dir, "env"), `export DOABLE_API_KEY=${shellQuote(key)}\nexport DOABLE_MACHINE_NAME=${shellQuote(machine)}\n`, { mode: 0o600 });
   chmodSync(join(dir, "env"), 0o600);
   writeFileSync(join(dir, "prompt.md"), `${prompt}\n`, { mode: 0o600 });
-  writeRunScript(dir, config, update);
+  writeRunScript(dir, config, update, node);
   writeConfig(dir, config);
   if (useLaunchd(env)) {
     mkdirSync(join(plistPath(env, machine), ".."), { recursive: true });
@@ -668,11 +775,12 @@ export function setup(options, env, print = console.log) {
   // When the session says that it runs in another mode, printStart says so in place of this note.
   if (seen === null || seen.permissionMode === null || seen.permissionMode === "bypassPermissions") print(NO_PERMISSION_CHECK_NOTE);
   print(chromeNote(chosen));
-  printStart(seen, dir, print);
+  printStart(seen, dir, print, selfUpdateOf(config));
   print(`Its files are in ${dir} (the key is in ${join(dir, "env")}, readable only by you).`);
   print(SELF_UPDATE_WORDS[selfUpdateOf(config)](machine));
   print(`Status: node ${SCRIPT} status --machine ${machine}`);
   print(`Stop: node ${SCRIPT} stop --machine ${machine}`);
+  print(INSTALL_PATH_NOTE);
 }
 
 export function stop(machine, env, print = console.log) {
@@ -702,16 +810,17 @@ export function start(machine, env, print = console.log, { autoUpdate } = {}) {
   const chosen = chosenBrowser(env);
   const { config, fromOlderSetup } = savedConfig(dir, env);
   if (autoUpdate !== undefined) config.autoUpdate = autoUpdate;
+  const node = findNode(config.path);
   const update = pluginToUpdate(config, env);
   writeConfig(dir, config);
-  writeRunScript(dir, config, update);
+  writeRunScript(dir, config, update, node);
   // A new command line can fail where the old one worked: the person who starts the session learns, as at setup,
   // whether it waits for requests, in which permission mode it runs (settings can turn the bypass mode off), and
   // whether it waits through the plugin's server.
   const { how, seen } = launchAndWait(env, machine, dir);
   print(`The code agent "${machine}": ${how}.`);
   print(chromeNote(chosen));
-  printStart(seen, dir, print);
+  printStart(seen, dir, print, selfUpdateOf(config));
   // A changed choice says what it does now; `status` and the page always show it.
   if (autoUpdate !== undefined) print(SELF_UPDATE_WORDS[selfUpdateOf(config)](machine));
   if (fromOlderSetup) {
@@ -749,6 +858,10 @@ export function status(machine, env, print = console.log) {
   const dir = serviceDir(env, machine);
   print(`Code agent "${machine}": ${state}.`);
   print(SELF_UPDATE_WORDS[selfUpdateState(machine, env)](machine));
+  const asked = askedRelease(dir);
+  if (asked !== null) {
+    print(`Doable asked for the plugin ${asked} at ${statSync(join(dir, UPDATE_ASKED)).mtime.toISOString()}: service.log says what the start script did.`);
+  }
   const session = join(dir, "session.jsonl");
   if (existsSync(session)) print(`Last activity: ${statSync(session).mtime.toISOString()} (${session}).`);
   const log = join(dir, "service.log");
@@ -804,17 +917,21 @@ function readPluginList(claude, folder, env, mask) {
   return { list: list.filter((entry) => entry !== null && typeof entry === "object") };
 }
 
-// `self-update`: the start script's step before each start of the serving session, when self-update is on. Claude Code
-// updates the plugin's marketplace, then the plugin in its scope, each with a time limit. Then this step reads which
-// release Claude Code lists for the plugin. When that is another release than this one (its installPath is not this
-// release's folder), the new release writes the start script again, and this step returns NEW_START_SCRIPT: the start
-// script then runs the new script. Each step prints one line for service.log: what ran, the versions, or how a command
-// failed and its last lines, masked with `mask`. When a step fails, it returns 0, and this release starts the session:
-// the session serves, Doable asks again at its next wait for a request, and the start script tries again after its wait.
-export function selfUpdate({ dir, plugin, scope }, env, print, mask) {
-  const config = machineConfig(dir);
+// The values of `--plugin` and `--scope` that `update-request` passes to Claude Code.
+function checkUpdateTarget(plugin, scope) {
   if (!PLUGIN_ID.test(plugin ?? "")) fail(`--plugin must be ${PLUGIN_NAME}@<marketplace>.`);
   if (!SCOPES.includes(scope)) fail(`--scope must be one of ${SCOPES.join(", ")}.`);
+}
+
+// The update of the plugin after a session whose wait got Doable's ask, with self-update on. Claude Code updates the
+// plugin's marketplace, then the plugin in its scope, each with a time limit. Then this step reads which release Claude
+// Code lists for the plugin. When that is another release than this one (its installPath is not this release's
+// folder), the new release writes the start script again, and this step returns true: the start script then runs the
+// new script. Else it returns false. Each step prints one line for service.log: what ran, the versions, or how a
+// command failed and its last lines, masked with `mask`.
+export function selfUpdate({ dir, plugin, scope }, env, print, mask) {
+  const config = machineConfig(dir);
+  checkUpdateTarget(plugin, scope);
   const say = (words) => print(`${logTime()} self-update: ${words}`);
   const marketplace = plugin.slice(PLUGIN_NAME.length + 1);
   for (const args of [
@@ -823,39 +940,36 @@ export function selfUpdate({ dir, plugin, scope }, env, print, mask) {
   ]) {
     const failed = failureWords(claudePlugin(config.claude, config.folder, args, UPDATE_LIMIT_S, env), UPDATE_LIMIT_S, mask);
     if (failed !== null) {
-      say(`\`claude plugin ${args.join(" ")}\` ${failed}. This release starts the session.`);
-      return 0;
+      say(`\`claude plugin ${args.join(" ")}\` ${failed}.`);
+      return false;
     }
     say(`\`claude plugin ${args.join(" ")}\` ended with no error.`);
   }
   const own = ownVersion();
   const { list, problem } = readPluginList(config.claude, config.folder, env, mask);
-  // A project or local install belongs to a folder: the one of the repositories, where the start script runs.
-  const entry = list?.find(
-    (one) => one.id === plugin && one.scope === scope && (one.projectPath === undefined || samePath(one.projectPath, config.folder)),
-  );
+  const entry = list?.find((one) => one.id === plugin && one.scope === scope && appliesIn(one, config.folder));
   if (problem !== undefined || typeof entry?.installPath !== "string") {
-    say(`${problem ?? `\`claude plugin list --json\` names no ${plugin} in the ${scope} scope`}. This release (${own}) starts the session.`);
-    return 0;
+    say(`${problem ?? `\`claude plugin list --json\` names no ${plugin} in the ${scope} scope`}.`);
+    return false;
   }
   if (samePath(entry.installPath, PLUGIN_ROOT)) {
     say(`${plugin} is at ${own}, the release of this start script.`);
-    return 0;
+    return false;
   }
   say(`${plugin} went from ${own} to ${entry.version}: the new release writes the start script again.`);
   const newScript = join(entry.installPath, "scripts", "code-agent-service.mjs");
   if (!existsSync(newScript)) {
-    say(`${entry.version} has no ${newScript}. This release (${own}) starts the session.`);
-    return 0;
+    say(`${entry.version} has no ${newScript}.`);
+    return false;
   }
   const write = limitedRun(process.execPath, [newScript, "write-start-script", "--dir", dir], { cwd: config.folder, seconds: WRITE_LIMIT_S, env });
   const failed = failureWords(write, WRITE_LIMIT_S, mask);
   if (failed !== null) {
-    say(`\`write-start-script\` of ${entry.version} ${failed}. This release (${own}) starts the session.`);
-    return 0;
+    say(`\`write-start-script\` of ${entry.version} ${failed}.`);
+    return false;
   }
   say(`${entry.version} wrote the start script: the session starts with it.`);
-  return NEW_START_SCRIPT;
+  return true;
 }
 
 // `write-start-script`: writes the start script with this release's command line, as `start` does, and starts nothing.
@@ -863,27 +977,11 @@ export function selfUpdate({ dir, plugin, scope }, env, print, mask) {
 // keep this command and its --dir option in each release.
 export function writeStartScript({ dir }, env) {
   const config = machineConfig(dir);
-  writeRunScript(dir, config, pluginToUpdate(config, env));
+  writeRunScript(dir, config, pluginToUpdate(config, env), findNode(config.path));
 }
 
-// The text of a tool's result: a string, or the text parts of a list.
-function toolText(content) {
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-  return content
-    .filter((part) => part?.type === "text" && typeof part.text === "string")
-    .map((part) => part.text)
-    .join("\n");
-}
-
-// The version that one answer of the wait for a request asks for, or null. Doable MCP's answer says it in words, as
-// its whole text or as its `update` in JSON: "Doable needs the plugin 0.6.4 on this machine. End the session now ...".
-function updateVersion(text) {
-  return /Doable needs the plugin\W{0,3}(\d+\.\d+\.\d+)/.exec(text)?.[1] ?? null;
-}
-
-// The version that Doable asked for in the output of a serving session (as sessionStart reads it), from the result of
-// a wait for a request that returned with no error; null when no answer asked for one.
+// The version that Doable asked for in the output of a serving session (as sessionStart reads it): the last answer of a
+// wait for a request that returned with no error and that is Doable's ask (updateVersion); null when none is.
 function askedVersion(output) {
   let version = null;
   const waitCalls = new Set();
@@ -908,18 +1006,36 @@ function askedVersion(output) {
   return version;
 }
 
-// `update-request`: the start script's step after each session when self-update is off, or when the session loads the
-// plugin from a development folder. It prints a line for service.log when the session's output after its first `from`
-// bytes holds Doable's answer that it needs a newer release of the plugin: a person must update it.
-export function updateRequest({ dir, from }, print) {
+// `update-request`: the start script's step after each session. It reads the session's output after its first `from`
+// bytes. When a wait got Doable's ask for a release above this one, it keeps the asked version in `update-asked` and
+// prints a line for service.log. With self-update on (`plugin` and `scope` given), it then updates the plugin
+// (selfUpdate), and returns NEW_START_SCRIPT when a new release wrote the start script. When this machine still runs a
+// lower release, or with self-update off or a development folder, it prints that a person must act and returns
+// ASKED_WAIT: the next session starts 30 minutes later. It returns 0 when Doable did not ask.
+export function updateRequest({ dir, from, plugin, scope }, env, print, mask) {
   const config = machineConfig(dir);
   if (!Number.isInteger(from)) fail("--from must be a whole number of bytes.");
-  const version = askedVersion(outputAfter(join(dir, "session.jsonl"), from));
-  if (version === null) return;
-  const why = selfUpdateOf(config) === "development folder" ? "the session loads the plugin from a development folder" : "self-update is off";
-  print(
-    `${logTime()} Doable needs the plugin ${version} on this machine, and ${why}: a person must update the plugin, then run stop and start (README, "Self-update"). Until then, each session ends at its first wait for a request.`,
-  );
+  const updating = plugin !== undefined || scope !== undefined;
+  if (updating) checkUpdateTarget(plugin, scope);
+  const asked = askedVersion(outputAfter(join(dir, "session.jsonl"), from));
+  if (asked === null) return 0;
+  const own = ownVersion();
+  print(`${logTime()} Doable asked for the plugin ${asked}; this release is ${own}.`);
+  // Doable asks only a machine whose release is lower than the one that it needs.
+  if (compareVersions(asked, own) <= 0) return 0;
+  writeFileSync(join(dir, UPDATE_ASKED), `${asked}\n`, { mode: 0o600 });
+  if (updating) {
+    if (selfUpdate({ dir, plugin, scope }, env, print, mask)) return NEW_START_SCRIPT;
+    print(
+      `${logTime()} self-update: this release (${own}) is still lower than ${asked}, which Doable asked for: a person must act (README, "Self-update"). The next session starts in 30 minutes.`,
+    );
+  } else {
+    const why = selfUpdateOf(config) === "development folder" ? "The session loads the plugin from a development folder" : "Self-update is off";
+    print(
+      `${logTime()} ${why}: a person must update the plugin to ${asked}, then run stop and start (README, "Self-update"). Until then, each session ends at its first wait for a request, and the next session starts in 30 minutes.`,
+    );
+  }
+  return ASKED_WAIT;
 }
 
 export function parseArgs(argv) {
@@ -976,12 +1092,11 @@ async function main() {
     // Loaded only for this command: the page's module imports this one.
     const { page } = await import("./code-agent-page.mjs");
     await page(options, env);
-  } else if (command === "self-update") {
+  } else if (command === "update-request") {
     // The page's mask, loaded only for this command, as for `page`.
     const { maskSecrets } = await import("./code-agent-page.mjs");
-    process.exitCode = selfUpdate(options, env, console.log, (text) => maskSecrets(text));
+    process.exitCode = updateRequest(options, env, console.log, (text) => maskSecrets(text));
   } else if (command === "write-start-script") writeStartScript(options, env);
-  else if (command === "update-request") updateRequest(options, console.log);
   else fail("Use setup, status, stop, start, remove, page or browser (see the comment at the top of this file).");
 }
 

@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 
 import { maskSecrets } from "../plugins/doable-code-context/scripts/code-agent-page.mjs";
 import {
+  ASKED_WAIT,
   NEW_START_SCRIPT,
   browser,
   launchdPlist,
@@ -35,6 +36,11 @@ const KEY = `${PREFIX}test0123456789abcdefghijkl`;
 // A value in single quotes, as the service script writes it into the start script (shellQuote), and a regex of that.
 const q = (value) => `'${String(value).replaceAll("'", "'\\''")}'`;
 const quotedPattern = (value) => q(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+// The folder of the node that runs the tests: each PATH that a start script runs with holds it, because the start
+// script runs this script's step after each session with the node of that PATH.
+const NODE_DIR = dirname(process.execPath);
+// The PATH of the terminal that ran an older setup.
+const SETUP_TERMINAL_PATH = `/srv/setup-terminal/bin:${NODE_DIR}:/usr/bin:/bin`;
 
 // An entry of `claude plugin list --json`, as Claude Code 2.1.326 writes it, for the plugin installed at `installPath`.
 const listEntry = (installPath, version = RELEASE) => ({
@@ -165,7 +171,7 @@ test("the start script runs the serving session with no permission check, with C
   assert.match(run, sessionLine(quotedPattern(m.claude)));
   assertNoAllowRules(run);
   assert.match(run, /while \[ ! -e "\$dir\/stopped" \]; do/);
-  assert.match(run, /sleep 300/);
+  assert.ok(run.includes('sleep "${DOABLE_CODE_AGENT_RESTART_WAIT_S:-300}"'), run);
   assert.match(run, /unset ANTHROPIC_API_KEY/);
   assert.match(run, /^export MCP_CONNECTION_NONBLOCKING=false$/m);
   // The session's output can hold a test login's password: the files that the script makes are the owner's only.
@@ -327,7 +333,7 @@ umask 077
 dir='${dir}'
 . "$dir/env"
 unset ANTHROPIC_API_KEY
-export PATH='/srv/setup-terminal/bin:/usr/bin:/bin'
+export PATH=${q(SETUP_TERMINAL_PATH)}
 # In print mode the MCP servers can connect after the first turn starts; the skill's first call needs Doable's tools.
 export MCP_CONNECTION_NONBLOCKING=false
 cd '${folder}' || exit 1
@@ -397,7 +403,7 @@ test("the update from plugin 0.6.0 (stop, plugin update, start) gives the sessio
     machine: "mac-mini-1",
     allow: ["Bash(npm test *)"],
     claude: m.oldClaude,
-    path: "/srv/setup-terminal/bin:/usr/bin:/bin",
+    path: SETUP_TERMINAL_PATH,
     wake: true,
     pluginDir: null,
   };
@@ -411,7 +417,7 @@ test("the update from plugin 0.6.0 (stop, plugin update, start) gives the sessio
   const run = readFileSync(join(dir, "run.sh"), "utf8");
   assert.match(run, new RegExp(`^  \\/usr\\/bin\\/caffeinate -i -s ${quotedPattern(m.oldClaude)} -p ${SESSION_FLAGS}`, "m"));
   assertNoAllowRules(run);
-  assert.match(run, /^export PATH='\/srv\/setup-terminal\/bin:\/usr\/bin:\/bin'$/m);
+  assert.ok(run.includes(`\nexport PATH=${q(SETUP_TERMINAL_PATH)}\n`), run);
   execFileSync("bash", ["-n", join(dir, "run.sh")]);
   // The prompt does not change, and config.json of 0.6.0 holds the claude command: no reminder of the password sentence.
   assert.equal(readFileSync(join(dir, "prompt.md"), "utf8"), promptBefore);
@@ -431,7 +437,7 @@ test("start on a machine that plugin 0.5.0 set up takes the PATH, the claude com
   const printed = [];
   start("mac-mini-1", sshShell, (line) => printed.push(line));
   const run = readFileSync(join(dir, "run.sh"), "utf8");
-  assert.match(run, /^export PATH='\/srv\/setup-terminal\/bin:\/usr\/bin:\/bin'$/m);
+  assert.ok(run.includes(`\nexport PATH=${q(SETUP_TERMINAL_PATH)}\n`), run);
   assert.match(
     run,
     new RegExp(`${SETUP_TERMINAL_CLAUDE} -p --plugin-dir '\\/srv\\/dev\\/doable-agent-plugins\\/plugins\\/doable-code-context' ${SESSION_FLAGS}`, "m"),
@@ -442,7 +448,7 @@ test("start on a machine that plugin 0.5.0 set up takes the PATH, the claude com
   execFileSync("bash", ["-n", join(dir, "run.sh")]);
   const config = JSON.parse(readFileSync(join(dir, "config.json"), "utf8"));
   assert.equal(config.claude, "/srv/setup terminal's/bin/claude");
-  assert.equal(config.path, "/srv/setup-terminal/bin:/usr/bin:/bin");
+  assert.equal(config.path, SETUP_TERMINAL_PATH);
   assert.equal(config.pluginDir, "/srv/dev/doable-agent-plugins/plugins/doable-code-context");
   assert.equal(printed.length, 3, printed.join("\n"));
   assert.deepEqual(printed.slice(0, 2), [NOT_STARTED, CHROME_NOTE]);
@@ -465,7 +471,7 @@ test("start with a config.json that holds no claude command reads it and the plu
           dir,
           folder,
           claude: "/srv/setup terminal's/bin/claude",
-          path: "/srv/setup-terminal/bin:/usr/bin:/bin",
+          path: SETUP_TERMINAL_PATH,
           wake: true,
           pluginDir: "/srv/dev/doable-agent-plugins/plugins/doable-code-context",
         }),
@@ -480,7 +486,7 @@ test("start with a config.json that holds no claude command reads it and the plu
     const config = JSON.parse(readFileSync(join(dir, "config.json"), "utf8"));
     assert.equal(config.claude, "/srv/setup terminal's/bin/claude", name);
     assert.equal(config.pluginDir, "/srv/dev/doable-agent-plugins/plugins/doable-code-context", name);
-    assert.equal(config.path, "/srv/setup-terminal/bin:/usr/bin:/bin", name);
+    assert.equal(config.path, SETUP_TERMINAL_PATH, name);
   }
 });
 
@@ -506,13 +512,14 @@ test("start on a machine that plugin 0.5.0 set up takes from its environment wha
   const dir = serviceDir(m.env, "mac-mini-1");
   // A start script that a person changed by hand: no PATH line, and a claude command that is not quoted.
   asPlugin050Setup(m, dir, "#!/bin/bash\nclaude -p --permission-mode dontAsk --allowedTools 'mcp__plugin_doable-code-context_doable' 'Bash(sleep 20)'\n");
-  const later = { ...m.env, DOABLE_CLAUDE_BIN: m.otherClaude, PATH: "/srv/other/bin:/usr/bin" };
+  const laterPath = `/srv/other/bin:${NODE_DIR}:/usr/bin`;
+  const later = { ...m.env, DOABLE_CLAUDE_BIN: m.otherClaude, PATH: laterPath };
 
   stop("mac-mini-1", later, () => {});
   const printed = [];
   start("mac-mini-1", later, (line) => printed.push(line));
   const run = readFileSync(join(dir, "run.sh"), "utf8");
-  assert.match(run, /^export PATH='\/srv\/other\/bin:\/usr\/bin'$/m);
+  assert.ok(run.includes(`\nexport PATH=${q(laterPath)}\n`), run);
   assert.match(run, sessionLine(quotedPattern(m.otherClaude)));
   assertNoAllowRules(run);
   assert.equal(JSON.parse(readFileSync(join(dir, "config.json"), "utf8")).claude, m.otherClaude);
@@ -801,15 +808,16 @@ test("the command line takes the folder, the machine and the prompt file, and re
 
 // What setup, start (with --auto-update) and status say about self-update.
 const SELF_UPDATE_ON =
-  "Self-update is on: before each start of the session, the start script updates the plugin with Claude Code's own commands, and when Doable needs a newer release, the session ends and starts again with it. To turn it off, run stop, then start --machine mac-mini-1 --auto-update off.";
+  "Self-update is on: when Doable asks for a newer release of the plugin, the session ends, and the start script updates the plugin with Claude Code's own commands and starts the new release. It updates at no other time. To turn it off, run stop, then start --machine mac-mini-1 --auto-update off.";
 const SELF_UPDATE_OFF =
-  'Self-update is off: when Doable needs a newer release of the plugin, the session ends at once, and a person must update the plugin (README, "Self-update"). To turn it on, run stop, then start --machine mac-mini-1 --auto-update on.';
+  'Self-update is off: when Doable asks for a newer release of the plugin, each session ends at its first wait for a request, and the next one starts 30 minutes later, until a person updates the plugin (README, "Self-update"). To turn it on, run stop, then start --machine mac-mini-1 --auto-update on.';
 const SELF_UPDATE_DEV =
-  "Self-update is off: the session loads the plugin from a development folder (DOABLE_CODE_AGENT_PLUGIN_DIR at setup). When Doable needs a newer release, the session ends at once, and a person must update that folder.";
-// The start script's step before each session, for the plugin that Claude Code installed in the user scope from the
-// marketplace doable; and its step after each session when self-update is off.
-const UPDATE_STEP = `node ${q(script)} self-update --dir "$dir" --plugin 'doable-code-context@doable' --scope 'user' >> "$dir/service.log" 2>&1`;
-const REQUEST_STEP = `node ${q(script)} update-request --dir "$dir" --from "$from" >> "$dir/service.log" 2>&1`;
+  "Self-update is off: the session loads the plugin from a development folder (DOABLE_CODE_AGENT_PLUGIN_DIR at setup). When Doable asks for a newer release, each session ends at its first wait for a request, and the next one starts 30 minutes later, until a person updates that folder.";
+// The start script's step after each session, with the node of its PATH: with self-update on, for the plugin that
+// Claude Code installed in the user scope from the marketplace doable; and with self-update off.
+const NODE = join(NODE_DIR, "node");
+const UPDATE_STEP = `${q(NODE)} ${q(script)} update-request --dir "$dir" --from "$from" --plugin 'doable-code-context@doable' --scope 'user' >> "$dir/service.log" 2>&1`;
+const REQUEST_STEP = `${q(NODE)} ${q(script)} update-request --dir "$dir" --from "$from" >> "$dir/service.log" 2>&1`;
 // service.log's lines with no time.
 const logLines = (dir) =>
   readFileSync(join(dir, "service.log"), "utf8")
@@ -825,16 +833,17 @@ test("setup turns self-update on and says how to turn it off, start keeps or cha
   const run = () => readFileSync(join(dir, "run.sh"), "utf8");
   const saved = () => JSON.parse(readFileSync(join(dir, "config.json"), "utf8")).autoUpdate;
   assert.equal(saved(), true);
+  // The step comes after the session, never before its first start, and once in the loop.
   assert.ok(run().includes(UPDATE_STEP), run());
-  assert.ok(run().indexOf(UPDATE_STEP) < run().indexOf("the serving session starts"), run());
-  assert.ok(!run().includes("update-request"), run());
+  assert.ok(run().indexOf(UPDATE_STEP) > run().indexOf("the serving session ended"), run());
+  assert.equal(run().split("update-request --dir").length, 2, run());
   execFileSync("bash", ["-n", join(dir, "run.sh")]);
   assert.equal(printedBy((print) => status("mac-mini-1", m.env, print))[1], SELF_UPDATE_ON);
 
-  // start --auto-update off: kept in config.json, and the start script says when Doable asks for an update.
+  // start --auto-update off: kept in config.json, and the start script's step names no plugin to update.
   assert.deepEqual(printedBy((print) => start("mac-mini-1", m.env, print, { autoUpdate: false })), [NOT_STARTED, CHROME_NOTE, SELF_UPDATE_OFF]);
   assert.equal(saved(), false);
-  assert.ok(run().includes(REQUEST_STEP) && !run().includes("self-update"), run());
+  assert.ok(run().includes(REQUEST_STEP) && !run().includes("--scope"), run());
   assert.ok(run().indexOf(REQUEST_STEP) > run().indexOf("the serving session ended"), run());
   execFileSync("bash", ["-n", join(dir, "run.sh")]);
   // start without the option keeps the choice, and says nothing of it.
@@ -867,7 +876,7 @@ test("a development plugin folder has no self-update, and setup reads no install
   assert.ok(printed.includes(SELF_UPDATE_DEV), printed.join("\n"));
   const dir = serviceDir(m.env, "mac-mini-1");
   const run = readFileSync(join(dir, "run.sh"), "utf8");
-  assert.ok(run.includes(REQUEST_STEP) && !run.includes("self-update"), run);
+  assert.ok(run.includes(REQUEST_STEP) && !run.includes("--scope"), run);
   assert.equal(existsSync(calls), false);
   assert.equal(printedBy((print) => status("mac-mini-1", m.env, print))[1], SELF_UPDATE_DEV);
 });
@@ -904,7 +913,34 @@ test("with self-update on, setup and start refuse, and change nothing, when Clau
   assert.equal(readFileSync(join(dir, "run.sh"), "utf8"), before);
 });
 
-test("the start script updates the plugin before the session starts, and goes on in the start script that the new release writes", () => {
+// Doable MCP's answer to a wait for a request when Doable needs a newer release: only these words, with no JSON record.
+const askText = (version) =>
+  `Doable needs the plugin ${version} on this machine. End the session now, and call no other tool. An Always on service updates the plugin and starts the session again; in a session that a person started, the person updates the plugin and starts the session again.`;
+// A normal answer that holds a request whose text quotes those words: the asker's words, not Doable's ask.
+const QUOTING_ANSWER = JSON.stringify({
+  request: { id: "CA-ABC123", request: `Why does service.log say "${askText("9.9.9")}"? Explain it to me.` },
+  capabilities_missing: false,
+});
+// The output of a session whose first wait got `text`.
+const waitedWith = (id, text) => `${initLine()}${callLine(id)}${resultLine(id, { text })}`;
+// The run of a start script with fakes: the session's `claude` and `sleep`, which write each call to `calls` and do not
+// wait. The start script finds `sleep` first on its PATH (setup's PATH).
+function withFakeSleep(m, calls) {
+  const bin = join(m.base, "fake-bin");
+  mkdirSync(bin, { recursive: true });
+  writeFileSync(join(bin, "sleep"), `#!/bin/bash\nprintf 'sleep %s\\n' "$1" >> ${q(calls)}\n`, { mode: 0o700 });
+  return { ...m.env, PATH: `${bin}:${m.env.PATH}` };
+}
+// The session part of a fake `claude`: the n-th session writes the file `output-<n>.jsonl` of `base`, and the session
+// `last` ends the start script's loop.
+const sessionsInTurn = (base, dir, last) => {
+  const count = q(join(base, "sessions"));
+  return `n=$(( $(/bin/cat ${count} 2>/dev/null || echo 0) + 1 )); echo $n > ${count}
+/bin/cat ${q(base)}/output-$n.jsonl
+if [ $n = ${last} ]; then /usr/bin/touch ${q(join(dir, "stopped"))}; fi`;
+};
+
+test("after a session whose wait got Doable's ask, the start script updates the plugin and goes on in the new release's start script; never at the first start, nor for the same words in a request", () => {
   const m = machine();
   const calls = join(m.base, "calls");
   // The new release as Claude Code installs it: a folder of its own, with its version in its manifest.
@@ -914,67 +950,80 @@ test("the start script updates the plugin before the session starts, and goes on
   writeFileSync(manifest, JSON.stringify({ ...JSON.parse(readFileSync(manifest, "utf8")), version: "9.9.9" }));
   const newList = join(m.base, "new-list.json");
   writeFileSync(newList, JSON.stringify([listEntry(next, "9.9.9")]));
-  const updated = join(m.base, "updated");
   const dir = serviceDir(m.env, "mac-mini-1");
-  // Claude Code lists the new release after `claude plugin update`. The session writes nothing and ends the loop.
+  // The sessions in turn: (1) a request whose text quotes Doable's ask; (2) Doable's ask while the marketplace has no
+  // newer release; (3) Doable's ask after the release came to the marketplace; (4) the new release's session.
+  const outputs = [QUOTING_ANSWER, askText("9.9.9"), askText("9.9.9"), '{"request":null,"capabilities_missing":false}'];
+  outputs.forEach((text, i) => writeFileSync(join(m.base, `output-${i + 1}.jsonl`), waitedWith(`toolu_${i + 1}`, text)));
+  const published = join(m.base, "published");
+  const updated = join(m.base, "updated");
+  // `claude plugin update` installs the new release only after the third session's start, when it is published.
   fakeClaude(m.claude, {
     list: `if [ -e ${q(updated)} ]; then /bin/cat ${q(newList)}; else /bin/cat ${q(m.listFile)}; fi`,
-    update: `/usr/bin/touch ${q(updated)}`,
-    session: `/usr/bin/touch ${q(join(dir, "stopped"))}`,
+    update: `if [ -e ${q(published)} ]; then /usr/bin/touch ${q(updated)}; fi`,
+    session: `if [ -e ${q(join(m.base, "sessions"))} ] && [ "$(/bin/cat ${q(join(m.base, "sessions"))})" = 2 ]; then /usr/bin/touch ${q(published)}; fi\n${sessionsInTurn(m.base, dir, 4)}`,
     calls,
   });
-  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt }, m.env, () => {});
-  const runAndCalls = () => {
-    writeFileSync(calls, "");
-    execFileSync("/bin/bash", [join(dir, "run.sh")], { env: { PATH: "/usr/bin:/bin" }, stdio: "pipe", timeout: 60000 });
-    return readFileSync(calls, "utf8").trim().split("\n");
-  };
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt }, withFakeSleep(m, calls), () => {});
+  writeFileSync(calls, "");
+  execFileSync("/bin/bash", [join(dir, "run.sh")], { env: { PATH: "/usr/bin:/bin" }, stdio: "pipe", timeout: 60000 });
+
   const update = ["plugin marketplace update doable", "plugin update doable-code-context@doable --scope user", "plugin list --json"];
-  // This release updates; the new release reads the list to write its start script; the new script updates again
-  // before the one session.
-  assert.deepEqual(runAndCalls(), [...update, "plugin list --json", ...update, "session"]);
-  const run = readFileSync(join(dir, "run.sh"), "utf8");
-  // Node names the script that it runs by its real path.
-  assert.ok(run.includes(`node ${q(join(realpathSync(next), "scripts", "code-agent-service.mjs"))} self-update --dir "$dir"`), run);
-  assert.ok(run.includes("(user scope, 9.9.9 when this script was written)"), run);
+  assert.deepEqual(readFileSync(calls, "utf8").trim().split("\n"), [
+    // The first start does not update, and a request's text that quotes the words is not Doable's ask.
+    "session",
+    "sleep 300",
+    // Doable asks, and the marketplace has no newer release: the next session starts 30 minutes later.
+    "session",
+    ...update,
+    "sleep 1800",
+    // Doable asks, and Claude Code installs the new release, which reads the list to write its start script: the loop
+    // goes on in that script at once.
+    "session",
+    ...update,
+    "plugin list --json",
+    "session",
+  ]);
+  const asked = `Doable asked for the plugin 9.9.9; this release is ${RELEASE}.`;
   const ran = [
     "self-update: `claude plugin marketplace update doable` ended with no error.",
     "self-update: `claude plugin update doable-code-context@doable --scope user` ended with no error.",
   ];
+  const session = ["the serving session starts", "the serving session ended with code 0"];
   assert.deepEqual(logLines(dir), [
+    ...session,
+    ...session,
+    asked,
+    ...ran,
+    `self-update: doable-code-context@doable is at ${RELEASE}, the release of this start script.`,
+    `self-update: this release (${RELEASE}) is still lower than 9.9.9, which Doable asked for: a person must act (README, "Self-update"). The next session starts in 30 minutes.`,
+    ...session,
+    asked,
     ...ran,
     `self-update: doable-code-context@doable went from ${RELEASE} to 9.9.9: the new release writes the start script again.`,
     "self-update: 9.9.9 wrote the start script: the session starts with it.",
-    ...ran,
-    "self-update: doable-code-context@doable is at 9.9.9, the release of this start script.",
-    "the serving session starts",
-    "the serving session ended with code 0",
+    ...session,
   ]);
+  const run = readFileSync(join(dir, "run.sh"), "utf8");
+  // Node names the script that it runs by its real path.
+  assert.ok(run.includes(`${q(NODE)} ${q(join(realpathSync(next), "scripts", "code-agent-service.mjs"))} update-request --dir "$dir"`), run);
+  assert.ok(run.includes("(user scope, 9.9.9 when this"), run);
+  // The new release is at the version that Doable asked for: it removed update-asked.
+  assert.equal(existsSync(join(dir, "update-asked")), false);
   assert.ok(!readFileSync(join(dir, "service.log"), "utf8").includes(KEY));
-
-  // Contrast: no newer release. One update, then the session, and the start script stays as it is.
-  rmSync(join(dir, "stopped"));
-  rmSync(join(dir, "service.log"));
-  assert.deepEqual(runAndCalls(), [...update, "session"]);
-  assert.equal(readFileSync(join(dir, "run.sh"), "utf8"), run);
-  assert.deepEqual(logLines(dir), [
-    ...ran,
-    "self-update: doable-code-context@doable is at 9.9.9, the release of this start script.",
-    "the serving session starts",
-    "the serving session ended with code 0",
-  ]);
 });
 
-test("a self-update step that fails lets this release start the session, and its line says how it failed, with no secret", () => {
+test("a self-update step that fails says how it failed, with no secret, writes no start script, and the start script waits 30 minutes", () => {
   const m = machine();
   setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt }, m.env, () => {});
   const dir = serviceDir(m.env, "mac-mini-1");
   const calls = join(m.base, "calls");
+  const noTime = (line) => line.replace(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ /, "");
   const step = (options = {}) => {
     const printed = [];
     writeFileSync(calls, "");
-    const code = selfUpdate({ dir, plugin: "doable-code-context@doable", scope: "user", ...options }, { PATH: m.env.PATH }, (line) => printed.push(line), maskSecrets);
-    return { code, lines: printed.map((line) => line.replace(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ /, "")), calls: readFileSync(calls, "utf8").trim().split("\n") };
+    const updated = selfUpdate({ dir, plugin: "doable-code-context@doable", scope: "user", ...options }, { PATH: m.env.PATH }, (line) => printed.push(line), maskSecrets);
+    return { updated, lines: printed.map(noTime), calls: readFileSync(calls, "utf8").trim().split("\n") };
   };
   const ran = (args) => `self-update: \`claude plugin ${args}\` ended with no error.`;
   const run = readFileSync(join(dir, "run.sh"), "utf8");
@@ -985,12 +1034,24 @@ test("a self-update step that fails lets this release start the session, and its
     marketplace: `echo "Fetching https://qa-bot:hunter2-secret@git.example.com/x.git"; echo "fatal: could not read ${KEY}" >&2; exit 1`,
     calls,
   });
+  const marketplaceFailed =
+    "self-update: `claude plugin marketplace update doable` ended with code 1; its last lines: Fetching https://qa-bot:****@git.example.com/x.git | fatal: could not read sk-doable-****.";
   let result = step();
-  assert.equal(result.code, 0);
-  assert.deepEqual(result.lines, [
-    "self-update: `claude plugin marketplace update doable` ended with code 1; its last lines: Fetching https://qa-bot:****@git.example.com/x.git | fatal: could not read sk-doable-****. This release starts the session.",
-  ]);
+  assert.equal(result.updated, false);
+  assert.deepEqual(result.lines, [marketplaceFailed]);
   assert.deepEqual(result.calls, ["plugin marketplace update doable"]);
+  // After a session that Doable asked: the same failure, then the line that a person must act, and the code of the
+  // start script's wait of 30 minutes.
+  writeFileSync(join(dir, "session.jsonl"), waitedWith("toolu_1", askText("9.9.9")));
+  const printed = [];
+  const code = updateRequest({ dir, from: 0, plugin: "doable-code-context@doable", scope: "user" }, { PATH: m.env.PATH }, (line) => printed.push(line), maskSecrets);
+  assert.equal(code, ASKED_WAIT);
+  assert.deepEqual(printed.map(noTime), [
+    `Doable asked for the plugin 9.9.9; this release is ${RELEASE}.`,
+    marketplaceFailed,
+    `self-update: this release (${RELEASE}) is still lower than 9.9.9, which Doable asked for: a person must act (README, "Self-update"). The next session starts in 30 minutes.`,
+  ]);
+  assert.equal(readFileSync(join(dir, "update-asked"), "utf8"), "9.9.9\n");
 
   // Claude Code lists no such plugin in that scope, or prints no JSON: the list's text is not shown.
   for (const [list, problem] of [
@@ -999,12 +1060,8 @@ test("a self-update step that fails lets this release start the session, and its
   ]) {
     fakeClaude(m.claude, { list, calls });
     result = step();
-    assert.equal(result.code, 0);
-    assert.deepEqual(result.lines, [
-      ran("marketplace update doable"),
-      ran("update doable-code-context@doable --scope user"),
-      `self-update: ${problem}. This release (${RELEASE}) starts the session.`,
-    ]);
+    assert.equal(result.updated, false);
+    assert.deepEqual(result.lines, [ran("marketplace update doable"), ran("update doable-code-context@doable --scope user"), `self-update: ${problem}.`]);
   }
 
   // The new release cannot write its start script: its folder holds no script, then a script that fails. The start
@@ -1017,15 +1074,12 @@ test("a self-update step that fails lets this release start the session, and its
   fakeClaude(m.claude, { list: `/bin/cat ${q(brokenList)}`, calls });
   const wentTo = `self-update: doable-code-context@doable went from ${RELEASE} to 9.9.9: the new release writes the start script again.`;
   result = step();
-  assert.equal(result.code, 0);
-  assert.deepEqual(result.lines.slice(2), [wentTo, `self-update: 9.9.9 has no ${brokenScript}. This release (${RELEASE}) starts the session.`]);
+  assert.equal(result.updated, false);
+  assert.deepEqual(result.lines.slice(2), [wentTo, `self-update: 9.9.9 has no ${brokenScript}.`]);
   writeFileSync(brokenScript, 'console.error("Unknown command write-start-script");\nprocess.exit(2);\n');
   result = step();
-  assert.equal(result.code, 0);
-  assert.deepEqual(result.lines.slice(2), [
-    wentTo,
-    `self-update: \`write-start-script\` of 9.9.9 ended with code 2; its last lines: Unknown command write-start-script. This release (${RELEASE}) starts the session.`,
-  ]);
+  assert.equal(result.updated, false);
+  assert.deepEqual(result.lines.slice(2), [wentTo, "self-update: `write-start-script` of 9.9.9 ended with code 2; its last lines: Unknown command write-start-script."]);
   assert.equal(readFileSync(join(dir, "run.sh"), "utf8"), run);
 
   // A start script with an option of another form fails, and runs no command.
@@ -1046,55 +1100,155 @@ test("each command of the self-update has a time limit: a command that hangs is 
   assert.equal(quick.stdout, "done\n");
 });
 
-test("with self-update off, service.log says that Doable needs a newer plugin and that a person must update it", () => {
-  // Doable MCP's answer to a wait for a request, when Doable needs a newer release: its text, and its structured
-  // content as JSON, where `update` holds the same words.
-  const inWords =
-    "Doable needs the plugin 9.9.9 on this machine. End the session now: write nothing more, and call no other tool. The service updates the plugin and starts the session again.";
-  const asked = JSON.stringify({ request: null, capabilities_missing: false, update: inWords });
+test("with self-update off, service.log says that Doable asked for a newer plugin and that a person must update it, and the next session starts 30 minutes later; only Doable's own answer counts", () => {
+  const asked = `Doable asked for the plugin 9.9.9; this release is ${RELEASE}.`;
   const needs = (why) =>
-    `Doable needs the plugin 9.9.9 on this machine, and ${why}: a person must update the plugin, then run stop and start (README, "Self-update"). Until then, each session ends at its first wait for a request.`;
+    `${why}: a person must update the plugin to 9.9.9, then run stop and start (README, "Self-update"). Until then, each session ends at its first wait for a request, and the next session starts in 30 minutes.`;
   const m = machine();
-  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, autoUpdate: false }, m.env, () => {});
+  const calls = join(m.base, "calls");
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, autoUpdate: false }, withFakeSleep(m, calls), () => {});
   const dir = serviceDir(m.env, "mac-mini-1");
-  const output = join(m.base, "output.jsonl");
-  fakeClaude(m.claude, { list: `/bin/cat ${q(m.listFile)}`, session: `/bin/cat ${q(output)}\n/usr/bin/touch ${q(join(dir, "stopped"))}` });
-  // The start script runs the step after the session, with the size of the output before it.
-  writeFileSync(output, `${initLine()}${callLine("toolu_1")}${resultLine("toolu_1", { text: asked })}`);
+  // The first session gets Doable's ask, and the second one ends the loop. No plugin command runs.
+  writeFileSync(join(m.base, "output-1.jsonl"), waitedWith("toolu_1", askText("9.9.9")));
+  writeFileSync(join(m.base, "output-2.jsonl"), waitedWith("toolu_2", QUOTING_ANSWER));
+  fakeClaude(m.claude, { list: `/bin/cat ${q(m.listFile)}`, session: sessionsInTurn(m.base, dir, 2), calls });
+  writeFileSync(calls, "");
   execFileSync("/bin/bash", [join(dir, "run.sh")], { env: { PATH: "/usr/bin:/bin" }, stdio: "pipe", timeout: 60000 });
-  assert.deepEqual(logLines(dir), ["the serving session starts", "the serving session ended with code 0", needs("self-update is off")]);
+  assert.deepEqual(readFileSync(calls, "utf8").trim().split("\n"), ["session", "sleep 1800", "session"]);
+  const session = ["the serving session starts", "the serving session ended with code 0"];
+  assert.deepEqual(logLines(dir), [...session, asked, needs("Self-update is off"), ...session]);
+  assert.equal(readFileSync(join(dir, "update-asked"), "utf8"), "9.9.9\n");
 
-  const lines = (from) => {
+  const step = (from) => {
     const printed = [];
-    updateRequest({ dir, from }, (line) => printed.push(line.replace(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ /, "")));
-    return printed;
+    const code = updateRequest({ dir, from }, { PATH: m.env.PATH }, (line) => printed.push(line.replace(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ /, "")), maskSecrets);
+    return { code, printed };
   };
   const log = join(dir, "session.jsonl");
-  // In words, as a list of text parts.
-  writeFileSync(log, `${callLine("toolu_2")}${jsonLine({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "toolu_2", content: [{ type: "text", text: inWords }] }] } })}`);
-  assert.deepEqual(lines(0), [needs("self-update is off")]);
-  // Contrasts: an answer that holds a request, an answer of a call that failed, the answer of another tool, and an
-  // answer before the session's start (before `from`).
-  const earlier = `${callLine("toolu_3")}${resultLine("toolu_3", { text: asked })}`;
+  // In words, as a list of text parts, after a blank line.
+  writeFileSync(
+    log,
+    `${callLine("toolu_2")}${jsonLine({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "toolu_2", content: [{ type: "text", text: `\n${askText("9.9.9")}` }] }] } })}`,
+  );
+  assert.deepEqual(step(0), { code: ASKED_WAIT, printed: [asked, needs("Self-update is off")] });
+  // Contrasts: the ask before the session's start (before `from`); an answer that holds a request whose text quotes
+  // the words; a JSON answer that holds the words in another field; a text that has the words after other words; the
+  // answer of a call that failed; and the answer of another tool.
+  const earlier = waitedWith("toolu_3", askText("9.9.9"));
   writeFileSync(
     log,
     earlier +
       callLine("toolu_4") +
-      resultLine("toolu_4") +
+      resultLine("toolu_4", { text: QUOTING_ANSWER }) +
       callLine("toolu_5") +
-      resultLine("toolu_5", { isError: true, text: inWords }) +
-      jsonLine({ type: "assistant", message: { content: [{ type: "tool_use", id: "toolu_6", name: "Bash", input: { command: "cat notes" } }] } }) +
-      resultLine("toolu_6", { text: inWords }),
+      resultLine("toolu_5", { text: JSON.stringify({ request: null, capabilities_missing: false, update: askText("9.9.9") }) }) +
+      callLine("toolu_6") +
+      resultLine("toolu_6", { text: `Note: ${askText("9.9.9")}` }) +
+      callLine("toolu_7") +
+      resultLine("toolu_7", { isError: true, text: askText("9.9.9") }) +
+      jsonLine({ type: "assistant", message: { content: [{ type: "tool_use", id: "toolu_8", name: "Bash", input: { command: "cat notes" } }] } }) +
+      resultLine("toolu_8", { text: askText("9.9.9") }),
   );
-  assert.deepEqual(lines(Buffer.byteLength(earlier)), []);
-  assert.deepEqual(lines(0), [needs("self-update is off")]);
+  assert.deepEqual(step(Buffer.byteLength(earlier)), { code: 0, printed: [] });
+  assert.deepEqual(step(0), { code: ASKED_WAIT, printed: [asked, needs("Self-update is off")] });
+  // An ask for a release that is not above this one: the line, and no wait of 30 minutes.
+  rmSync(join(dir, "update-asked"));
+  writeFileSync(log, waitedWith("toolu_9", askText(RELEASE)));
+  assert.deepEqual(step(0), { code: 0, printed: [`Doable asked for the plugin ${RELEASE}; this release is ${RELEASE}.`] });
+  assert.equal(existsSync(join(dir, "update-asked")), false);
 
   // A development plugin folder says so.
   const dev = machine();
   setup({ folder: dev.folder, machine: "mac-mini-1", promptFile: dev.prompt }, { ...dev.env, DOABLE_CODE_AGENT_PLUGIN_DIR: "/srv/dev/plugin" }, () => {});
   const devDir = serviceDir(dev.env, "mac-mini-1");
-  writeFileSync(join(devDir, "session.jsonl"), `${callLine("toolu_1")}${resultLine("toolu_1", { text: asked })}`);
+  writeFileSync(join(devDir, "session.jsonl"), waitedWith("toolu_1", askText("9.9.9")));
   const printed = [];
-  updateRequest({ dir: devDir, from: 0 }, (line) => printed.push(line.replace(/^\S+ /, "")));
-  assert.deepEqual(printed, [needs("the session loads the plugin from a development folder")]);
+  assert.equal(updateRequest({ dir: devDir, from: 0 }, { PATH: dev.env.PATH }, (line) => printed.push(line.replace(/^\S+ /, "")), maskSecrets), ASKED_WAIT);
+  assert.deepEqual(printed, [asked, needs("The session loads the plugin from a development folder")]);
+});
+
+test("setup and start say that Doable needs a newer plugin, not that the session is connected, when its first wait got Doable's ask", () => {
+  const asks = (next) => `Doable needs the plugin 9.9.9 on this machine, so the session ended at its first wait for a request. ${next}`;
+  const updatesNow = asks("The start script updates the plugin now and starts the new release; service.log says how each step went.");
+  // Self-update on: start says that the start script updates now.
+  let m = servedMachine(waitedWith("toolu_1", askText("9.9.9")));
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt }, m.env, () => {});
+  assert.deepEqual(printedBy((print) => start("mac-mini-1", m.launching, print)), [STARTED, CHROME_NOTE, updatesNow]);
+  // Self-update off: setup says that a person updates.
+  m = servedMachine(waitedWith("toolu_1", askText("9.9.9")));
+  const printed = printedBy((print) => setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, autoUpdate: false }, m.launching, print));
+  assert.ok(
+    printed.includes(
+      asks(
+        'Self-update is off: update the plugin by hand, then run stop and start (README, "Self-update"). Until then, a session starts every 30 minutes and ends at its first wait for a request.',
+      ),
+    ),
+    printed.join("\n"),
+  );
+  assert.ok(!printed.includes(CONNECTED), printed.join("\n"));
+  // Contrast: the same words in a request's text. The session waits for requests.
+  m = servedMachine(waitedWith("toolu_1", QUOTING_ANSWER));
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt }, m.env, () => {});
+  assert.deepEqual(printedBy((print) => start("mac-mini-1", m.launching, print)), [STARTED, CHROME_NOTE, CONNECTED]);
+});
+
+test("setup and start find node on the start script's PATH as that PATH names it, and refuse, with no change, when it holds none", () => {
+  const m = machine();
+  // A link to node, as a package manager keeps one (for example /opt/homebrew/bin/node): the start script names the
+  // link, which still works after the package manager moves node to the folder of a new version.
+  const linkBin = join(m.base, "link-bin");
+  mkdirSync(linkBin);
+  symlinkSync(process.execPath, join(linkBin, "node"));
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt }, { ...m.env, PATH: `${linkBin}:/usr/bin:/bin` }, () => {});
+  const dir = serviceDir(m.env, "mac-mini-1");
+  const run = readFileSync(join(dir, "run.sh"), "utf8");
+  assert.ok(run.includes(`\n  ${q(join(linkBin, "node"))} ${q(script)} update-request --dir "$dir"`), run);
+
+  // No node on that PATH.
+  const empty = join(m.base, "empty-bin");
+  mkdirSync(empty);
+  const refusal = { message: `Node.js (\`node\`) is not on the PATH that the start script runs with (${empty}). Run setup again from a shell whose PATH holds node and claude.` };
+  const other = machine();
+  assert.throws(() => setup({ folder: other.folder, machine: "mac-mini-1", promptFile: other.prompt }, { ...other.env, PATH: empty }, () => {}), refusal);
+  assert.equal(existsSync(serviceDir(other.env, "mac-mini-1")), false);
+  // start reads the PATH of config.json.
+  const config = JSON.parse(readFileSync(join(dir, "config.json"), "utf8"));
+  writeFileSync(join(dir, "config.json"), JSON.stringify({ ...config, path: empty }));
+  stop("mac-mini-1", m.env, () => {});
+  assert.throws(() => start("mac-mini-1", m.env, () => {}, { autoUpdate: false }), refusal);
+  assert.equal(readFileSync(join(dir, "run.sh"), "utf8"), run);
+  assert.equal(JSON.parse(readFileSync(join(dir, "config.json"), "utf8")).autoUpdate, true);
+});
+
+test("with self-update on, setup takes only an install of the plugin that applies in the folder of the repositories", () => {
+  const m = machine();
+  const otherFolder = join(m.base, "other-repos");
+  mkdirSync(otherFolder);
+  const local = (projectPath) => ({ ...listEntry(pluginRoot), scope: "local", projectPath });
+  // Claude Code lists every folder's local install: here only one of another folder, which a session here does not load.
+  writeFileSync(m.listFile, JSON.stringify([local(otherFolder)]));
+  assert.throws(() => setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt }, m.env, () => {}), /names no install of it in this folder/);
+  // Contrast: a local install of the folder of the repositories, beside the one of the other folder.
+  writeFileSync(m.listFile, JSON.stringify([local(otherFolder), local(m.folder)]));
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt }, m.env, () => {});
+  assert.ok(readFileSync(join(serviceDir(m.env, "mac-mini-1"), "run.sh"), "utf8").includes("--plugin 'doable-code-context@doable' --scope 'local'"));
+});
+
+test("status shows the version that Doable asked for while update-asked names one, and a release at or above it removes the file", () => {
+  const m = machine();
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt }, m.env, () => {});
+  const dir = serviceDir(m.env, "mac-mini-1");
+  const file = join(dir, "update-asked");
+  const askedLines = () => printedBy((print) => status("mac-mini-1", m.env, print)).filter((line) => line.startsWith("Doable asked"));
+  assert.deepEqual(askedLines(), []);
+  writeFileSync(file, "9.9.9\n");
+  assert.deepEqual(askedLines(), [`Doable asked for the plugin 9.9.9 at ${statSync(file).mtime.toISOString()}: service.log says what the start script did.`]);
+  // start of this release, which is lower than the asked one, keeps the file; at the asked version, start removes it.
+  stop("mac-mini-1", m.env, () => {});
+  start("mac-mini-1", m.env, () => {});
+  assert.equal(readFileSync(file, "utf8"), "9.9.9\n");
+  writeFileSync(file, `${RELEASE}\n`);
+  start("mac-mini-1", m.env, () => {});
+  assert.equal(existsSync(file), false);
+  assert.deepEqual(askedLines(), []);
 });
