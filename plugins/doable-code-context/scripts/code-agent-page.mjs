@@ -1,7 +1,7 @@
 // The page of an Always on code agent (`code-agent-service.mjs page --machine NAME [--port N]`): a web page on this
 // computer that shows the serving session and each request that it served. It reads only the files of the machine's
-// folder (session.1.jsonl, then session.jsonl, service.log, and the stop file through serviceState) and calls nothing on
-// the network.
+// folder (session.1.jsonl, then session.jsonl, service.log, the stop file through serviceState, and config.json through
+// selfUpdateState) and calls nothing on the network.
 //
 // The session's output holds the password of each login that it made (the result is a tool call), and can hold keys
 // and tokens in its commands. So a login's password never leaves the parser (it keeps only the username and the note),
@@ -26,7 +26,7 @@ import { closeSync, fstatSync, openSync, readFileSync, readSync, statSync } from
 import { createServer } from "node:http";
 import { join } from "node:path";
 
-import { ANY_DOABLE_KEY, serviceDir, serviceState } from "./code-agent-service.mjs";
+import { ANY_DOABLE_KEY, selfUpdateState, serviceDir, serviceState } from "./code-agent-service.mjs";
 
 export const DEFAULT_PORT = 47615;
 const OLDER_LOG = "session.1.jsonl";
@@ -868,9 +868,9 @@ function requestView(request, sessionEnded, mask) {
   };
 }
 
-// What /data.json gives: the service, the current session, the earlier sessions (newest first), and the requests
-// (newest first), with every string masked.
-export function pageView(state, { machine, serviceState: service, serviceLog, currentLogTime, logFound }) {
+// What /data.json gives: the service (with its self-update: "on", "off" or "development folder"), the current session,
+// the earlier sessions (newest first), and the requests (newest first), with every string masked.
+export function pageView(state, { machine, serviceState: service, selfUpdate, serviceLog, currentLogTime, logFound }) {
   const mask = makeMasker(state.passwords);
   const sessions = state.sessions;
   const last = sessions.length - 1;
@@ -883,6 +883,7 @@ export function pageView(state, { machine, serviceState: service, serviceLog, cu
     machine,
     service: {
       state: service,
+      selfUpdate,
       lastActivity: currentLogTime,
       logLines: serviceLog.lines.slice(-SERVICE_LOG_LINES).map((line) => cut(mask(line), REASON_CHARS)),
       otherOutput: state.otherOutput.map((line) => ({ after: line.after, text: cut(mask(line.text), REASON_CHARS) })),
@@ -909,13 +910,14 @@ export class PageData {
 
   json() {
     const service = serviceState(this.machine, this.env);
+    const selfUpdate = selfUpdateState(this.machine, this.env);
     const state = this.logs.refresh();
     const serviceLog = this.serviceLog.read();
     const current = statOrNull(join(this.dir, CURRENT_LOG));
     const currentLogTime = current === null ? null : current.mtime.toISOString();
-    const key = [this.logs.generation, service, serviceLog.key, currentLogTime].join("|");
+    const key = [this.logs.generation, service, selfUpdate, serviceLog.key, currentLogTime].join("|");
     if (key !== this.cached.key) {
-      const view = pageView(state, { machine: this.machine, serviceState: service, serviceLog, currentLogTime, logFound: this.logs.found });
+      const view = pageView(state, { machine: this.machine, serviceState: service, selfUpdate, serviceLog, currentLogTime, logFound: this.logs.found });
       this.cached = { key, text: JSON.stringify(view) };
     }
     return this.cached.text;
@@ -1087,6 +1089,11 @@ const STATE = {
   stopped: { label: "Stopped", tone: "muted", words: "Someone ran stop. It serves no request until someone runs start." },
   "not running": { label: "Not running", tone: "bad", words: "It is set up, but it does not run. Run start to turn it on." },
 };
+const SELF_UPDATE = {
+  on: "Self-update is on: before each start of a session, the start script updates the plugin with Claude Code. The service's log below shows each update and each failure.",
+  off: "Self-update is off: when Doable needs a newer plugin, each session ends at its first wait for a request, until a person updates the plugin on this computer.",
+  "development folder": "Self-update is off: the session loads the plugin from a development folder. When Doable needs a newer plugin, each session ends at its first wait for a request, until a person updates that folder.",
+};
 const STATUS_TONE = { working: "info", "waiting for an answer": "warn", done: "ok", failed: "bad", declined: "warn",
   cancelled: "muted", "left when its session ended": "bad", "waiting for an answer; no session serves it": "warn",
   "taken by another machine": "muted", "given back to the queue": "muted", "timed out": "bad", lost: "bad", expired: "muted" };
@@ -1227,6 +1234,7 @@ function renderSession(data) {
   const state = STATE[data.service.state] || { label: data.service.state, tone: "muted", words: "" };
   const card = anchor(add(box, el("div", "card")).lastChild, "session");
   add(card, add(el("div", "head"), badge(state.label, state.tone, true), el("span", null, state.words)));
+  if (SELF_UPDATE[data.service.selfUpdate]) add(card, el("p", "note", SELF_UPDATE[data.service.selfUpdate]));
   if (!data.logFound) {
     add(card, el("p", "empty", "No log yet: the serving session has not written anything on this computer. When it runs, its steps show here."));
   } else if (!data.current) {

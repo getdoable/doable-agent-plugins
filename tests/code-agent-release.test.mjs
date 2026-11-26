@@ -300,3 +300,41 @@ test('the release verifier refuses a skill without a rule that keeps code on the
     assert.equal(historyNamesExcerpts.status, 0, historyNamesExcerpts.stderr);
   });
 });
+
+test('the release verifier refuses a plugin version header that is not the release version, a skill without the end of the session for an update or the rule of the code files, and a README without self-update', () => {
+  withReleaseCopy((directory) => {
+    const mcp = 'plugins/doable-code-context/.mcp.json';
+    const version = JSON.parse(readFileSync(join(directory, 'plugins/doable-code-context/.claude-plugin/plugin.json'), 'utf8')).version;
+    assert.equal(JSON.parse(readFileSync(join(directory, mcp), 'utf8')).mcpServers.doable.headers['X-Doable-Plugin-Version'], version);
+    // Doable tells a machine whose header names an older release to update: an old header makes it update for ever.
+    for (const [change, found] of [
+      [(text) => text.replace(`"X-Doable-Plugin-Version": "${version}"`, '"X-Doable-Plugin-Version": "0.6.2"'), '"0.6.2"'],
+      [(text) => text.replace(`,\n        "X-Doable-Plugin-Version": "${version}"`, ''), 'undefined'],
+    ]) {
+      const wrongHeader = verifyWith(directory, mcp, change);
+      assert.notEqual(wrongHeader.status, 0, 'a header that is not the release version must fail');
+      assert.ok(
+        wrongHeader.stderr.includes(`the X-Doable-Plugin-Version header of the bundled Doable MCP config must be the version in plugin.json (${version}), not ${found}`),
+        wrongHeader.stderr,
+      );
+    }
+
+    for (const rule of [
+      'end the session at once, also when it is the first wait of Start or Resume: write no text, and call no other tool.',
+      "with its repository, the commit that you read and its path from the repository's root; only these three, never code.",
+    ]) {
+      const pattern = wrapped(rule);
+      assert.match(readFileSync(join(directory, skill), 'utf8'), pattern);
+      const noRule = verifyWith(directory, skill, (text) => text.replace(pattern, ''));
+      assert.notEqual(noRule.status, 0, `a skill without this rule must fail: ${rule}`);
+      assert.ok(noRule.stderr.includes(`missing machine rule: ${rule}`), noRule.stderr);
+    }
+
+    for (const part of ['#### Self-update', 'start --machine <machine> --auto-update off']) {
+      assert.ok(readFileSync(join(directory, 'README.md'), 'utf8').includes(part));
+      const noPart = verifyWith(directory, 'README.md', (text) => text.replaceAll(part, ''));
+      assert.notEqual(noPart.status, 0, `a README without this must fail: ${part}`);
+      assert.ok(noPart.stderr.includes(`README is missing code agent setup: ${part}`), noPart.stderr);
+    }
+  });
+});

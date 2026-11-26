@@ -4,7 +4,7 @@ Repository inspection happens inside the coding agent selected by the customer a
 
 ## Doable Code Context
 
-`doable-code-context` performs remote operations only through the Doable MCP connection loaded by the coding-agent host. The plugin package declares the official endpoint, a credential-variable reference, and a machine name header (`X-Doable-Machine`, from `DOABLE_MACHINE_NAME`, default `unnamed-machine`) for Cursor and Claude Code; it contains no credential value. Doable shows the machine name on the code agent requests that machine serves. The coding-agent host owns the resolved credential. During recovery, the Skill may direct the host to configure a user-supplied key in its user-scoped MCP credential/configuration store, but the bundled helper never reads or persists it and no credential may enter the project workspace or a remote Doable payload.
+`doable-code-context` performs remote operations only through the Doable MCP connection loaded by the coding-agent host. The plugin package declares the official endpoint, a credential-variable reference, a machine name header (`X-Doable-Machine`, from `DOABLE_MACHINE_NAME`, default `unnamed-machine`), and the plugin's version (`X-Doable-Plugin-Version`, for example `0.6.3`) for Cursor and Claude Code; it contains no credential value. Doable shows the machine name on the code agent requests that machine serves. Doable MCP gives the version to Doable with each wait of a code agent machine, and Doable uses it to tell a machine with an older release to update. The coding-agent host owns the resolved credential. During recovery, the Skill may direct the host to configure a user-supplied key in its user-scoped MCP credential/configuration store, but the bundled helper never reads or persists it and no credential may enter the project workspace or a remote Doable payload.
 
 Its local `.doable/workspace-candidate.json`, `.doable/workspace-private.json`, and `.doable/requests/` records may contain real repository identities, explicitly user-supplied artifact roots, local paths, Git provenance, exact evidence locators, and frozen Doable questions. They are written with private permissions and ignored by Git. Artifact roots are never serialized into the remote workspace profile.
 
@@ -30,10 +30,13 @@ No Code Context payload (workspace profile or Round answer) may contain source c
 
 The Always on setup keeps the organization API key in a file on the machine that only its owner can read; a key that a person types in a command stays in the shell history. The Always on session runs with no permission check (the bypass permission mode): it can read each file and use each tool that the machine's user can, and Chrome with its sign-ins. Only the rules of its prompt and of the Skill limit what it reads and does there; what reaches Doable is only what this section names. Doable refuses a result, a record, a progress text, a question, or a capability summary that holds a Doable API key.
 
+With self-update on (the default of the Always on setup), the start script runs Claude Code's own plugin commands before each start of the session: they fetch the plugin's marketplace (this repository on GitHub) and install a new release, and send nothing of the machine's repositories. The service's log on the machine (`~/.doable/code-agent/<machine>/service.log`) keeps one line for each step: the versions, or a failed command's exit code and its last lines, with Doable API keys, URL passwords and secrets in known forms masked.
+
 A result may hold:
 
 - an answer in plain words, the steps to reproduce a bug, and a suggested fix in words;
 - file paths, line numbers and names (for example of a function, a field or a table) in the machine's repositories, and what the code does, in words;
+- its code files: for each file of the repositories that the answer rests on, the repository's name (`owner/name` of its `origin` remote, or its folder's name), the id of the commit that the session read, and the file's path from the repository's root, and never the file's text. Doable keeps them with the request and shows them on the chat's Sources tab to the organization's people;
 - each new test login that the tests or the asker will sign in with, with its username, its password and a note, in the result's logins; and the ids or values of test records the machine made;
 - the names of the data sources it read for a read of backend state, and when it read them;
 - for a read of production, counts, states, ids and the product's own values, and never a real person's data;

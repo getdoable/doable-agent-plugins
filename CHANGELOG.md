@@ -13,8 +13,10 @@ All notable changes to Doable Agent Plugins are documented here.
 
 The code agent sends no code back, whoever asks. A result says in words what the code does, with file
 paths and line numbers. It reads the code that the request's environment runs, not what a checkout
-holds, and a new `page` command shows the session and its requests on the machine. Update each
-machine with stop, the plugin update, and start, as for 0.6.2
+holds, and a new `page` command shows the session and its requests on the machine. A result names
+the files that its answer rests on, for the chat's Sources tab. From 0.6.3, an Always on machine
+updates itself when Doable needs a newer release. Update each machine to 0.6.3 by hand, with stop,
+the plugin update, and start from the new installPath, as for 0.6.2
 (README, "Update from 0.6.2"). Start each session after the Doable MCP release that goes with 0.6.3.
 The session's prompt does not change.
 
@@ -24,6 +26,24 @@ The session's prompt does not change.
   other computers cannot open (any account of this computer can). It shows the session and each
   request from the machine's own files, with `****` in place of the logins' passwords, Doable API keys
   and secrets in known forms (README, "The code agent's page").
+- Code files: `doable-code-agent` puts in the result's `code_files` each file of the repositories that
+  the answer rests on, with its repository (`owner/name` of its `origin` remote, else its folder's
+  name), the full id of the commit that the session read (the running revision) and its path from the
+  repository's root; only these three, never code. Doable shows them on the chat's Sources tab. A
+  refusal (`422`) that names `code_files` gets the values corrected, or the file left out, and the
+  whole result sent again. PRIVACY says that repository names, commit ids and paths now reach Doable.
+- Self-update, on by default: the bundled Doable MCP connection sends the plugin's version
+  (`X-Doable-Plugin-Version`, checked against `plugin.json` by the release verifier). When Doable needs
+  a newer release, the wait's answer says so and the session ends at once. Before each start of the
+  session, the start script runs `claude plugin marketplace update`, `claude plugin update` in the
+  plugin's scope and `claude plugin list --json`, each with a time limit; when Claude Code installed
+  a new release, that release writes the start script again and the loop goes on in it. Each step
+  writes one line to `service.log`, with secrets masked; a failed step leaves the current release to
+  start the session. `setup` and `start` take `--auto-update on|off`, kept in the machine's
+  `config.json`; `setup` says whether it is on, and `status` and the page show it. With self-update
+  off, or with a development folder, `service.log` says when Doable needs a newer release and that a
+  person must update (README, "Self-update"). The start script runs the new commands
+  `self-update`, `write-start-script` and `update-request` of `code-agent-service.mjs`.
 
 ### Changed
 
@@ -69,6 +89,10 @@ The session's prompt does not change.
 - The code agent's page finds secrets only in known forms. A password in a sentence, or a new login's
   password as a script's argument until the result names that login, shows on the page. Any account
   or program of the computer can open the page.
+- Self-update: Doable's chat page shows no state for a machine that needs an update. A session that
+  Doable asks to update serves no request for about 5 minutes (the start script's wait after a
+  session). A session that a person started by hand gets the same answer, ends, and is updated by
+  hand. The Codex manifest sends no plugin version.
 
 ## [0.6.2] - 2026-11-24
 

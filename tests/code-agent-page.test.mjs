@@ -216,6 +216,8 @@ function machine(t, name = "mac-mini-1") {
   const env = { PATH: "/usr/bin:/bin", DOABLE_CODE_AGENT_HOME: join(base, "home"), DOABLE_CODE_AGENT_NO_LAUNCH: "1" };
   const dir = serviceDir(env, name);
   mkdirSync(dir, { recursive: true });
+  // The part of setup's config.json that the page reads: self-update is on, for the installed plugin.
+  writeFileSync(join(dir, "config.json"), `${JSON.stringify({ machine: name, autoUpdate: true, pluginDir: null })}\n`);
   return { base, env, dir, name };
 }
 
@@ -1455,4 +1457,30 @@ test("the page's words: one step, a request whose asking time is not known, the 
   assert.ok(text.includes("The session's log holds no event yet."), text);
   assert.ok(!text.includes("has not written anything"));
   assert.ok(text.includes("Invalid API key · Please run /login"));
+});
+
+test("the page says whether self-update is on, and what happens when it is off, and reads the choice again when it changes", async (t) => {
+  const m = machine(t);
+  const words = {
+    on: "Self-update is on: before each start of a session, the start script updates the plugin with Claude Code. The service's log below shows each update and each failure.",
+    off: "Self-update is off: when Doable needs a newer plugin, each session ends at its first wait for a request, until a person updates the plugin on this computer.",
+    "development folder":
+      "Self-update is off: the session loads the plugin from a development folder. When Doable needs a newer plugin, each session ends at its first wait for a request, until a person updates that folder.",
+  };
+  // One page's data, as the page command keeps it: it reads config.json again at each read.
+  const data = new PageData({ machine: m.name, env: m.env });
+  for (const [config, state] of [
+    [{ autoUpdate: true, pluginDir: null }, "on"],
+    [{ autoUpdate: false, pluginDir: null }, "off"],
+    // A config.json from before self-update: on, as by default.
+    [{ pluginDir: null }, "on"],
+    [{ autoUpdate: true, pluginDir: "/srv/dev/plugin" }, "development folder"],
+  ]) {
+    writeFileSync(join(m.dir, "config.json"), `${JSON.stringify({ machine: m.name, ...config })}\n`);
+    const text = data.json();
+    assert.equal(JSON.parse(text).service.selfUpdate, state, JSON.stringify(config));
+    const page = await scriptPage(ok(text));
+    const notes = descendants(page.parts.content.childNodes[0]).filter((node) => node.tagName === "P" && node.textContent.startsWith("Self-update"));
+    assert.deepEqual(notes.map((node) => node.textContent), [words[state]], JSON.stringify(config));
+  }
 });

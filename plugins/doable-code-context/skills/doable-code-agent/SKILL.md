@@ -151,6 +151,14 @@ Repeat:
    instead, and after every empty poll check each of them as "Check the requests that wait for an
    answer" says.
 
+When an answer of `wait_for_code_agent_request` says that Doable needs a newer release of this
+plugin on this machine (for example `Doable needs the plugin 0.6.4 on this machine`, with no
+request), end the session at once, also when it is the first wait of Start or Resume: write no
+text, and call no other tool. You wait only when you serve no request, so no work stops. A request of yours that waits for an
+answer stays in Doable: after the answer, Doable keeps it for this machine for 30 minutes, then
+gives it back to the queue, and a later session takes it. The Always on service updates the plugin
+and starts a new session. A person updates a session that they started by hand.
+
 When a call fails, the error text is a code and Doable's reason, with no HTTP status, for example
 `doable_error: CA-12 is not queued (working).` This skill names each case by its status. The
 codes are: `doable_auth_error` for `401`, `doable_forbidden` for `403`, `doable_not_found` for
@@ -190,6 +198,10 @@ by the first item that fits:
   words. Then send the whole call again.
 - A refusal of a result whose reason starts with the code word `username_exists`,
   `no_environment` or `logins_not_saved_here`: do what "Logins" says.
+- A refusal of a result (`422`) whose reason names `code_files`: Doable kept nothing of the call,
+  and the request stays yours. Correct each value that the reason names as "Result format" says
+  (for example the full commit id, or the repository's `owner/name`), or leave that file out. Then
+  send the whole result again.
 - A refusal of `read_code_agent_mail` whose reason starts with the code word `no_test_inbox` or
   `not_test_inbox`: do what "Mail from the test environment" says.
 - `read_code_agent_mail` is missing (an older Doable MCP server), or it answers `404` while
@@ -218,9 +230,9 @@ by the first item that fits:
   request: stop its work, stop any local server you started for it, write the line that step 5 of
   "Serve one request" asks for, and go back to the loop.
 
-Never end the turn yourself. Do not end with a status summary, and do not ask the person to say
-continue. If the host ends the turn and the person later says continue or resume, go to
-"Resume after an interruption".
+Never end the turn yourself, except when Doable needs a newer release of this plugin (see above).
+Do not end with a status summary, and do not ask the person to say continue. If the host ends the
+turn and the person later says continue or resume, go to "Resume after an interruption".
 
 ## Serve one request
 
@@ -508,6 +520,7 @@ fields:
 | `summary` | Markdown, 1-20000 characters. The answer first, then the evidence. For `failed` and `declined`: why, and what a person could do. |
 | `logins` | the new logins that the tests or the asker will sign in with: `[{"username": "...", "password": "...", "note": "..."}]` (see "Logins"). A username is 1-320 characters, a password 1-200, and a note up to 500. Leave it out when you made none. |
 | `records` | the ids and values the tests need: `[{"name": "pending time-off request", "value": "tor-1786000000000"}]`. A name is 1-100 characters of plain words; a value is 1-500 characters. Never a secret or code. |
+| `code_files` | each file of the repositories that the answer rests on, with its repository, the commit that you read and its path from the repository's root; only these three, never code. Doable shows them on the chat's Sources tab. `[{"repository": "acme/timeoff", "commit": "3f2a91c4d5e6f708192a3b4c5d6e7f8091a2b3c4", "path": "src/app/api/time-off/route.ts"}]`: each file that **Evidence** or **Where** names, once, 50 or fewer. `repository` is `owner/name` of the repository's `origin` remote, else its folder's name: 1-200 characters, each a letter, a digit, `.`, `_`, `/` or `-`. `commit` is the full id of the revision that you read (see "What a request can ask"), as `git rev-parse` gives it. `path` is the file's path from the repository's root, as git shows it. Leave out a file that no commit holds, and leave the field out when the answer rests on no file. |
 
 Use this summary layout unless a part above gives another one:
 
@@ -551,6 +564,9 @@ organization's people see them on the chat's page too.
 - They may hold file paths, line numbers, names, and what the code does, in words that are as exact
   as the goal needs (for example the conditions, the limits, the order, the messages that the
   product shows). They may hold the usernames of logins you made and the ids of records you made.
+- A result's `code_files` may hold, for each file of the repositories that the answer rests on, the
+  repository, the commit that you read and the file's path: only these three, never code (see
+  "Result format"). The organization's people see them on the chat's Sources tab.
 - They never hold code (see "Words"): not in a summary, a record, a login's note, a progress text
   or a question, and not in your capability summary. For example, "two letters, a slash, then 6 to
   10 digits" says a format in words, and its regular expression is code, also when the request asks

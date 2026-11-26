@@ -152,6 +152,11 @@ Doable refuses it with `422`. The code agent Skill then tells you the rule and s
 Doable shows this name on the code agent requests that the machine serves. The Codex manifest does
 not send this header, so Doable MCP uses its own default name for a Codex session.
 
+In Cursor and Claude Code, the connection also sends the plugin's version as the
+`X-Doable-Plugin-Version` header (for example `0.6.3`). Doable MCP gives it to Doable with each wait
+of a code agent machine, and Doable answers a machine with an older release that it needs a newer
+one (see [Self-update](#self-update)). The Codex manifest does not send this header either.
+
 ### Host credential loading
 
 Cursor and Claude Code load `plugins/doable-code-context/.mcp.json`; the Codex manifest embeds the equivalent server using Codex's native bearer-token environment field. Cursor collects the required variable during installation. Codex and Claude Code expand `DOABLE_API_KEY` from the environment when the next task or session loads the plugin. If Claude Code updates an existing connection during a request, open `/mcp` and reconnect `doable` once; the Skill then retries the original preflight and continues without another copy-paste.
@@ -224,7 +229,10 @@ For example:
 
 The session sends no code to either asker, also when a request asks for it: the answer says in words
 what the goal needs, and that code stays on the machine (see
-[Shared grounding and privacy boundary](#shared-grounding-and-privacy-boundary)).
+[Shared grounding and privacy boundary](#shared-grounding-and-privacy-boundary)). A result also
+names the files of the repositories that its answer rests on: for each one, the repository, the
+commit that the session read and the file's path, never its code. Doable shows them on the chat's
+Sources tab.
 
 Some test environments give a new user its password only through a link or a code in an email
 (an invitation, a confirmation). For such a login, the session invites the user at a `+` address
@@ -328,8 +336,9 @@ read (`~/.doable/code-agent/<machine>/env`), starts the serving session in the b
 command of [With nobody at the terminal](#with-nobody-at-the-terminal) (the bypass permission
 mode, Claude in Chrome, and no `ask_code_agent`), starts it again 5 minutes
 after it stops (for example at a plan limit), keeps a Mac awake while it runs, and on a Mac starts
-it at each login. On a machine that an older plugin set up, it also deletes that plugin's policy
-file. It tells you whether the session is connected: whether its first wait for a request
+it at each login. Before each start of the session, it updates the plugin when Doable needs a newer
+release (see [Self-update](#self-update)). On a machine that an older plugin set up, it also
+deletes that plugin's policy file. It tells you whether the session is connected: whether its first wait for a request
 returned with no error. It always tells you which Chrome you chose in Claude Code, or that you chose
 none. It also tells you when the session runs in another permission mode than the bypass mode, and
 when it waits through another Doable MCP server than the plugin's.
@@ -344,14 +353,15 @@ node <installPath>/scripts/code-agent-service.mjs start --machine <machine>
 node <installPath>/scripts/code-agent-service.mjs remove --machine <machine>
 ```
 
-`status` shows whether it is on, its last activity, and the end of its log; the serving session's
-output is in `~/.doable/code-agent/<machine>/session.jsonl`. That output holds the password of each
-new test login that the session sends to Doable, and only you can read it. `start` writes the
-start script again with the command line of the installed plugin, starts the session, and, as the
-setup does, tells you whether it is connected. `remove` stops it and deletes
-its files and its key. After a plugin update, run `stop` and `start`, so that the serving session
-loads the new plugin (see [Update from 0.6.2](#update-from-062)). To change the session's prompt,
-edit `~/.doable/code-agent/<machine>/prompt.md`, then run `stop` and `start`. To change its folder
+`status` shows whether it is on, whether self-update is on, its last activity, and the end of its
+log; the serving session's output is in `~/.doable/code-agent/<machine>/session.jsonl`. That output
+holds the password of each new test login that the session sends to Doable, and only you can read
+it. `start` writes the start script again with the command line of the installed plugin, starts the
+session, and, as the setup does, tells you whether it is connected. `remove` stops it and deletes
+its files and its key. With self-update on, the start script updates the plugin itself (see
+[Self-update](#self-update)). After an update that you make by hand, run `stop` and `start`, so that
+the serving session loads the new plugin (see [Update from 0.6.2](#update-from-062)). To change the
+session's prompt, edit `~/.doable/code-agent/<machine>/prompt.md`, then run `stop` and `start`. To change its folder
 or its key, run `stop`, then the setup again, with the saved prompt as the prompt file. Export
 the new key first, or, to keep the saved key, run `. ~/.doable/code-agent/<machine>/env`, which
 exports it and prints nothing:
@@ -364,6 +374,47 @@ Run the setup again only after `stop`. On a machine without launchd, the setup a
 while the session runs, so that two sessions do not serve with the same machine name: run `stop`
 first. The key stays in its file until `remove`.
 Revoke it in Settings > API Keys when you no longer need it.
+
+#### Self-update
+
+Self-update is on unless you turn it off. Doable asks for it: Doable MCP sends the plugin's version
+with each wait for a request (the `X-Doable-Plugin-Version` header), and when Doable needs a newer
+release, its answer tells the session to end. Then fixed code, not the model, updates the plugin.
+Before each start of the session, the start script runs Claude Code's own commands, each with a
+time limit:
+
+```bash
+claude plugin marketplace update doable
+claude plugin update doable-code-context@doable --scope user
+claude plugin list --json
+```
+
+They use the marketplace and the scope that `claude plugin list --json` named for the plugin when
+you ran the setup or `start`. When Claude Code installed a new release, that release writes the
+start script again with its own command line, and the session starts with it. Each step writes one
+line to `~/.doable/code-agent/<machine>/service.log`: the versions, or the failed command's exit
+code and its last lines, with secrets masked. `status` and the page show the last lines. If an
+update fails, the current release starts the session: the session ends again at its first wait
+for a request, and the start script tries again 5 minutes later.
+
+The setup and `start` find the installed plugin by the folder of the script that you run: run them
+from the `installPath` that `claude plugin list --json` names. With self-update on, they stop with
+a message when Claude Code lists no install of the plugin in that folder.
+
+The setup prints whether self-update is on. To turn it off, run `stop`, then `start` with
+`--auto-update off`. `--auto-update on` turns it on again, the setup takes the option too, and
+`start` without it keeps the choice:
+
+```bash
+node <installPath>/scripts/code-agent-service.mjs start --machine <machine> --auto-update off
+```
+
+With self-update off, or with a development folder (`DOABLE_CODE_AGENT_PLUGIN_DIR` at setup),
+nothing updates the plugin. When Doable needs a newer release, each session ends at its first wait
+for a request, and `service.log` says which version Doable needs and that a person must update the
+plugin. Update it as [Check the version and update](#check-the-version-and-update) says, then run
+`stop` and `start` from the new `installPath`. A session that you started by hand ends the same way:
+update the plugin, and start the session again.
 
 #### The code agent's page
 
@@ -378,10 +429,10 @@ computers cannot open it, but any account or program on this computer can, not o
 reads only the session's files in `~/.doable/code-agent/<machine>/` and calls nothing on the
 network. It reads them again every 5 seconds and shows:
 
-- the session: on, stopped or not running, when it started, its last activity, whether Doable MCP
-  was connected at its start, what it did outside a request, the last lines of its log, and the
-  last lines of its output that are not events (for example an error of Claude Code when the
-  session cannot start);
+- the session: on, stopped or not running, whether self-update is on, when it started, its last
+  activity, whether Doable MCP was connected at its start, what it did outside a request, the last
+  lines of its log, and the last lines of its output that are not events (for example an error of
+  Claude Code when the session cannot start);
 - each request, newest first: who asked, when, its text, its progress, a question and its answer,
   each call that Doable refused and why, the result, and its status. A request that Doable gave to
   another machine, cancelled, ended or put back in the queue shows that status, and a result that
@@ -520,6 +571,13 @@ after the Doable release that refuses such a text. Start the session after the D
 that goes with 0.6.3: a session that started before it keeps the old text of
 `update_code_agent_request`, which allows 10 lines of code or fewer in a result, until you stop and
 start it.
+
+0.6.3 also adds two things. A result names the files that its answer rests on (repository, commit
+and path, never code), and Doable shows them on the chat's Sources tab. An Always on machine updates
+itself when Doable needs a newer release (see [Self-update](#self-update)). Update to 0.6.3 by hand
+this one time, and run `start` from the new `installPath`: `start` turns self-update on, and finds
+the installed plugin by that folder. To keep updates by hand, run `start` with `--auto-update off`.
+The session's prompt needs no new line for either.
 
 ### Update from 0.6.1
 
@@ -660,8 +718,9 @@ Through Code Context, Doable never receives source code or snippets, real reposi
 
 A code agent result holds no code, whoever asks for it, and neither does a progress text, a question
 or a capability summary. A result may hold file paths, line numbers, names, and what the code does,
-in words. Its only secret is the password of each new test login, in that login. It never holds
-keys, tokens, session cookies, or customer personal data.
+in words, and, in its code files, the repository, the commit and the path of each file that the
+answer rests on. Its only secret is the password of each new test login, in that login. It never
+holds keys, tokens, session cookies, or customer personal data.
 
 See [PRIVACY.md](PRIVACY.md) for the exact per-plugin boundary.
 
@@ -688,6 +747,13 @@ See [CHANGELOG.md](CHANGELOG.md) for version history and [CONTRIBUTING.md](CONTR
 - The session reads only the mail of its organization's test inbox. A test environment that sends
   its sign-up mail only to another address, or that refuses a `+` in an email address, cannot use
   this way.
+- Self-update: Doable's chat page shows no state for a machine that needs an update. Read it in the
+  machine's `service.log`, `status` or page. A session that Doable asks to update serves no request
+  for about 5 minutes: the start script waits 5 minutes after a session ends, then updates the
+  plugin and starts the next session. With self-update off, the machine serves no request until a
+  person updates the plugin. When a command of the self-update passes its time limit, the start
+  script stops it, but a program that the command started (for example `git`) can go on until it
+  ends.
 
 ## Verify
 
