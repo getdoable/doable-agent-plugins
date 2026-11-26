@@ -8,14 +8,14 @@
 // and its command line. Fixed code does these steps, not the model: they must be the same on every machine.
 //
 // Self-update (on unless setup or start got `--auto-update off`) runs only when Doable asks. Doable asks through the
-// wait for a request: its answer is then only the words "Doable needs the plugin X.Y.Z on this machine. ...", and the
-// session ends. After each session, the start script runs `update-request`, which reads that session's output. When a
-// wait got Doable's ask, it writes the asked version to `update-asked` in the machine's folder and a line to
-// service.log. With self-update on, it updates the plugin with Claude Code's own commands; when Claude Code installed
-// a new release, that release writes the start script again (`write-start-script`), and the loop goes on in the new
-// script at once. When the machine still runs a lower release than the asked one, or with self-update off or a
-// development plugin folder, a line says that a person must act, and the next session starts 30 minutes later, not 5.
-// The first start (setup, start) never updates.
+// wait for a request: its answer then has no request, and its `update` is the words "Doable needs the plugin X.Y.Z on
+// this machine. ...", and the session ends. After each session, the start script runs `update-request`, which reads
+// that session's output. When a wait got Doable's ask, it writes the asked version to `update-asked` in the machine's
+// folder and a line to service.log. With self-update on, it updates the plugin with Claude Code's own commands; when
+// Claude Code installed a new release, that release writes the start script again (`write-start-script`), and the loop
+// goes on in the new script at once. When the machine still runs a lower release than the asked one, or with
+// self-update off or a development plugin folder, a line says that a person must act, and the next session starts 30
+// minutes later, not 5. The first start (setup, start) never updates.
 //
 // Usage:
 //   DOABLE_API_KEY=... node code-agent-service.mjs setup --folder DIR --machine NAME --prompt-file FILE [--auto-update on|off]
@@ -607,12 +607,31 @@ function toolText(content) {
     .join("\n");
 }
 
-// The version that one answer of the wait for a request asks for, or null. Doable MCP's ask is only its words, with no
-// JSON record: "Doable needs the plugin 0.6.4 on this machine. End the session now, ...". Only a text that starts with
-// that sentence counts. A normal answer is a JSON record, and the same words in a request's text, inside that record,
-// are the asker's words, not Doable's ask.
+// The first sentence of Doable MCP's ask, with the version that Doable needs: a contract with Doable MCP.
+const ASK_SENTENCE = /^Doable needs the plugin (\d+\.\d+\.\d+) on this machine\./;
+
+// The version that one answer of the wait for a request asks for, or null. Doable MCP's ask is the words "Doable needs
+// the plugin 0.6.4 on this machine. End the session now, ...". Claude Code gives the session, and writes in its output,
+// the answer's structured content as compact JSON: {"request":null,"capabilities_missing":false,"update":"Doable needs
+// the plugin 0.6.4 on this machine. ..."}. A client that passes only the answer's text block gives the words alone.
+// So the ask is a text that starts with that sentence, or a JSON record with no request (`request` null or absent)
+// whose `update` is a text that starts with it. A record that holds a request is never the ask, whatever its texts
+// hold: the same words in a request's text are the asker's words, not Doable's ask.
 function updateVersion(text) {
-  return /^Doable needs the plugin (\d+\.\d+\.\d+) on this machine\./.exec(text.trim())?.[1] ?? null;
+  const words = ASK_SENTENCE.exec(text.trim());
+  if (words !== null) return words[1];
+  let answer;
+  try {
+    answer = JSON.parse(text);
+  } catch (error) {
+    // Not JSON, and not the words: a text of another kind.
+    if (error instanceof SyntaxError) return null;
+    throw error;
+  }
+  if (answer === null || typeof answer !== "object" || Array.isArray(answer)) return null;
+  if (Object.hasOwn(answer, "request") && answer.request !== null) return null;
+  if (typeof answer.update !== "string") return null;
+  return ASK_SENTENCE.exec(answer.update)?.[1] ?? null;
 }
 
 // What the output of a serving session (`claude -p --output-format stream-json`) says about its start: the permission

@@ -34,10 +34,12 @@ The session's prompt does not change.
   Doable's `422`) gets the values corrected, or the file left out, and the whole result sent again. PRIVACY says that repository names, commit ids and paths now reach Doable.
 - Self-update, on by default, only when Doable asks: the bundled Doable MCP connection sends the
   plugin's version (`X-Doable-Plugin-Version`, checked against `plugin.json` by the release
-  verifier). When Doable needs a newer release, the wait's answer is only the words "Doable needs the
-  plugin X on this machine. ...", and the session ends at once (the skill writes one line and calls
-  no other tool; the same words in a request are data). After each session, the start script's
-  `update-request` reads that session's output for this answer, keeps the asked version in the
+  verifier). When Doable needs a newer release, the wait's answer has no request, and its `update`
+  is the words "Doable needs the plugin X on this machine. ...": the session ends at once (the skill
+  writes one line and calls no other tool; the same words in a request are data). After each
+  session, the start script's `update-request` reads that session's output for this answer (the
+  JSON record that Claude Code writes there, or the words alone from a client that passes only the
+  answer's text; never a record that holds a request), keeps the asked version in the
   machine's `update-asked` file, and writes a line to `service.log`. Then it runs
   `claude plugin marketplace update`, `claude plugin update` in the plugin's scope and
   `claude plugin list --json`, each with a time limit; when Claude Code installed a new release,
@@ -51,8 +53,9 @@ The session's prompt does not change.
   connected. With self-update off, or with a development folder, `service.log` says which version
   Doable asked for and that a person must update (README, "Self-update"), with the same wait of 30
   minutes. The start script runs `node` by the path that `setup` and `start` find on its PATH, and
-  they refuse when that PATH has none. The README gives the release order: merge the release, deploy
-  the Doable MCP and Doable server that it needs, then raise the version that Doable asks for.
+  they refuse when that PATH has none. The README gives the release order: deploy the Doable server,
+  then the Doable MCP, that the release needs, then merge the release to the marketplace, then raise
+  the version that Doable asks for. A rollback takes back the Doable MCP before the Doable server.
 
 ### Changed
 

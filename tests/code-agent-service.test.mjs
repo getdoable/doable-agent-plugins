@@ -913,14 +913,20 @@ test("with self-update on, setup and start refuse, and change nothing, when Clau
   assert.equal(readFileSync(join(dir, "run.sh"), "utf8"), before);
 });
 
-// Doable MCP's answer to a wait for a request when Doable needs a newer release: only these words, with no JSON record.
+// Doable MCP's words when Doable needs a newer release. A client that passes only the text of the wait's answer gives
+// the session these words alone.
 const askText = (version) =>
   `Doable needs the plugin ${version} on this machine. End the session now, and call no other tool. An Always on service updates the plugin and starts the session again; in a session that a person started, the person updates the plugin and starts the session again.`;
+// The same answer as Claude Code gives it to the session and writes it in the session's output: Doable MCP's structured
+// content as compact JSON, with no request and the words in `update`.
+const askAnswer = (version) => JSON.stringify({ request: null, capabilities_missing: false, update: askText(version) });
 // A normal answer that holds a request whose text quotes those words: the asker's words, not Doable's ask.
 const QUOTING_ANSWER = JSON.stringify({
   request: { id: "CA-ABC123", request: `Why does service.log say "${askText("9.9.9")}"? Explain it to me.` },
   capabilities_missing: false,
 });
+// That answer with Doable's words in `update` too: an answer that holds a request is never the ask, whatever it holds.
+const REQUEST_WITH_UPDATE = JSON.stringify({ ...JSON.parse(QUOTING_ANSWER), update: askText("9.9.9") });
 // The output of a session whose first wait got `text`.
 const waitedWith = (id, text) => `${initLine()}${callLine(id)}${resultLine(id, { text })}`;
 // The run of a start script with fakes: the session's `claude` and `sleep`, which write each call to `calls` and do not
@@ -953,7 +959,7 @@ test("after a session whose wait got Doable's ask, the start script updates the 
   const dir = serviceDir(m.env, "mac-mini-1");
   // The sessions in turn: (1) a request whose text quotes Doable's ask; (2) Doable's ask while the marketplace has no
   // newer release; (3) Doable's ask after the release came to the marketplace; (4) the new release's session.
-  const outputs = [QUOTING_ANSWER, askText("9.9.9"), askText("9.9.9"), '{"request":null,"capabilities_missing":false}'];
+  const outputs = [QUOTING_ANSWER, askAnswer("9.9.9"), askAnswer("9.9.9"), '{"request":null,"capabilities_missing":false}'];
   outputs.forEach((text, i) => writeFileSync(join(m.base, `output-${i + 1}.jsonl`), waitedWith(`toolu_${i + 1}`, text)));
   const published = join(m.base, "published");
   const updated = join(m.base, "updated");
@@ -1042,7 +1048,7 @@ test("a self-update step that fails says how it failed, with no secret, writes n
   assert.deepEqual(result.calls, ["plugin marketplace update doable"]);
   // After a session that Doable asked: the same failure, then the line that a person must act, and the code of the
   // start script's wait of 30 minutes.
-  writeFileSync(join(dir, "session.jsonl"), waitedWith("toolu_1", askText("9.9.9")));
+  writeFileSync(join(dir, "session.jsonl"), waitedWith("toolu_1", askAnswer("9.9.9")));
   const printed = [];
   const code = updateRequest({ dir, from: 0, plugin: "doable-code-context@doable", scope: "user" }, { PATH: m.env.PATH }, (line) => printed.push(line), maskSecrets);
   assert.equal(code, ASKED_WAIT);
@@ -1109,7 +1115,7 @@ test("with self-update off, service.log says that Doable asked for a newer plugi
   setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, autoUpdate: false }, withFakeSleep(m, calls), () => {});
   const dir = serviceDir(m.env, "mac-mini-1");
   // The first session gets Doable's ask, and the second one ends the loop. No plugin command runs.
-  writeFileSync(join(m.base, "output-1.jsonl"), waitedWith("toolu_1", askText("9.9.9")));
+  writeFileSync(join(m.base, "output-1.jsonl"), waitedWith("toolu_1", askAnswer("9.9.9")));
   writeFileSync(join(m.base, "output-2.jsonl"), waitedWith("toolu_2", QUOTING_ANSWER));
   fakeClaude(m.claude, { list: `/bin/cat ${q(m.listFile)}`, session: sessionsInTurn(m.base, dir, 2), calls });
   writeFileSync(calls, "");
@@ -1125,35 +1131,40 @@ test("with self-update off, service.log says that Doable asked for a newer plugi
     return { code, printed };
   };
   const log = join(dir, "session.jsonl");
-  // In words, as a list of text parts, after a blank line.
-  writeFileSync(
-    log,
-    `${callLine("toolu_2")}${jsonLine({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "toolu_2", content: [{ type: "text", text: `\n${askText("9.9.9")}` }] }] } })}`,
-  );
-  assert.deepEqual(step(0), { code: ASKED_WAIT, printed: [asked, needs("Self-update is off")] });
+  // The ask in the other forms: a JSON record with no `request` field, and the words alone (a client that passes only
+  // the answer's text), as a list of text parts, after a blank line.
+  for (const content of [JSON.stringify({ update: askText("9.9.9") }), [{ type: "text", text: `\n${askText("9.9.9")}` }]]) {
+    writeFileSync(log, `${callLine("toolu_2")}${jsonLine({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "toolu_2", content }] } })}`);
+    assert.deepEqual(step(0), { code: ASKED_WAIT, printed: [asked, needs("Self-update is off")] });
+  }
   // Contrasts: the ask before the session's start (before `from`); an answer that holds a request whose text quotes
-  // the words; a JSON answer that holds the words in another field; a text that has the words after other words; the
-  // answer of a call that failed; and the answer of another tool.
-  const earlier = waitedWith("toolu_3", askText("9.9.9"));
+  // the words; that answer with the words in `update` too; a text that has the words after other words; a record with
+  // no request whose `update` has the words after other words, or is not a text; the answer of a call that failed; and
+  // the answer of another tool.
+  const earlier = waitedWith("toolu_3", askAnswer("9.9.9"));
   writeFileSync(
     log,
     earlier +
       callLine("toolu_4") +
       resultLine("toolu_4", { text: QUOTING_ANSWER }) +
       callLine("toolu_5") +
-      resultLine("toolu_5", { text: JSON.stringify({ request: null, capabilities_missing: false, update: askText("9.9.9") }) }) +
+      resultLine("toolu_5", { text: REQUEST_WITH_UPDATE }) +
       callLine("toolu_6") +
       resultLine("toolu_6", { text: `Note: ${askText("9.9.9")}` }) +
       callLine("toolu_7") +
-      resultLine("toolu_7", { isError: true, text: askText("9.9.9") }) +
-      jsonLine({ type: "assistant", message: { content: [{ type: "tool_use", id: "toolu_8", name: "Bash", input: { command: "cat notes" } }] } }) +
-      resultLine("toolu_8", { text: askText("9.9.9") }),
+      resultLine("toolu_7", { text: JSON.stringify({ request: null, capabilities_missing: false, update: `Note: ${askText("9.9.9")}` }) }) +
+      callLine("toolu_8") +
+      resultLine("toolu_8", { text: JSON.stringify({ request: null, capabilities_missing: false, update: [askText("9.9.9")] }) }) +
+      callLine("toolu_9") +
+      resultLine("toolu_9", { isError: true, text: askAnswer("9.9.9") }) +
+      jsonLine({ type: "assistant", message: { content: [{ type: "tool_use", id: "toolu_10", name: "Bash", input: { command: "cat notes" } }] } }) +
+      resultLine("toolu_10", { text: askAnswer("9.9.9") }),
   );
   assert.deepEqual(step(Buffer.byteLength(earlier)), { code: 0, printed: [] });
   assert.deepEqual(step(0), { code: ASKED_WAIT, printed: [asked, needs("Self-update is off")] });
   // An ask for a release that is not above this one: the line, and no wait of 30 minutes.
   rmSync(join(dir, "update-asked"));
-  writeFileSync(log, waitedWith("toolu_9", askText(RELEASE)));
+  writeFileSync(log, waitedWith("toolu_11", askAnswer(RELEASE)));
   assert.deepEqual(step(0), { code: 0, printed: [`Doable asked for the plugin ${RELEASE}; this release is ${RELEASE}.`] });
   assert.equal(existsSync(join(dir, "update-asked")), false);
 
@@ -1161,7 +1172,7 @@ test("with self-update off, service.log says that Doable asked for a newer plugi
   const dev = machine();
   setup({ folder: dev.folder, machine: "mac-mini-1", promptFile: dev.prompt }, { ...dev.env, DOABLE_CODE_AGENT_PLUGIN_DIR: "/srv/dev/plugin" }, () => {});
   const devDir = serviceDir(dev.env, "mac-mini-1");
-  writeFileSync(join(devDir, "session.jsonl"), waitedWith("toolu_1", askText("9.9.9")));
+  writeFileSync(join(devDir, "session.jsonl"), waitedWith("toolu_1", askAnswer("9.9.9")));
   const printed = [];
   assert.equal(updateRequest({ dir: devDir, from: 0 }, { PATH: dev.env.PATH }, (line) => printed.push(line.replace(/^\S+ /, "")), maskSecrets), ASKED_WAIT);
   assert.deepEqual(printed, [asked, needs("The session loads the plugin from a development folder")]);
@@ -1171,10 +1182,11 @@ test("setup and start say that Doable needs a newer plugin, not that the session
   const asks = (next) => `Doable needs the plugin 9.9.9 on this machine, so the session ended at its first wait for a request. ${next}`;
   const updatesNow = asks("The start script updates the plugin now and starts the new release; service.log says how each step went.");
   // Self-update on: start says that the start script updates now.
-  let m = servedMachine(waitedWith("toolu_1", askText("9.9.9")));
+  let m = servedMachine(waitedWith("toolu_1", askAnswer("9.9.9")));
   setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt }, m.env, () => {});
   assert.deepEqual(printedBy((print) => start("mac-mini-1", m.launching, print)), [STARTED, CHROME_NOTE, updatesNow]);
-  // Self-update off: setup says that a person updates.
+  // Self-update off: setup says that a person updates. The answer is the words alone (a client that passes only the
+  // answer's text).
   m = servedMachine(waitedWith("toolu_1", askText("9.9.9")));
   const printed = printedBy((print) => setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, autoUpdate: false }, m.launching, print));
   assert.ok(
@@ -1186,8 +1198,9 @@ test("setup and start say that Doable needs a newer plugin, not that the session
     printed.join("\n"),
   );
   assert.ok(!printed.includes(CONNECTED), printed.join("\n"));
-  // Contrast: the same words in a request's text. The session waits for requests.
-  m = servedMachine(waitedWith("toolu_1", QUOTING_ANSWER));
+  // Contrast: an answer that holds a request, with the same words in the request's text and in `update`. The session
+  // waits for requests.
+  m = servedMachine(waitedWith("toolu_1", REQUEST_WITH_UPDATE));
   setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt }, m.env, () => {});
   assert.deepEqual(printedBy((print) => start("mac-mini-1", m.launching, print)), [STARTED, CHROME_NOTE, CONNECTED]);
 });

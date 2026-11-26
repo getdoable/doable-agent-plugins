@@ -384,10 +384,14 @@ Revoke it in Settings > API Keys when you no longer need it.
 
 Self-update is on unless you turn it off. The machine updates only when Doable asks. Doable MCP
 sends the plugin's version with each wait for a request (the `X-Doable-Plugin-Version` header).
-When Doable needs a newer release, the wait's answer is only the words "Doable needs the plugin
-<version> on this machine. ...", and the session ends. Then fixed code, not the model, acts. After
-each session ends, the start script reads that session's part of `session.jsonl` for this answer
-of `wait_for_code_agent_request`. The same words in a request, or in any other text, do not count.
+When Doable needs a newer release, the wait's answer has no request, and its `update` is the words
+"Doable needs the plugin <version> on this machine. ...": the session ends. Then fixed code, not
+the model, acts. After each session ends, the start script reads that session's part of
+`session.jsonl` for this answer of `wait_for_code_agent_request`. Claude Code writes the answer
+there as Doable MCP's JSON record, for example
+`{"request":null,"capabilities_missing":false,"update":"Doable needs the plugin 0.6.4 on this machine. ..."}`.
+An answer that is only those words (a client that passes only the answer's text) counts too. The
+same words in a request, in an answer that holds a request, or in any other text do not count.
 When it finds the answer, it writes the asked version to
 `~/.doable/code-agent/<machine>/update-asked` and the line "Doable asked for the plugin <version>;
 this release is <version>" to `service.log`. Then it runs Claude Code's own commands, each with a
@@ -437,13 +441,16 @@ start the session again.
 
 For the maintainers of this repository, a release N goes out in this order:
 
-1. Merge release N to this repository's `main`, which is the plugin's marketplace. This updates no
-   Always on machine by itself, unless Claude Code's own auto-update of the marketplace is on there.
-2. Deploy the Doable MCP and the Doable server that N needs. They must still serve release N-1.
+1. Deploy the Doable server, then the Doable MCP, that N needs. Both must still serve release N-1.
+2. Merge release N to this repository's `main`, which is the plugin's marketplace. From then on, a
+   person's update or Claude Code's own auto-update of the marketplace can install N on a machine,
+   so the servers that N needs come first. Self-update does not install N yet: Doable does not ask
+   for it.
 3. Only then raise `CODE_AGENT_PLUGIN_VERSION_NEEDED` to N in the Doable server, and deploy it.
 
-If the Doable server asks for a release that is not in the marketplace yet, each machine ends its
-session at its first wait and waits 30 minutes, again and again, and its `service.log` says why.
+To roll back, roll back the Doable MCP before the Doable server. If the Doable server asks for a
+release that is not in the marketplace yet, each machine ends its session at its first wait and
+waits 30 minutes, again and again, and its `service.log` says why.
 
 #### The code agent's page
 
