@@ -12,9 +12,18 @@ All notable changes to Doable Agent Plugins are documented here.
 ## [0.6.3] - 2026-11-25
 
 The code agent sends no code back, whoever asks. A result says in words what the code does, with file
-paths and line numbers. Update each machine with stop, the plugin update, and start, as for 0.6.2
+paths and line numbers. It reads the code that the request's environment runs, not what a checkout
+holds, and a new `page` command shows the session and its requests on the machine. Update each
+machine with stop, the plugin update, and start, as for 0.6.2
 (README, "Update from 0.6.2"). Start each session after the Doable MCP release that goes with 0.6.3.
 The session's prompt does not change.
+
+### Added
+
+- `scripts/code-agent-service.mjs page --machine <machine>`: a page at `http://127.0.0.1:47615/` that
+  other computers cannot open (any account of this computer can). It shows the session and each
+  request from the machine's own files, with `****` in place of the logins' passwords, Doable API keys
+  and secrets in known forms (README, "The code agent's page").
 
 ### Changed
 
@@ -36,12 +45,30 @@ The session's prompt does not change.
 - The capability summary says that the session sends no code.
 - README, PRIVACY, the Codex manifest's description, and TESTING (scenarios 36, 39, 53 and 69) say the
   same. README: "Update from 0.6.2".
+- `doable-code-agent` reads the code of the running revision: it fetches each repository that it
+  reads, finds the branch, tag or commit that the request's environment runs (deploy and CI files,
+  the team's docs, a version that the app shows), and reads it with `git show`, `git grep` or a new
+  worktree of its own, with no change to the checkout. A branch, tag, commit or open change that the
+  request names comes first; with no environment, or nothing that says what it runs, it reads the
+  newest commit of the default branch. The result names the revision, its date and how the session
+  knows that the environment runs it; a failed fetch is named under **Not known** with the date of
+  the copy that it read. A fix that it tries is a new local branch of that revision in a worktree of
+  its own, and it leaves no worktree behind. 0.6.2 answered from what each repository had checked
+  out, which could be weeks behind the environment (TESTING, scenario 70).
+
+### Fixed
+
+- `scripts/code-agent-service.mjs` refuses the machine names `.` and `..`. With them, `remove` deleted
+  the folder of all machines or the one above it.
 
 ### Known limit
 
 - Doable refuses only a fenced code block, an HTML `<pre>` tag and a header line of a diff. It does
   not recognize code in another form (for example one line with no code block, or an indented block):
   there, only the Skill's rules keep code on the machine.
+- The code agent's page finds secrets only in known forms. A password in a sentence, or a new login's
+  password as a script's argument until the result names that login, shows on the page. Any account
+  or program of the computer can open the page.
 
 ## [0.6.2] - 2026-11-24
 

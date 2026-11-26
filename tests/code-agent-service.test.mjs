@@ -230,6 +230,29 @@ test("stop writes the stop file that ends the restart loop, and remove deletes t
   assert.match(printed[0], /Revoke the key in Doable's Settings > API Keys/);
 });
 
+test("each command refuses the machine names '.' and '..', so that remove deletes neither the folder of all machines nor the one above it", () => {
+  const m = machine();
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt }, m.env, () => {});
+  const home = m.env.DOABLE_CODE_AGENT_HOME;
+  const beside = join(dirname(home), "beside.txt");
+  writeFileSync(beside, "a file next to the folder of the machines\n");
+  const refusal = /^Error: --machine must be 1 to 64 characters, each a letter, a digit, '\.', '_' or '-', and not '\.' or '\.\.'\.$/;
+  for (const name of [".", ".."]) {
+    assert.throws(() => remove(name, m.env, () => {}), refusal, name);
+    for (const command of [stop, start, status]) assert.throws(() => command(name, m.env, () => {}), refusal, `${command.name} ${name}`);
+    assert.throws(() => setup({ folder: m.folder, machine: name, promptFile: m.prompt }, m.env, () => {}), refusal);
+  }
+  assert.ok(existsSync(join(serviceDir(m.env, "mac-mini-1"), "env")));
+  assert.equal(existsSync(join(home, "stopped")), false);
+  assert.ok(existsSync(beside));
+
+  // A name with dots in it is a machine's name.
+  setup({ folder: m.folder, machine: "..qa.mac", promptFile: m.prompt }, m.env, () => {});
+  remove("..qa.mac", m.env, () => {});
+  assert.equal(existsSync(serviceDir(m.env, "..qa.mac")), false);
+  assert.ok(existsSync(join(serviceDir(m.env, "mac-mini-1"), "env")));
+});
+
 // A start script that plugin 0.5.0 or 0.6.0 wrote, word for word: the dontAsk mode with `rules` in --allowedTools, and
 // the PATH, the claude command and the development plugin folder of the terminal that ran setup. With no plugin
 // folder at setup (the installed plugin), it has no --plugin-dir.

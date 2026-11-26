@@ -365,6 +365,37 @@ while the session runs, so that two sessions do not serve with the same machine 
 first. The key stays in its file until `remove`.
 Revoke it in Settings > API Keys when you no longer need it.
 
+#### The code agent's page
+
+To see what the session does, run its page on the machine:
+
+```bash
+node <installPath>/scripts/code-agent-service.mjs page --machine <machine>
+```
+
+It prints an address, `http://127.0.0.1:47615/`: open it in a browser on this machine. Other
+computers cannot open it, but any account or program on this computer can, not only you. The page
+reads only the session's files in `~/.doable/code-agent/<machine>/` and calls nothing on the
+network. It reads them again every 5 seconds and shows:
+
+- the session: on, stopped or not running, when it started, its last activity, whether Doable MCP
+  was connected at its start, what it did outside a request, the last lines of its log, and the
+  last lines of its output that are not events (for example an error of Claude Code when the
+  session cannot start);
+- each request, newest first: who asked, when, its text, its progress, a question and its answer,
+  each call that Doable refused and why, the result, and its status. A request that Doable gave to
+  another machine, cancelled, ended or put back in the queue shows that status, and a result that
+  Doable did not keep (it came after a cancel) shows that too. Under each request, the steps that
+  the session made for it;
+- the earlier sessions, folded, one line each, with how each one ended.
+
+It leaves out the password of each login in a result. It shows `****` in place of each password of
+a login in a result, each Doable API key, and secrets in known forms (NAME=value, password: value,
+--password value, -u user:password, a URL's password, Bearer and Basic headers). A secret in another
+form can still show: for example a password in a sentence, or a new login's password as a script's
+argument until the result names that login. If another program uses the port, add
+`--port <number>`. Stop the page with Ctrl-C: the session goes on.
+
 ### By hand
 
 1. Put the product's repositories in one folder.

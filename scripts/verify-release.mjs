@@ -705,6 +705,12 @@ for (const requiredCodeAgentSetup of [
   "4. Start `claude --chrome` in that folder",
   // On a machine without launchd, the setup and `start` refuse while the session runs: the person runs `stop` first.
   "Run the setup again only after `stop`",
+  // The page shows the session's logs, which hold the passwords of the logins that it made: other computers cannot open
+  // it, but each account of this computer can, and its mask finds secrets only in known forms.
+  "code-agent-service.mjs page --machine <machine>",
+  "Other computers cannot open it, but any account or program on this computer can, not only you.",
+  "It leaves out the password of each login in a result.",
+  "A secret in another form can still show",
 ]) {
   assert(includesPhrase(readme, requiredCodeAgentSetup), `README is missing code agent setup: ${requiredCodeAgentSetup}`);
 }

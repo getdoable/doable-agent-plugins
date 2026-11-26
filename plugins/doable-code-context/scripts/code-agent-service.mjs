@@ -10,10 +10,13 @@
 // Usage:
 //   DOABLE_API_KEY=... node code-agent-service.mjs setup --folder DIR --machine NAME --prompt-file FILE
 //   node code-agent-service.mjs status|stop|start|remove --machine NAME
+//   node code-agent-service.mjs page --machine NAME [--port N]
 //   node code-agent-service.mjs browser
 //
-// `browser` prints the Chrome that the person chose in Claude Code: the serving session runs it before it uses the
-// browser (the Skill's "The browser").
+// `page` serves a page at http://127.0.0.1:N/ (N is 47615 unless --port gives another) that other computers cannot open
+// (any account of this computer can): the serving session and the requests that it served, from its files on this
+// computer (code-agent-page.mjs). It runs until Ctrl-C. `browser` prints the Chrome that the person chose in Claude Code: the serving session runs it
+// before it uses the browser (the Skill's "The browser").
 //
 // The serving session can use every tool with no permission check, and Claude in Chrome, so that it can open a page in
 // this machine's Chrome, for example the link of a sign-up mail from the request's test inbox. Only the rules of its
@@ -48,10 +51,13 @@ import { homedir } from "node:os";
 import { delimiter, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const MACHINE_NAME = /^[A-Za-z0-9._-]{1,64}$/;
+// Not '.' or '..': the machine's folder would be the folder of all machines or the one above it, which `page` would
+// read and `remove` would delete.
+const MACHINE_NAME = /^(?!\.\.?$)[A-Za-z0-9._-]{1,64}$/;
 // An organization API key: the code agent tools refuse a personal key and a login token.
 const ORGANIZATION_KEY = /^sk-doable-(?!personal-)[A-Za-z0-9_-]{16,}$/;
-const ANY_DOABLE_KEY = /sk-doable-[A-Za-z0-9_-]+/;
+// Any Doable API key: `status` and the page (code-agent-page.mjs) mask each one in what they show.
+export const ANY_DOABLE_KEY = /sk-doable-[A-Za-z0-9_-]+/;
 // The prefix of the tool names of the plugin's Doable MCP server: the server that sends the key and the machine name of
 // this setup (the env file) to Doable.
 const PLUGIN_TOOLS = "mcp__plugin_doable-code-context_doable__";
@@ -99,7 +105,7 @@ function fail(message) {
 
 function checkMachine(machine) {
   if (!machine || !MACHINE_NAME.test(machine)) {
-    fail("--machine must be 1 to 64 characters, each a letter, a digit, '.', '_' or '-'.");
+    fail("--machine must be 1 to 64 characters, each a letter, a digit, '.', '_' or '-', and not '.' or '..'.");
   }
 }
 
@@ -537,16 +543,24 @@ export function start(machine, env, print = console.log) {
   }
 }
 
-export function status(machine, env, print = console.log) {
+// Whether the code agent of `machine` is "on", "stopped" (a `stop` wrote the stop file) or "not running". `status` prints
+// it, and the page (code-agent-page.mjs) shows it. It fails for a machine that is not set up, as the other commands do.
+export function serviceState(machine, env) {
   checkMachine(machine);
   const dir = serviceDir(env, machine);
   if (!existsSync(dir)) fail(`No code agent "${machine}" is set up on this machine.`);
-  const stopped = existsSync(join(dir, "stopped"));
+  if (existsSync(join(dir, "stopped"))) return "stopped";
   // With no launchd, the agent is on only while the start script of the `pid` file runs: nothing starts it after a reboot.
   const running = useLaunchd(env)
     ? launchctl(["print", `gui/${process.getuid()}/${launchdLabel(machine)}`], { quiet: true })
     : runningScript(dir) !== null;
-  print(`Code agent "${machine}": ${stopped ? "stopped" : running ? "on" : "not running"}.`);
+  return running ? "on" : "not running";
+}
+
+export function status(machine, env, print = console.log) {
+  const state = serviceState(machine, env);
+  const dir = serviceDir(env, machine);
+  print(`Code agent "${machine}": ${state}.`);
   const session = join(dir, "session.jsonl");
   if (existsSync(session)) print(`Last activity: ${statSync(session).mtime.toISOString()} (${session}).`);
   const log = join(dir, "service.log");
@@ -582,13 +596,21 @@ export function parseArgs(argv) {
     if (name === "--folder") options.folder = value;
     else if (name === "--machine") options.machine = value;
     else if (name === "--prompt-file") options.promptFile = value;
+    else if (name === "--port") options.port = portNumber(value);
     else fail(`Unknown option ${name}.`);
     i += 2;
   }
   return { command, options };
 }
 
-function main() {
+// The port of the page's address (`page --port`).
+function portNumber(value) {
+  const port = /^\d{1,5}$/.test(value) ? Number(value) : 0;
+  if (port < 1 || port > 65535) fail("--port must be a whole number from 1 to 65535.");
+  return port;
+}
+
+async function main() {
   const { command, options } = parseArgs(process.argv.slice(2));
   const env = process.env;
   if (command === "setup") setup(options, env);
@@ -597,15 +619,17 @@ function main() {
   else if (command === "status") status(options.machine, env);
   else if (command === "remove") remove(options.machine, env);
   else if (command === "browser") browser(env);
-  else fail("Use setup, status, stop, start, remove or browser (see the comment at the top of this file).");
+  else if (command === "page") {
+    // Loaded only for this command: the page's module imports this one.
+    const { page } = await import("./code-agent-page.mjs");
+    await page(options, env);
+  } else fail("Use setup, status, stop, start, remove, page or browser (see the comment at the top of this file).");
 }
 
 // The real path: with a link in the path (a linked ~/.claude), the script must run, not end with no output.
 if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  try {
-    main();
-  } catch (error) {
+  main().catch((error) => {
     console.error(error.message);
     process.exit(1);
-  }
+  });
 }
