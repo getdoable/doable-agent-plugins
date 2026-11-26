@@ -346,6 +346,19 @@ the facts that the goal needs in the repositories, the test environments, the te
 and production, do the work that it needs in the repositories and the test environments, inside
 "Rules", and stop when the goal is met.
 
+- Read the code of the running revision: the branch, tag or commit of a repository that the goal's
+  environment runs (the request's `environment`, or the one that its text names). What a
+  repository has checked out can be weeks behind it, and its rules, messages and line numbers then
+  differ from what the asker sees. First fetch each repository that you read. Then find which
+  revision that environment runs, in the repository's deploy and CI files at their newest fetched
+  commit, the team's docs, or a version that the running app shows. Read it, and run it when the
+  goal needs a run, without a change to the checkout: with `git show` or `git grep` on that
+  revision, or in a new worktree of your own. When the request names a branch, a tag, a commit or
+  an open change, read that one instead. When the request names no environment, or nothing says
+  which revision it runs, read the newest commit of the default branch. Under **Evidence** (under
+  **Where** in the debug layout), name the revision that you read, its date, and how you know that
+  the environment runs it, or that you could not tell. When the fetch fails, read the newest copy
+  that you have, and say under **Not known** that the fetch failed, why, and the date of that copy.
 - Return what the goal needs, not a pointer to it. When your work points to another source (for
   example a doc that a README names, or a page that a ticket links to), read it yourself, as
   "Rules" allows: the asker cannot open it, and a second request costs the person another round.
@@ -370,7 +383,8 @@ else decline it. Work that the request did not ask for follows "Rules".
 
 ### A question about the product or its code
 
-- What the product does today: answer from the code in the repositories in this folder. When the
+- What the product does today: answer from the code that the first bullet of "What a request can
+  ask" says to read. When the
   code does not settle a point and a look at the running product can, take that look in a test
   environment. When only production can settle it, read it there (see "Rules").
 - What the product must do, what a change is, or why it was made: the team's own words say that,
@@ -448,21 +462,25 @@ failed run's result, and `tests` usually holds the test's steps and expected res
 `diagnosis` is a hint to check, not a fact.
 
 1. Read the run result and the test. Find the step that failed, what it expected, and what it saw.
-2. Find the code for that step in the repositories.
+2. Find the code for that step in the code that the first bullet of "What a request can ask" says
+   to read.
 3. Reproduce the failure when the session's rules allow it: on a local copy of the app, or in the
    request's test environment, with your own new test login. Make it as "Logins" says, and do not
    put it in `logins`. Write down the exact steps.
 4. Find the root cause: the first place where the code does something different from what the
    test expected. Check the test too: it can expect a label, rule, or order that the product does
    not have on purpose.
-5. You may try a fix only on a new local branch, and run the repository's tests there, when the
-   session's rules do not forbid it. Otherwise only describe the fix. Never push it.
+5. You may try a fix only on a new local branch of the revision that you read, in a worktree of
+   your own, and run the repository's tests there, when the session's rules do not forbid it.
+   Otherwise only describe the fix. Never push it.
 6. Return `done` with a summary in this layout:
 
    ```markdown
    **Cause:** one or two sentences.
 
-   **Where:** `src/app/api/time-off/[id]/route.ts:40-52` (one line per place)
+   **Where:**
+   - Code read: `develop` at `3f2a91c` (24 November), the branch that the staging deploy job builds.
+   - `src/app/api/time-off/[id]/route.ts:40-52` (one line per place)
 
    **Reproduce:**
    1. Sign in as a new test login (here `doable-ca-20261111-0930@example.com`, not in Doable).
@@ -497,6 +515,7 @@ Use this summary layout unless a part above gives another one:
 **Answer:** one or two sentences that answer the request.
 
 **Evidence**
+- Code read: `develop` at `3f2a91c` (24 November), the branch that the staging deploy job builds.
 - `src/app/api/time-off/route.ts:30-35`: the request body needs employeeId, startDate, endDate
   and reason.
 - `src/app/api/time-off/route.ts:51`: the new request's id is `tor-` and the time in milliseconds.
@@ -854,8 +873,9 @@ it as "When a call fails" says.
 - Never put a secret in a result, except the password of a new login in `logins` (see "What a
   result may hold"). Put in `logins` only a login that the tests will sign in with or that the
   request asks for (see "Logins").
-- Leave the machine as you found it: no uncommitted changes in the main checkouts, and no local
-  server still running for a request that has ended.
+- Leave the machine as you found it: each main checkout on the branch and commit that it had, with
+  no uncommitted changes, and no worktree of yours and no local server left for a request that has
+  ended.
 - Write no text while the queue is empty. Write to the person only when a request ends or
   something needs them.
 - Do not answer a chat's cards or send chat messages. This skill only serves the requests that
