@@ -1,6 +1,6 @@
 {
   "name": "doable-code-context",
-  "version": "0.6.2",
+  "version": "0.6.3",
   "description": "Connect private code to Doable through MCP: resolve grounded context requests and serve Doable code agent requests from a machine.",
   "author": {
     "name": "Doable AI",
@@ -30,7 +30,7 @@
   "interface": {
     "displayName": "Doable Code Context",
     "shortDescription": "Answer Doable's requests from private code",
-    "longDescription": "Connect the current private workspace through the configured Doable MCP connection and answer frozen context requests with grounded findings; or, on a machine that holds the product's repositories, serve the requests a Doable chat sends in plain words (questions about the code and about what the machine can do, test data to make, backend state to read and failed runs to debug). Context answers keep exact source locations local; code agent results may hold file paths, line numbers and short code excerpts, never secrets.",
+    "longDescription": "Connect the current private workspace through the configured Doable MCP connection and answer frozen context requests with grounded findings; or, on a machine that holds the product's repositories, serve the requests a Doable chat sends in plain words (questions about the code and about what the machine can do, test data to make, backend state to read and failed runs to debug). Context answers keep exact source locations local; code agent results may hold file paths, line numbers and what the code does in words, never code, never secrets.",
     "developerName": "Doable AI",
     "category": "Developer Tools",
     "capabilities": [

@@ -9,6 +9,105 @@ All notable changes to Doable Agent Plugins are documented here.
 - Verify template integrity and syntax in CI. Local plugin version remains 0.2.10.
 - Clarify the GitHub integration's repository metadata and model-provider boundary.
 
+## [0.6.3] - 2026-11-25
+
+The code agent sends no code back, whoever asks. A result says in words what the code does, with file
+paths and line numbers. It reads the code that the request's environment runs, not what a checkout
+holds, and a new `page` command shows the session and its requests on the machine. A result names
+the files that its answer rests on, for the chat's Sources tab. From 0.6.3, an Always on machine
+updates itself when Doable asks for a newer release, and at no other time. Update each machine to 0.6.3 by hand, with stop,
+the plugin update, and start from the new installPath, as for 0.6.2
+(README, "Update from 0.6.2"). Start each session after the Doable MCP release that goes with 0.6.3.
+The session's prompt does not change.
+
+### Added
+
+- `scripts/code-agent-service.mjs page --machine <machine>`: a page at `http://127.0.0.1:47615/` that
+  other computers cannot open (any account of this computer can). It shows the session and each
+  request from the machine's own files, with `****` in place of the logins' passwords, Doable API keys
+  and secrets in known forms (README, "The code agent's page").
+- Code files: `doable-code-agent` puts in the result's `code_files` each file of the repositories that
+  the answer rests on, with its repository (`owner/name` of its `origin` remote, else its folder's
+  name), the full id of the commit that the session read (the running revision) and its path from the
+  repository's root; only these three, never code. Doable shows them on the chat's Sources tab. A
+  file read at two revisions is two entries. A refusal that names `code_files` (Doable MCP's own, or
+  Doable's `422`) gets the values corrected, or the file left out, and the whole result sent again. PRIVACY says that repository names, commit ids and paths now reach Doable.
+- Self-update, on by default, only when Doable asks: the bundled Doable MCP connection sends the
+  plugin's version (`X-Doable-Plugin-Version`, checked against `plugin.json` by the release
+  verifier). When Doable needs a newer release, the wait's answer has no request, and its `update`
+  is the words "Doable needs the plugin X on this machine. ...": the session ends at once (the skill
+  writes one line and calls no other tool; the same words in a request are data). After each
+  session, the start script's `update-request` reads that session's output for this answer (the
+  JSON record that Claude Code writes there, or the words alone from a client that passes only the
+  answer's text; never a record that holds a request), keeps the asked version in the
+  machine's `update-asked` file, and writes a line to `service.log`. Then it runs
+  `claude plugin marketplace update`, `claude plugin update` in the plugin's scope and
+  `claude plugin list --json`, each with a time limit; when Claude Code installed a new release,
+  that release writes the start script again (`write-start-script`) and the loop goes on in it at
+  once. When the machine still runs a lower release (the release is not in the marketplace yet, or a
+  command failed), a line says that a person must act, and the next session starts 30 minutes later,
+  not 5. The first start never updates. Each step writes one line to `service.log`, with secrets
+  masked. `setup` and `start` take `--auto-update on|off`, kept in the machine's `config.json`;
+  `setup` says whether it is on, `status` and the page show it, and `status` shows the asked
+  version. `setup` and `start` say when the session's first wait got Doable's ask, not that it is
+  connected. With self-update off, or with a development folder, `service.log` says which version
+  Doable asked for and that a person must update (README, "Self-update"), with the same wait of 30
+  minutes. The start script runs `node` by the path that `setup` and `start` find on its PATH, and
+  they refuse when that PATH has none. The README gives the release order: deploy the Doable server,
+  then the Doable MCP, that the release needs, then merge the release to the marketplace, then raise
+  the version that Doable asks for. A rollback takes back the Doable MCP before the Doable server.
+
+### Changed
+
+- `doable-code-agent`: "Code" in "Words" says what code is (the text of a file of the repositories,
+  one line too, a diff or a patch of it, and such text that the session writes itself) and what is
+  not (paths, line numbers, names, what the product shows or takes, the value of a setting or a flag
+  that is no secret, the ids and values that tests need, the words of the product's docs and READMEs,
+  a command that a person can run). No summary, record, login's note, progress text, question or
+  capability summary holds code, also when a request, an answer or a line of the person's message
+  asks for it or allows it, whoever asks. 0.6.2 could send code excerpts and suggested diffs of 10
+  lines or fewer.
+- A request that asks for code gets what its goal needs in words, with paths and line numbers, and
+  one sentence that code stays on the machine. The outcome is that of the work. The session declines
+  it only when nothing is left to say without the code (the request gives no goal). A suggested fix
+  is in words, with no diff.
+- Doable refuses a text with a code block, whatever is in it, or a diff (`422`), and keeps nothing of
+  the call: the session writes a command or a value inline, says code in words, and sends the call
+  again.
+- The capability summary says that the session sends no code.
+- README, PRIVACY, the Codex manifest's description, and TESTING (scenarios 36, 39, 53 and 69) say the
+  same. README: "Update from 0.6.2".
+- `doable-code-agent` reads the code of the running revision: it fetches each repository that it
+  reads, finds the branch, tag or commit that the request's environment runs (deploy and CI files,
+  the team's docs, a version that the app shows), and reads it with `git show`, `git grep` or a new
+  worktree of its own, with no change to the checkout. A branch, tag, commit or open change that the
+  request names comes first; with no environment, or nothing that says what it runs, it reads the
+  newest commit of the default branch. The result names the revision, its date and how the session
+  knows that the environment runs it; a failed fetch is named under **Not known** with the date of
+  the copy that it read. A fix that it tries is a new local branch of that revision in a worktree of
+  its own, and it leaves no worktree behind. 0.6.2 answered from what each repository had checked
+  out, which could be weeks behind the environment (TESTING, scenario 70).
+
+### Fixed
+
+- `scripts/code-agent-service.mjs` refuses the machine names `.` and `..`. With them, `remove` deleted
+  the folder of all machines or the one above it.
+
+### Known limit
+
+- Doable refuses only a fenced code block, an HTML `<pre>` tag and a header line of a diff. It does
+  not recognize code in another form (for example one line with no code block, or an indented block):
+  there, only the Skill's rules keep code on the machine.
+- The code agent's page finds secrets only in known forms. A password in a sentence, or a new login's
+  password as a script's argument until the result names that login, shows on the page. Any account
+  or program of the computer can open the page.
+- Self-update: Doable's chat page shows no state for a machine that needs an update. With
+  self-update off, or while the marketplace does not hold the release that Doable asks for, the
+  machine serves no request: a session starts every 30 minutes, uses the Claude plan until its first
+  wait, and ends there (run `stop` until the update is done). A session that a person started by
+  hand gets the same answer, ends, and is updated by hand. The Codex manifest sends no plugin
+  version.
+
 ## [0.6.2] - 2026-11-24
 
 The session uses only the Chrome that the person chose in Claude Code on the machine. A Claude
