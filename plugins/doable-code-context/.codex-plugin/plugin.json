@@ -42,7 +42,7 @@
     "websiteURL": "https://getdoable.ai",
     "privacyPolicyURL": "https://qa.getdoable.ai/privacy-policy",
     "defaultPrompt": [
-      "Resolve Doable context request DQ-7F3K for organization HireEZ (hireez).",
+      "Resolve Doable context request DQ-7F3K for organization Acme (acme).",
       "Serve Doable code agent requests on this machine.",
       "Connect this workspace to Doable for code-context requests."
     ]

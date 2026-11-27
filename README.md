@@ -30,7 +30,7 @@ Use **Doable Code Context** for the connected pre-test-spec workflow:
 
    ```text
    Use the `doable-answer-questions` skill to resolve Doable context request
-   DQ-7F3K for organization HireEZ (hireez). Keep watching until the editor
+   DQ-7F3K for organization Acme (acme). Keep watching until the editor
    continues test spec generation. If the plugin is missing, install it from
    https://github.com/getdoable/doable-agent-plugins#install.
    ```
@@ -167,7 +167,7 @@ Normally, paste the short prompt copied from the Doable Test Spec Editor once:
 
 ```text
 Use the `doable-answer-questions` skill to resolve Doable context request
-DQ-7F3K for organization HireEZ (hireez). Keep watching until the editor
+DQ-7F3K for organization Acme (acme). Keep watching until the editor
 continues test spec generation. If the plugin is missing, install it from
 https://github.com/getdoable/doable-agent-plugins#install.
 ```
