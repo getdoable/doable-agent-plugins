@@ -1132,13 +1132,25 @@ export function serviceState(machine, env) {
   return running ? "on" : "not running";
 }
 
-// Whether self-update is "on", "off", or off for a "development folder", from the machine's config.json. `status` prints
-// it, and the page shows it.
-export function selfUpdateState(machine, env) {
+// The machine's config.json. It fails for a machine that is not set up, as the other commands do.
+function setupConfig(machine, env) {
   checkMachine(machine);
   const file = join(serviceDir(env, machine), "config.json");
   if (!existsSync(file)) fail(`No code agent "${machine}" is set up on this machine: run setup first.`);
-  return selfUpdateOf(JSON.parse(readFileSync(file, "utf8")));
+  return JSON.parse(readFileSync(file, "utf8"));
+}
+
+// Whether self-update is "on", "off", or off for a "development folder", from the machine's config.json. `status` prints
+// it, and the page shows it.
+export function selfUpdateState(machine, env) {
+  return selfUpdateOf(setupConfig(machine, env));
+}
+
+// Whether the start script runs the page, and the page's address, from the machine's config.json (pageOf). The page
+// shows it; `status` says it with pageState.
+export function pageSetting(machine, env) {
+  const page = pageOf(setupConfig(machine, env));
+  return { on: page.on, address: pageAddress(page.port) };
 }
 
 // What `status` says about the page, with the code agent's `state` (serviceState). service.log and page.log say why the

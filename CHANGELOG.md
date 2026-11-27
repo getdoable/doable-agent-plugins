@@ -15,7 +15,8 @@ The code agent's page runs as part of the Always on service, on by default. A pe
 keeps a command open for it, and it is on again after a restart of the Mac and after a self-update.
 A machine of 0.6.3 updates itself to 0.6.4 when Doable asks for it, with no person: its start
 script runs 0.6.4's `write-start-script`, which turns the page on (0.6.3's `config.json` has no
-choice for the page). The session's prompt does not change.
+choice for the page). The page also has a new layout: a header that says what the session does
+now, "Needs attention", "Now", and tabs with pages. The session's prompt does not change.
 
 ### Added
 
@@ -44,8 +45,29 @@ choice for the page). The session's prompt does not change.
   last lines of `page.log`. `status` shows whether the page is on, its address, and whether it runs
   now; while the code agent is stopped or not running, it says that the page runs only while the
   code agent runs, and it names a start script of an older release that runs no page.
-- README ("Always on", "The code agent's page"), TESTING (scenario 73), PRIVACY. The manual `page`
-  command stays, for a machine with the page off or for one more page on another port.
+- The code agent's page is shorter and easier to read. A header says what the session does now;
+  "Needs attention" shows only what needs a person (a question that waits, Doable's ask for a newer
+  plugin, a session that cannot start, refused calls of the request in progress); "Now" shows the
+  request in progress; and three tabs hold the requests (one line each, newest first, in pages of
+  10, 25 or 50, with status chips and a search), the sessions and `service.log` (in pages). A line
+  opens its details, and the address keeps the tab and the place (`#requests&page=2`). The page
+  reads every 5 seconds only the state and one line of each request (`/data.json`); it reads one
+  request (`/request.json?id=CA-…`), a page of sessions (`/sessions.json`, which gives the page
+  that holds an open session), one session by its id (`/session.json?id=…`), a page of
+  `service.log` (`/log.json`) or the requests whose whole text holds the search's words
+  (`/search.json?q=…`, over the masked text) only while that part is open. Each new route takes
+  only GET, answers only at `127.0.0.1:<port>` or `localhost:<port>`, refuses a parameter that it
+  does not take (`400`), masks as `/data.json` does, and has the same headers. The page follows
+  light or dark mode and works down to a phone's width.
+- The page's header shows whether self-update is on, whether the service's page is on and its
+  address (from `config.json`), and whether the service runs this page ("(this page)") or a person
+  ran it by hand with the page command ("This page runs by hand"). Its note when it cannot reach its
+  server says that the code agent stopped or the page ended, and that the service starts the page
+  again before its next session.
+- The page shows the files that a result names (repository, commit and path), the version that
+  Doable asked for while `update-asked` holds it, and a session that ended at Doable's ask.
+- README ("Always on", "The code agent's page"), TESTING (scenarios 73 and 75), PRIVACY. The manual
+  `page` command stays, for a machine with the page off or for one more page on another port.
 
 ### Fixed
 
@@ -68,6 +90,10 @@ choice for the page). The session's prompt does not change.
   On a machine without launchd, where the start script gets their environment, they let root
   through in such a sandbox. On a Mac, the launchd job does not get those values, so they refuse
   root there in all cases.
+- On the page, the header says "Cannot reach Doable", and "Needs attention" shows the newest failed
+  waits, while each wait for a request fails. A restart shows "Starting" until the new session
+  writes its first event or the start script writes its end, not "Cannot start". A question that no
+  session serves and that got no answer in 24 hours shows as "Probably expired", not as open.
 - README ("Always on", "When the session does not start"), TESTING (scenarios 67 and 74).
 
 ### Known limits

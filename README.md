@@ -440,7 +440,7 @@ you ran the setup or `start`. When Claude Code installed a new release, that rel
 start script again with its own command line, and the next session starts with it at once. Each
 step writes one line to `~/.doable/code-agent/<machine>/service.log`: the versions, or the failed
 command's exit code and its last lines, with secrets masked. `status` and the page show the last
-lines, and `status` shows the asked version while `update-asked` names one. The setup and `start`
+lines, and the asked version while `update-asked` names one. The setup and `start`
 never update: their first session starts with the installed release.
 
 When the machine still runs a lower release than the one that Doable asked for, a line names both
@@ -495,18 +495,50 @@ look at the page: when it does not run, they say why, with the last lines of its
 Other computers cannot open it, but any account or program on this computer can, not only you. They
 can open it at any time while the service runs. The page
 reads only the session's files in `~/.doable/code-agent/<machine>/` and calls nothing on the
-network. It reads them again every 5 seconds and shows:
+network. It reads them again every 5 seconds. From the top, it shows:
 
-- the session: on, stopped or not running, whether self-update is on, when it started, its last
-  activity, whether Doable MCP was connected at its start, what it did outside a request, the last
-  lines of its log, and the last lines of its output that are not events (for example an error of
-  Claude Code when the session cannot start);
-- each request, newest first: who asked, when, its text, its progress, a question and its answer,
-  each call that Doable refused and why, the result, and its status. A request that Doable gave to
-  another machine, cancelled, ended or put back in the queue shows that status, and a result that
-  Doable did not keep (it came after a cancel) shows that too. Under each request, the steps that
-  the session made for it;
-- the earlier sessions, folded, one line each, with how each one ended.
+- a header: the machine, what the session does now (Serving, Working on CA-…, Waiting for an answer,
+  Cannot reach Doable, Starting, Cannot start, Plan limit reached, Between sessions, Stopped or Not
+  running), when the page read the logs last, when the session started, its last activity, whether
+  self-update is on, whether the service's page is on and its address, and the version that Doable
+  asked for while this computer runs an older release (from `update-asked`). The page that the
+  service runs says "Service's page on (this page)"; a page that you run by hand with the page
+  command says "This page runs by hand". The service's page stops with the code agent: after
+  `stop`, the browser's copy of it says that it cannot reach its server, and a page that you run by
+  hand shows Stopped;
+- "Needs attention", only when something is there: a session that cannot start (with the last lines
+  of its output), a session whose waits for a request fail (with the newest failed waits), a
+  question that waits for the asker's answer, Doable's ask for a newer plugin, each call of the
+  request in progress that Doable refused, and a session that does not run in the bypass mode or had
+  no Doable MCP at its start. A question that no session serves and that got no answer in 24 hours
+  leaves this part: Doable has expired that request by its rules, or another machine took it after
+  the answer, so the page shows it as "Probably expired";
+- "Now": the request in progress, with its text, how long the session has worked on it, its last
+  question and the answer, its newest lines and its newest steps;
+- three tabs. **Requests**: one line for each request, newest first, in pages of 10, 25 or 50, with
+  its status, id, asker, the first line of its text, when it came and how long it took. Status chips
+  (Open, Done, Failed, Declined, Other) and a search of the id, the asker and the whole text narrow
+  the list. A line opens the request: who asked and when, its whole text, a note when no session
+  serves it, the result (its summary, its records, the username and the note of each login, and the
+  files that the answer rests on), its lines (progress, the question and its answer, each call that
+  Doable refused and why), and the steps that the session made for it, in pages of 50. An open line
+  stays open on the page that holds it, also when new requests move it to the next page or when its
+  status leaves the chosen chip. **Sessions**: one line for each session, newest first, in pages,
+  with how it ended; a line opens its facts (start, end, Doable MCP at its start, model, permission
+  mode, Claude Code, plan limit), the calls to Doable that failed and what it did outside a request.
+  **Service log**: the lines of `service.log` (their times are UTC), newest at the bottom, in pages
+  of 200 lines, and the last lines of the session's output that are not events (for example an
+  error of Claude Code when the session cannot start).
+
+The address keeps the tab and the place in it (for example `#requests&page=2&open=CA-7QK2PX`, or
+`#sessions&open=<the session's id>`), so a reload or a bookmark opens the same place. The search's
+words stay out of the address, so that the browser's history does not keep them; the tab keeps them
+through a reload. Every 5 seconds the page reads only the session's state, the request in progress
+and one line of each request; it reads a request, a page of sessions, a page of `service.log` or
+the search's matches only while that part is open. A long text shows its first lines with "Show
+more". Each time shows its time zone. The page follows the computer's light or dark mode and works
+on a narrow window. After a self-update, the service starts the page again from the new release:
+reload the page to get the new release's page.
 
 It leaves out the password of each login in a result. It shows `****` in place of each password of
 a login in a result, each Doable API key, and secrets in known forms (NAME=value, password: value,
