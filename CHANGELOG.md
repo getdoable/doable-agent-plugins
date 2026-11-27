@@ -20,21 +20,30 @@ choice for the page). The session's prompt does not change.
 ### Added
 
 - The page runs with the service: the start script starts
-  `code-agent-service.mjs page --machine <machine> --port <port>` of its own release in the
-  background, next to the serving session, with the start script's `node`. Its output goes to
-  `page.log` in the machine's folder (emptied at each start of the page), and its process id to
-  `page.pid`. Each start script first stops the page that an earlier start script started: also the
-  page of an older release, after a self-update's exec. It stops a process only when the process
-  runs this machine's page command, because a process id can be reused. Before each start of the
-  serving session, the start script checks that the page runs (`check-page`). When it does not, it
-  writes one line to `service.log` with the last lines of `page.log`, masked, and starts it again.
-  A page that cannot start (its port is in use) never stops the session. The page stops when the
-  loop ends, and at `stop` and `remove`.
+  `code-agent-service.mjs page --machine <machine> --port <port>` of its own release, with
+  `--pid-file` and the path of `page.pid`, in the background, next to the serving session, with the
+  start script's `node`. Its output goes to `page.log` in the machine's folder (emptied at each start
+  of the page), and its process id to `page.pid`. The page writes its own process id there too,
+  because the `node` of the start script's PATH can be a program that runs node as its child (for
+  example a version manager's shim); `stop-page` also stops such a program's child that runs the
+  page. Each write of `page.pid` is a rename, so that no reader finds the file empty. Each start
+  script first stops the page that an earlier start script started: also the page of an older
+  release, after a self-update's exec. It stops a process only when the process runs this machine's
+  page command, because a process id can be reused. A start script that starts after `stop` (launchd
+  runs it at each login) starts no page. Before each start of the serving session, the start script
+  checks that the page runs (`check-page`). When it does not, it writes one line to `service.log`
+  with the last lines of `page.log`, masked, and starts it again. A page that cannot start (its port
+  is in use) never stops the session, and its words name the service's steps: `stop`, then `start`
+  with `--page-port`. The page stops when the loop ends, and at `stop` and `remove`.
 - `setup` and `start` take `--page on|off` (default on) and `--page-port <number>` (default 47615),
-  kept in the machine's `config.json`; `start` without them keeps the choice. `setup` prints the
-  page's address, that any account on this computer can open it, and how to turn it off; `start`
-  prints it when it gets one of the options. `status` shows whether the page is on, its address,
-  and whether it runs now.
+  kept in the machine's `config.json`; `start`, and the setup again, without them keep the choice.
+  Each command refuses an option that it does not take: `setup` and `start` refuse the page
+  command's `--port` and name `--page-port`. `setup` prints the page's address, that any account on
+  this computer can open it, and how to turn it off; `start` prints it when it gets one of the
+  options. After the launch, both look at the page, and when it does not run, they say why with the
+  last lines of `page.log`. `status` shows whether the page is on, its address, and whether it runs
+  now; while the code agent is stopped or not running, it says that the page runs only while the
+  code agent runs, and it names a start script of an older release that runs no page.
 - README ("Always on", "The code agent's page"), TESTING (scenario 73), PRIVACY. The manual `page`
   command stays, for a machine with the page off or for one more page on another port.
 
@@ -47,6 +56,9 @@ choice for the page). The session's prompt does not change.
 - A page that a person still runs by hand on port 47615 (as 0.6.3's README said) keeps the
   service's page from its port: `service.log` says so before each session until the person stops
   it.
+- Each code agent on one computer, also one of another account, needs its own `--page-port`: with
+  the same port, only the page of the code agent that started first runs. The setup and `start` of
+  the other one say that its page does not run.
 
 ## [0.6.3] - 2026-11-25
 

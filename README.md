@@ -460,7 +460,9 @@ waits 30 minutes, again and again, and its `service.log` says why.
 The page shows what the session does. The page is on unless you turn it off: the Always on setup
 runs it next to the serving session, at `http://127.0.0.1:47615/`. Open that address in a browser
 on this machine. The page starts and stops with the service: at the setup, at `start`, at each
-login on a Mac, and after a self-update, from the new release's folder. `stop` and `remove` stop it.
+login on a Mac, and after a self-update, from the new release's folder. `stop` and `remove` stop it,
+and after `stop` it does not start at a login. After the setup and `start` start the service, they
+look at the page: when it does not run, they say why, with the last lines of its output.
 Other computers cannot open it, but any account or program on this computer can, not only you. They
 can open it at any time while the service runs. The page
 reads only the session's files in `~/.doable/code-agent/<machine>/` and calls nothing on the
@@ -484,8 +486,9 @@ form can still show: for example a password in a sentence, or a new login's pass
 argument until the result names that login.
 
 To turn the page off, or to move it to another port, run `stop`, then `start` with `--page off` or
-`--page-port <number>`. The setup takes these options too, and `start` without them keeps the
-choice:
+`--page-port <number>`. The setup takes these options too. `start`, and the setup again, without
+them keep the choice. `--port` is an option of the page command only, and the setup and `start`
+refuse it. For example:
 
 ```bash
 node <installPath>/scripts/code-agent-service.mjs start --machine <machine> --page off
@@ -497,8 +500,10 @@ empties it. Before each start of the serving session, the start script checks th
 When it does not (it ended, or another program uses its port), the start script writes one line to
 `service.log` with the last lines of `page.log`, with secrets masked, and starts the page again.
 The serving session starts in any case: a page that cannot start never stops the session. If
-another program uses the port, `service.log` says so before each session: move the page to another
-port.
+another program uses the port, `service.log` says so before each session: run `stop`, then
+`start --machine <machine> --page-port <number>`. Each code agent on one computer, also one of
+another account, needs its own port: with the same port, only the page of the code agent that
+started first runs, and the address shows that code agent's page.
 
 With the page off, or for one more page on another port, run the page by hand:
 
@@ -820,7 +825,9 @@ See [CHANGELOG.md](CHANGELOG.md) for version history and [CONTRIBUTING.md](CONTR
   ends.
 - The code agent's page is on by default: any account or program on this computer can open it at
   any time while the service runs. The start script checks the page only before each start of the
-  serving session, so a page that ended stays down until the next session starts.
+  serving session, so a page that ended stays down until the next session starts. Each code agent
+  on one computer, also one of another account, needs its own `--page-port`: nothing gives a second
+  code agent another port by itself.
 
 ## Verify
 

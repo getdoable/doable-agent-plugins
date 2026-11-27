@@ -759,6 +759,20 @@ async function freePort() {
   return port;
 }
 
+// Ends each process whose command line holds `text`, so that a failed assertion leaves no page on this computer.
+function endProcessesWith(text) {
+  for (const line of execFileSync("ps", ["-A", "-o", "pid=", "-o", "command="], { encoding: "utf8" }).split("\n")) {
+    const row = /^\s*(\d+)\s(.*)$/.exec(line);
+    if (row === null || !row[2].includes(text)) continue;
+    try {
+      process.kill(Number(row[1]), "SIGKILL");
+    } catch (error) {
+      // The process ended after ps looked.
+      if (error.code !== "ESRCH") throw error;
+    }
+  }
+}
+
 function runFailing(args, env) {
   try {
     execFileSync(process.execPath, [script, ...args], { stdio: "pipe", env, timeout: 20000 });
@@ -820,6 +834,50 @@ test("the page command prints its address and how to stop it, serves the page, a
   assert.equal(JSON.parse(answer.body).machine, m.name);
   child.kill("SIGINT");
   assert.deepEqual(await ended, { code: 0, signal: null });
+});
+
+test("the page that the start script runs (--pid-file) writes its own process id, says that the service stops it, and names --page-port when its port is in use", { timeout: 30000 }, async (t) => {
+  const m = machine(t);
+  const port = await freePort();
+  const pidFile = join(m.dir, "page.pid");
+  // Run through a program that runs node as its child, as a version manager's shim does: the process id of the
+  // program is not the page's.
+  const shim = join(m.base, "shim-node");
+  writeFileSync(shim, `#!/bin/bash\n'${process.execPath}' "$@"\n`, { mode: 0o700 });
+  // The process id that the start script wrote ($!, the shim's). The page puts a new file in its place (a rename): a
+  // write in place empties the file first, and the start script's check, which reads it at the same time, then sees no
+  // page and starts a second one.
+  writeFileSync(pidFile, "1\n");
+  const before = statSync(pidFile).ino;
+  const args = ["page", "--machine", m.name, "--port", String(port), "--pid-file", pidFile];
+  const child = spawn(shim, [script, ...args], { env: m.env, stdio: ["ignore", "pipe", "pipe"] });
+  // The shim and the page, which the shim's end does not end.
+  t.after(() => endProcessesWith(`--pid-file ${pidFile}`));
+  // The page prints four lines once it listens.
+  const printed = await new Promise((done, reject) => {
+    let out = "";
+    child.stdout.on("data", (chunk) => {
+      out += chunk;
+      if (out.split("\n").length > 4) done(out);
+    });
+    child.on("exit", (code) => reject(new Error(`the page ended with ${code}: ${out}`)));
+  });
+  assert.equal(
+    printed,
+    `The page of the code agent "${m.name}": http://127.0.0.1:${port}/\n` +
+      `${PAGE_ACCESS}\n${PAGE_MASK}\n` +
+      "The code agent's service runs this page: it stops when the code agent stops.\n",
+  );
+  const pid = Number(readFileSync(pidFile, "utf8").trim());
+  assert.notEqual(statSync(pidFile).ino, before);
+  assert.notEqual(pid, child.pid);
+  assert.equal(execFileSync("ps", ["-o", "ppid=", "-p", String(pid)], { encoding: "utf8" }).trim(), String(child.pid));
+  assert.equal((await get(port, "/data.json")).status, 200);
+
+  // A second page of the service on the same port: its message names the service's own option, not --port.
+  const inUse = runFailing([...args.slice(0, -1), join(m.base, "other.pid")], m.env);
+  assert.equal(inUse.status, 1);
+  assert.equal(inUse.stderr.toString(), `Port ${port} is in use on this computer. Run stop, then start --machine ${m.name} --page-port <number>, or stop the program that uses the port.\n`);
 });
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -1403,7 +1461,11 @@ test("when the page cannot read its data, a note that stays in view says why, an
   page.answer = "unreachable";
   await page.load();
   assert.equal(problem.hidden, false);
-  assert.equal(problem.textContent, "The page cannot reach its server. Start the page command again on this computer. The data below is from the last read.");
+  // The words are true for the page that the service runs and for a page that a person ran by hand.
+  assert.equal(
+    problem.textContent,
+    "The page cannot reach its server: the code agent stopped, or the page ended. The Always on service starts the page again before its next session (status says whether it runs). If you ran the page by hand, run the page command again. The data below is from the last read.",
+  );
   assert.ok(content.classList.contains("stale"));
 
   // The server answers with its reason, for example after `remove`: the page shows only that reason.

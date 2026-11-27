@@ -1,7 +1,7 @@
-// The page of an Always on code agent (`code-agent-service.mjs page --machine NAME [--port N]`): a web page on this
-// computer that shows the serving session and each request that it served. It reads only the files of the machine's
-// folder (session.1.jsonl, then session.jsonl, service.log, the stop file through serviceState, and config.json through
-// selfUpdateState) and calls nothing on the network.
+// The page of an Always on code agent (`code-agent-service.mjs page --machine NAME [--port N]`, which the start script
+// runs with `--pid-file`): a web page on this computer that shows the serving session and each request that it served.
+// It reads only the files of the machine's folder (session.1.jsonl, then session.jsonl, service.log, the stop file
+// through serviceState, and config.json through selfUpdateState) and calls nothing on the network.
 //
 // The session's output holds the password of each login that it made (the result is a tool call), and can hold keys
 // and tokens in its commands. So a login's password never leaves the parser (it keeps only the username and the note),
@@ -22,7 +22,7 @@
 // moved it to session.1.jsonl), it starts over from the state after session.1.jsonl.
 
 import { randomBytes } from "node:crypto";
-import { closeSync, fstatSync, openSync, readFileSync, readSync, statSync } from "node:fs";
+import { closeSync, fstatSync, openSync, readFileSync, readSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { join } from "node:path";
 
@@ -982,11 +982,7 @@ export function startPageServer({ machine, env, port }) {
   const data = new PageData({ machine, env });
   const server = createServer((request, response) => answer(request, response, server.address().port, data));
   return new Promise((resolve, reject) => {
-    server.once("error", (error) => {
-      if (error.code === "EADDRINUSE") {
-        reject(new Error(`Port ${port} is in use on this computer. Start the page on another port with --port <number>.`));
-      } else reject(error);
-    });
+    server.once("error", reject);
     server.listen(port, "127.0.0.1", () => resolve(server));
   });
 }
@@ -1000,16 +996,37 @@ const PAGE_MASK =
   "A secret in another form can still show: for example a password in a sentence, or a new login's password as a " +
   "script's argument until the result names that login.";
 
-// The `page` command: it serves the page until Ctrl-C.
+// The `page` command: it serves the page until Ctrl-C. The start script runs it with `--pid-file` (the service's page):
+// the page then writes its own process id to that file first, because the node of the start script's PATH can be a
+// program that runs node as its child, and the start script stops the process of that file. Its messages then name the
+// service's steps: a person stops the service's page with `stop`, and moves it with `--page-port` of `start`.
 export async function page(options, env, print = console.log) {
-  const { machine } = options;
+  const { machine, pidFile } = options;
+  const port = options.port ?? DEFAULT_PORT;
   // The checks and the messages of the other commands: a valid name, of a machine that is set up.
   serviceState(machine, env);
-  const server = await startPageServer({ machine, env, port: options.port ?? DEFAULT_PORT });
+  if (pidFile !== undefined) {
+    // By a rename: the start script's check-page reads the file at the same time, and a file that a write has emptied
+    // names no page, so the start script would start a second page.
+    const next = `${pidFile}.${process.pid}`;
+    writeFileSync(next, `${process.pid}\n`, { mode: 0o600 });
+    renameSync(next, pidFile);
+  }
+  let server;
+  try {
+    server = await startPageServer({ machine, env, port });
+  } catch (error) {
+    if (error.code !== "EADDRINUSE") throw error;
+    const move =
+      pidFile === undefined
+        ? "Start the page on another port with --port <number>."
+        : `Run stop, then start --machine ${machine} --page-port <number>, or stop the program that uses the port.`;
+    throw new Error(`Port ${port} is in use on this computer. ${move}`);
+  }
   print(`The page of the code agent "${machine}": http://127.0.0.1:${server.address().port}/`);
   print(PAGE_ACCESS);
   print(PAGE_MASK);
-  print("Stop the page with Ctrl-C. The code agent goes on.");
+  print(pidFile === undefined ? "Stop the page with Ctrl-C. The code agent goes on." : "The code agent's service runs this page: it stops when the code agent stops.");
   process.once("SIGINT", () => {
     server.close();
     process.exit(0);
@@ -1377,8 +1394,8 @@ async function load() {
     response = await fetch("/data.json", { cache: "no-store" });
     text = await response.text();
   } catch {
-    // No answer: the page command stopped, or the computer slept.
-    showProblem("The page cannot reach its server. Start the page command again on this computer. The data below is from the last read.");
+    // No answer: the code agent stopped, the page ended, or the computer slept.
+    showProblem("The page cannot reach its server: the code agent stopped, or the page ended. The Always on service starts the page again before its next session (status says whether it runs). If you ran the page by hand, run the page command again. The data below is from the last read.");
     return;
   }
   if (!response.ok) {
