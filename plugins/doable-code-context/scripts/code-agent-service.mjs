@@ -468,6 +468,11 @@ function pageCommand(machine) {
   return `code-agent-service.mjs page --machine ${machine} --port `;
 }
 
+// The option of ps for the full command line, in each look at one here. Linux's ps cuts each line to the width of
+// COLUMNS when the environment has it, also into a pipe, so a page or a start script that runs would count as ended.
+// -ww (unlimited width) keeps the full line on Linux and on macOS.
+const PS_FULL_WIDTH = "-ww";
+
 // Whether the process `pid` runs the page command of `machine`. A process id can be reused after the page ended (for
 // example after a reboot), so a process with another command line is not the page. A page that ended and whose parent
 // has not read its end yet (a zombie) is not the page either: ps shows no command line for it (`<defunct>` on macOS,
@@ -475,7 +480,7 @@ function pageCommand(machine) {
 function runsPage(pid, machine) {
   let command;
   try {
-    command = execFileSync("ps", ["-o", "command=", "-p", String(pid)], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+    command = execFileSync("ps", [PS_FULL_WIDTH, "-o", "command=", "-p", String(pid)], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
   } catch (error) {
     // ps exits with 1 when no process has the pid: the page ended.
     if (error.status === 1) return false;
@@ -500,7 +505,7 @@ function runningPage(dir, machine) {
 // page.pid, but the start script's write of `$!` can come after it. The child is then the page that listens.
 function pageChildren(pid, machine) {
   const children = [];
-  const table = execFileSync("ps", ["-A", "-o", "pid=", "-o", "ppid=", "-o", "command="], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+  const table = execFileSync("ps", ["-A", PS_FULL_WIDTH, "-o", "pid=", "-o", "ppid=", "-o", "command="], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
   for (const line of table.split("\n")) {
     const row = /^\s*(\d+)\s+(\d+)\s(.*)$/.exec(line);
     if (row !== null && Number(row[2]) === pid && row[3].includes(pageCommand(machine))) children.push(Number(row[1]));
@@ -733,7 +738,7 @@ function runningScript(dir) {
   const pid = readFileSync(pidFile, "utf8").trim();
   let command;
   try {
-    command = execFileSync("ps", ["-o", "command=", "-p", pid], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+    command = execFileSync("ps", [PS_FULL_WIDTH, "-o", "command=", "-p", pid], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
   } catch (error) {
     // ps exits with 1 when no process has the pid: the script ended.
     if (error.status === 1) return null;

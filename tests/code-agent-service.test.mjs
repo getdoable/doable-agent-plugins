@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { createServer, request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
@@ -1527,7 +1527,7 @@ if [ $n = ${last} ]; then /usr/bin/touch ${q(join(dir, "stopped"))}; fi`;
 // page's address, and the command line of that process.
 const lookAtPage = (dir, port, seen) => `pid=$(/bin/cat ${q(join(dir, "page.pid"))})
 code=$(/usr/bin/curl -s -o /dev/null -w '%{http_code}' ${pageAddress(port)})
-printf '%s\\t%s\\t%s\\n' "$pid" "$code" "$(/bin/ps -o command= -p "$pid")" >> ${q(seen)}
+printf '%s\\t%s\\t%s\\n' "$pid" "$code" "$(/bin/ps -ww -o command= -p "$pid")" >> ${q(seen)}
 `;
 
 // Lines of a session that wait, up to 10 seconds, until the page answers 200. The start script waits for its first
@@ -1538,7 +1538,7 @@ while [ "$(/usr/bin/curl -s -o /dev/null -w '%{http_code}' ${pageAddress(port)})
 
 // Lines of a session that wait, up to 10 seconds, until the process of page.pid no longer runs a page.
 const waitForPageEnd = (dir) => `i=0
-while /bin/ps -o command= -p "$(/bin/cat ${q(join(dir, "page.pid"))})" | /usr/bin/grep -q 'code-agent-service.mjs page' && [ $i -lt 100 ]; do /bin/sleep 0.1; i=$((i + 1)); done
+while /bin/ps -ww -o command= -p "$(/bin/cat ${q(join(dir, "page.pid"))})" | /usr/bin/grep -q 'code-agent-service.mjs page' && [ $i -lt 100 ]; do /bin/sleep 0.1; i=$((i + 1)); done
 `;
 
 function looks(seen) {
@@ -1551,13 +1551,13 @@ function looks(seen) {
     });
 }
 
-// The state and the command line of the process `pid` as ps shows them, or null when no process has the pid. A process
-// that ended and whose parent has not read its end yet (a zombie) has a state that starts with Z, and ps shows its
-// command line as `<defunct>` on macOS and as `[node] <defunct>` on Linux.
+// The state and the full command line (-ww: Linux's ps cuts it to COLUMNS) of the process `pid` as ps shows them, or
+// null when no process has the pid. A process that ended and whose parent has not read its end yet (a zombie) has a
+// state that starts with Z, and ps shows its command line as `<defunct>` on macOS and as `[node] <defunct>` on Linux.
 function processRow(pid) {
   let row;
   try {
-    row = execFileSync("ps", ["-o", "stat=", "-o", "command=", "-p", String(pid)], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    row = execFileSync("ps", ["-ww", "-o", "stat=", "-o", "command=", "-p", String(pid)], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
   } catch (error) {
     if (error.status === 1) return null;
     throw error;
@@ -1568,9 +1568,16 @@ function processRow(pid) {
 
 // The command line of a process while it runs, else null: no process has the pid, or it ended and waits for its parent
 // to read its end (a zombie). This test process reads the end of its own children only when its event loop runs, so a
-// child of the test that a stop ended stays a zombie until the test's next await.
+// child of the test that a stop ended stays a zombie until the test's next await. On Linux, a process that is ending
+// can show a state that is not Z yet (R, for example) with only its name in brackets as its command line (`[node]`):
+// this waits for it, up to 5 seconds and with no await, until its state is Z or no process has the pid.
 function commandOf(pid) {
-  const row = processRow(pid);
+  const until = Date.now() + 5000;
+  let row = processRow(pid);
+  while (row !== null && !row.state.startsWith("Z") && /^\[[^\]]*\]$/.test(row.command) && Date.now() < until) {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+    row = processRow(pid);
+  }
   return row === null || row.state.startsWith("Z") ? null : row.command;
 }
 
@@ -1858,7 +1865,7 @@ const pageNotRunning = (port, why) =>
 
 // The processes that run the page command of mac-mini-1 at `port`: node, or a program that runs node.
 function pageProcesses(port) {
-  return execFileSync("ps", ["-A", "-o", "pid=", "-o", "command="], { encoding: "utf8" })
+  return execFileSync("ps", ["-A", "-ww", "-o", "pid=", "-o", "command="], { encoding: "utf8" })
     .split("\n")
     .map((line) => /^\s*(\d+)\s(.*)$/.exec(line))
     .filter((row) => row !== null && row[2].includes(`code-agent-service.mjs page --machine mac-mini-1 --port ${port} `))
@@ -1869,7 +1876,7 @@ function pageProcesses(port) {
 async function childOf(pid, text) {
   const until = Date.now() + 10000;
   for (;;) {
-    const row = execFileSync("ps", ["-A", "-o", "pid=", "-o", "ppid=", "-o", "command="], { encoding: "utf8" })
+    const row = execFileSync("ps", ["-A", "-ww", "-o", "pid=", "-o", "ppid=", "-o", "command="], { encoding: "utf8" })
       .split("\n")
       .map((line) => /^\s*(\d+)\s+(\d+)\s(.*)$/.exec(line))
       .find((one) => one !== null && one[2] === String(pid) && one[3].includes(text));
@@ -2071,6 +2078,46 @@ test("stop also ends the page that a program in page.pid runs as its child, when
   t.after(() => endPages([wrapper.pid, child]));
   writeFileSync(join(dir, "page.pid"), `${wrapper.pid}\n`);
   stop("mac-mini-1", m.env, () => {});
+  assert.deepEqual([commandOf(wrapper.pid), commandOf(child)], [null, null]);
+});
+
+test("with COLUMNS in the environment, whose width Linux's ps cuts a command line to, status, check-page and stop-page still find the start script and the page that run", async (t) => {
+  const m = machine();
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt }, m.env, () => {});
+  const dir = serviceDir(m.env, "mac-mini-1");
+  const narrow = { ...m.env, COLUMNS: "40" };
+  // The code agent is on: the pid file names a process of its start script.
+  const startScript = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)", join(dir, "run.sh")], { stdio: "ignore" });
+  t.after(() => startScript.kill("SIGKILL"));
+  writeFileSync(join(dir, "pid"), `${startScript.pid}\n`);
+  // page.pid names a program that runs the page as its child (a version manager's shim), and the page listens.
+  const shim = join(m.base, "shim", "node");
+  writeShim(shim);
+  const args = ["-e", "setInterval(() => {}, 1000)", "/srv/plugin/scripts/code-agent-service.mjs", "page", "--machine", "mac-mini-1", "--port", "47615"];
+  const wrapper = spawn(shim, args, { stdio: "ignore" });
+  const child = await childOf(wrapper.pid, "page --machine mac-mini-1 --port 47615");
+  t.after(() => endPages([wrapper.pid, child]));
+  writeFileSync(join(dir, "page.pid"), `${wrapper.pid}\n`);
+  writeFileSync(join(dir, "page.log"), `The page of the code agent "mac-mini-1": ${pageAddress(47615)}\n`);
+  // Contrast: on Linux, ps without -ww cuts each of their command lines to 40 characters, also into a pipe, and so cuts
+  // off the words by which the service knows them. macOS's ps prints the full line into a pipe whatever COLUMNS says,
+  // so on macOS this test passes with or without -ww, and only its run on Linux proves the fix.
+  if (process.platform === "linux") {
+    const cut = (pid) => execFileSync("ps", ["-o", "command=", "-p", String(pid)], { encoding: "utf8", env: narrow }).trimEnd();
+    assert.deepEqual(
+      [cut(startScript.pid), cut(wrapper.pid), cut(child)].map((line) => [line.length, line.includes("run.sh") || line.includes(" page --machine ")]),
+      [[40, false], [40, false], [40, false]],
+    );
+  }
+
+  const run = (words) => spawnSync(process.execPath, [script, ...words], { encoding: "utf8", env: narrow });
+  const said = run(["status", "--machine", "mac-mini-1"]).stdout.split("\n").filter((line) => /^(Code agent|The page)/.test(line));
+  assert.deepEqual(said, ['Code agent "mac-mini-1": on.', `The page: on, at ${pageAddress(47615)}; it runs now.`]);
+  const checked = run(["check-page", "--dir", dir]);
+  assert.deepEqual([checked.status, checked.stdout], [0, ""]);
+  // stop-page ends the program of page.pid and its child, the page (pageChildren).
+  const stopped = run(["stop-page", "--dir", dir]);
+  assert.match(stopped.stdout, new RegExp(`^\\d{4}-\\d\\d-\\d\\dT\\d\\d:\\d\\d:\\d\\dZ the page \\(processes ${wrapper.pid} and ${child}\\) stopped\\.\\n$`));
   assert.deepEqual([commandOf(wrapper.pid), commandOf(child)], [null, null]);
 });
 

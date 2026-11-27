@@ -1108,7 +1108,7 @@ async function freePort() {
 
 // Ends each process whose command line holds `text`, so that a failed assertion leaves no page on this computer.
 function endProcessesWith(text) {
-  for (const line of execFileSync("ps", ["-A", "-o", "pid=", "-o", "command="], { encoding: "utf8" }).split("\n")) {
+  for (const line of execFileSync("ps", ["-A", "-ww", "-o", "pid=", "-o", "command="], { encoding: "utf8" }).split("\n")) {
     const row = /^\s*(\d+)\s(.*)$/.exec(line);
     if (row === null || !row[2].includes(text)) continue;
     try {
