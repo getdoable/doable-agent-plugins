@@ -9,6 +9,45 @@ All notable changes to Doable Agent Plugins are documented here.
 - Verify template integrity and syntax in CI. Local plugin version remains 0.2.10.
 - Clarify the GitHub integration's repository metadata and model-provider boundary.
 
+## [0.6.4] - 2026-11-27
+
+The code agent's page runs as part of the Always on service, on by default. A person no longer
+keeps a command open for it, and it is on again after a restart of the Mac and after a self-update.
+A machine of 0.6.3 updates itself to 0.6.4 when Doable asks for it, with no person: its start
+script runs 0.6.4's `write-start-script`, which turns the page on (0.6.3's `config.json` has no
+choice for the page). The session's prompt does not change.
+
+### Added
+
+- The page runs with the service: the start script starts
+  `code-agent-service.mjs page --machine <machine> --port <port>` of its own release in the
+  background, next to the serving session, with the start script's `node`. Its output goes to
+  `page.log` in the machine's folder (emptied at each start of the page), and its process id to
+  `page.pid`. Each start script first stops the page that an earlier start script started: also the
+  page of an older release, after a self-update's exec. It stops a process only when the process
+  runs this machine's page command, because a process id can be reused. Before each start of the
+  serving session, the start script checks that the page runs (`check-page`). When it does not, it
+  writes one line to `service.log` with the last lines of `page.log`, masked, and starts it again.
+  A page that cannot start (its port is in use) never stops the session. The page stops when the
+  loop ends, and at `stop` and `remove`.
+- `setup` and `start` take `--page on|off` (default on) and `--page-port <number>` (default 47615),
+  kept in the machine's `config.json`; `start` without them keeps the choice. `setup` prints the
+  page's address, that any account on this computer can open it, and how to turn it off; `start`
+  prints it when it gets one of the options. `status` shows whether the page is on, its address,
+  and whether it runs now.
+- README ("Always on", "The code agent's page"), TESTING (scenario 73), PRIVACY. The manual `page`
+  command stays, for a machine with the page off or for one more page on another port.
+
+### Known limits
+
+- Any account or program on this computer can open the page at any time while the service runs,
+  not only while a person keeps a command open as in 0.6.3.
+- The start script checks the page only before each start of the serving session: a page that
+  ended stays down until the next session starts.
+- A page that a person still runs by hand on port 47615 (as 0.6.3's README said) keeps the
+  service's page from its port: `service.log` says so before each session until the person stops
+  it.
+
 ## [0.6.3] - 2026-11-25
 
 The code agent sends no code back, whoever asks. A result says in words what the code does, with file

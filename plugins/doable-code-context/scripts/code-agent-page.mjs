@@ -26,9 +26,10 @@ import { closeSync, fstatSync, openSync, readFileSync, readSync, statSync } from
 import { createServer } from "node:http";
 import { join } from "node:path";
 
-import { ANY_DOABLE_KEY, selfUpdateState, serviceDir, serviceState } from "./code-agent-service.mjs";
+import { ANY_DOABLE_KEY, DEFAULT_PAGE_PORT, selfUpdateState, serviceDir, serviceState } from "./code-agent-service.mjs";
 
-export const DEFAULT_PORT = 47615;
+// The port of the page command with no --port: the port of the page that the start script runs with no --page-port.
+export const DEFAULT_PORT = DEFAULT_PAGE_PORT;
 const OLDER_LOG = "session.1.jsonl";
 const CURRENT_LOG = "session.jsonl";
 const SERVICE_LOG = "service.log";

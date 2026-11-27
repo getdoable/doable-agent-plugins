@@ -7,7 +7,7 @@ Official agent plugins for [Doable](https://getdoable.ai), supporting Codex, Cla
 
 | Plugin | Version | Purpose | Network |
 | --- | --- | --- | --- |
-| `doable-code-context` | `0.6.3` | Resolve context requests and serve code agent requests | Doable MCP |
+| `doable-code-context` | `0.6.4` | Resolve context requests and serve code agent requests | Doable MCP |
 
 ## Workflows
 
@@ -153,7 +153,7 @@ Doable shows this name on the code agent requests that the machine serves. The C
 not send this header, so Doable MCP uses its own default name for a Codex session.
 
 In Cursor and Claude Code, the connection also sends the plugin's version as the
-`X-Doable-Plugin-Version` header (for example `0.6.3`). Doable MCP gives it to Doable with each wait
+`X-Doable-Plugin-Version` header (for example `0.6.4`). Doable MCP gives it to Doable with each wait
 of a code agent machine, and Doable answers a machine with an older release that it needs a newer
 one (see [Self-update](#self-update)). The Codex manifest does not send this header either.
 
@@ -336,7 +336,9 @@ read (`~/.doable/code-agent/<machine>/env`), starts the serving session in the b
 command of [With nobody at the terminal](#with-nobody-at-the-terminal) (the bypass permission
 mode, Claude in Chrome, and no `ask_code_agent`), starts it again 5 minutes
 after it stops (for example at a plan limit), keeps a Mac awake while it runs, and on a Mac starts
-it at each login. When Doable asks for a newer release of the plugin, it updates the plugin after
+it at each login. Next to the session, it runs the session's page at `http://127.0.0.1:47615/`,
+which any account on this computer can open (see [The code agent's page](#the-code-agents-page)).
+When Doable asks for a newer release of the plugin, it updates the plugin after
 that session ends, and at no other time (see [Self-update](#self-update)). On a machine that an
 older plugin set up, it also deletes that plugin's policy file. It tells you whether the session is
 connected: whether its first wait for a request returned with no error, and was not Doable's ask for
@@ -357,7 +359,8 @@ node <installPath>/scripts/code-agent-service.mjs remove --machine <machine>
 Each update of the plugin, a self-update too, changes its `installPath`: run these commands from
 the path that `claude plugin list --json` names at that time.
 
-`status` shows whether it is on, whether self-update is on, the version that Doable asked for (while
+`status` shows whether it is on, whether self-update is on, whether the page is on, its address and
+whether it runs now, the version that Doable asked for (while
 the machine runs a lower one), its last activity, and the end of its log; the serving session's
 output is in `~/.doable/code-agent/<machine>/session.jsonl`. That output
 holds the password of each new test login that the session sends to Doable, and only you can read
@@ -454,14 +457,12 @@ waits 30 minutes, again and again, and its `service.log` says why.
 
 #### The code agent's page
 
-To see what the session does, run its page on the machine:
-
-```bash
-node <installPath>/scripts/code-agent-service.mjs page --machine <machine>
-```
-
-It prints an address, `http://127.0.0.1:47615/`: open it in a browser on this machine. Other
-computers cannot open it, but any account or program on this computer can, not only you. The page
+The page shows what the session does. The page is on unless you turn it off: the Always on setup
+runs it next to the serving session, at `http://127.0.0.1:47615/`. Open that address in a browser
+on this machine. The page starts and stops with the service: at the setup, at `start`, at each
+login on a Mac, and after a self-update, from the new release's folder. `stop` and `remove` stop it.
+Other computers cannot open it, but any account or program on this computer can, not only you. They
+can open it at any time while the service runs. The page
 reads only the session's files in `~/.doable/code-agent/<machine>/` and calls nothing on the
 network. It reads them again every 5 seconds and shows:
 
@@ -480,8 +481,35 @@ It leaves out the password of each login in a result. It shows `****` in place o
 a login in a result, each Doable API key, and secrets in known forms (NAME=value, password: value,
 --password value, -u user:password, a URL's password, Bearer and Basic headers). A secret in another
 form can still show: for example a password in a sentence, or a new login's password as a script's
-argument until the result names that login. If another program uses the port, add
-`--port <number>`. Stop the page with Ctrl-C: the session goes on.
+argument until the result names that login.
+
+To turn the page off, or to move it to another port, run `stop`, then `start` with `--page off` or
+`--page-port <number>`. The setup takes these options too, and `start` without them keeps the
+choice:
+
+```bash
+node <installPath>/scripts/code-agent-service.mjs start --machine <machine> --page off
+node <installPath>/scripts/code-agent-service.mjs start --machine <machine> --page-port 47700
+```
+
+The page's output goes to `~/.doable/code-agent/<machine>/page.log`, and each start of the page
+empties it. Before each start of the serving session, the start script checks that the page runs.
+When it does not (it ended, or another program uses its port), the start script writes one line to
+`service.log` with the last lines of `page.log`, with secrets masked, and starts the page again.
+The serving session starts in any case: a page that cannot start never stops the session. If
+another program uses the port, `service.log` says so before each session: move the page to another
+port.
+
+With the page off, or for one more page on another port, run the page by hand:
+
+```bash
+node <installPath>/scripts/code-agent-service.mjs page --machine <machine> --port 47700
+```
+
+It prints its address and runs until you stop it with Ctrl-C: the session goes on. Without
+`--port`, it uses port 47615. Plugin 0.6.3 had only this command: if you still run such a page on
+port 47615, stop it with Ctrl-C. While it runs, the service's page cannot use that port, and
+`service.log` says so before each session.
 
 ### By hand
 
@@ -790,6 +818,9 @@ See [CHANGELOG.md](CHANGELOG.md) for version history and [CONTRIBUTING.md](CONTR
   ends there. Run `stop` until the update is done. When a command of the self-update passes its time limit, the start
   script stops it, but a program that the command started (for example `git`) can go on until it
   ends.
+- The code agent's page is on by default: any account or program on this computer can open it at
+  any time while the service runs. The start script checks the page only before each start of the
+  serving session, so a page that ended stays down until the next session starts.
 
 ## Verify
 
