@@ -24,7 +24,8 @@
 //   node code-agent-service.mjs page --machine NAME [--port N]
 //   node code-agent-service.mjs browser
 // Each command refuses an option that it does not take (COMMAND_OPTIONS): for example the page command takes its port
-// as --port, and setup and start take the page's port as --page-port.
+// as --port, and setup and start take the page's port as --page-port. setup and start refuse to run as root
+// (refuseRoot): Claude Code refuses the bypass permission mode for root.
 // The start script runs these (DIR is the machine's folder; --plugin and --scope only with self-update on):
 //   node code-agent-service.mjs update-request --dir DIR --from BYTES [--plugin doable-code-context@MARKETPLACE --scope SCOPE]
 //   node code-agent-service.mjs write-start-script --dir DIR
@@ -328,7 +329,9 @@ ${start}while [ ! -e "$dir/stopped" ]; do
   fi
 ${before}  echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) the serving session starts" >> "$dir/service.log"
   ${wakeLock}${shellQuote(claude)} -p ${plugin}--permission-mode bypassPermissions --chrome --disallowedTools ${disallowed} --output-format stream-json --verbose < "$dir/prompt.md" >> "$dir/session.jsonl" 2>&1
-  echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) the serving session ended with code $?" >> "$dir/service.log"
+  # Kept on the next line: each later command, and each command substitution such as $(date), sets $? again.
+  session_code=$?
+  echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) the serving session ended with code $session_code" >> "$dir/service.log"
 ${after}done
 ${end}`;
 }
@@ -572,8 +575,13 @@ function failureWords(run, seconds, mask) {
     .filter(Boolean)
     .slice(-3);
   if (lines.length === 0) return `${how}, with no output`;
-  const last = mask(lines.join(" | "));
-  return `${how}; its last lines: ${last.length > 500 ? `${last.slice(0, 500)}…` : last}`;
+  return `${how}; its last lines: ${oneLine(lines, mask)}`;
+}
+
+// `lines` as one line of a message: joined with " | ", masked with `mask`, and cut after 500 characters.
+function oneLine(lines, mask) {
+  const text = mask(lines.join(" | "));
+  return text.length > 500 ? `${text.slice(0, 500)}…` : text;
 }
 
 function samePath(a, b) {
@@ -839,14 +847,49 @@ function sessionStart(output) {
   return { permissionMode, waitTool, updateAsked };
 }
 
-function outputSize(dir) {
-  const log = join(dir, "session.jsonl");
-  return existsSync(log) ? statSync(log).size : 0;
+// Why the session did not start to wait for a request, as its output (`output`, as sessionStart reads it) says it, in a
+// short line masked with `mask`; or null when the output does not say. First the text of Claude Code's result, which
+// Claude Code writes when the turn ends, also when it cannot start the turn (for example "Not logged in · Please run
+// /login" when Claude Code is not signed in). Else the last lines that are no event: an error that Claude Code or
+// another program wrote to stderr, for example Claude Code's refusal of the bypass mode for root, before any event.
+function notWaitingWhy(output, mask) {
+  let result = null;
+  const other = [];
+  for (const raw of output.split("\n")) {
+    const line = raw.replace(COLORS, "").trim();
+    if (!line) continue;
+    let event;
+    try {
+      event = JSON.parse(line);
+    } catch (error) {
+      if (!(error instanceof SyntaxError)) throw error;
+      // A half-written event (it starts with {") is no output of its own.
+      if (!line.startsWith('{"')) other.push(line);
+      continue;
+    }
+    if (event?.type === "result" && typeof event.result === "string" && event.result.trim()) result = event;
+  }
+  if (result !== null) {
+    // `success` with is_error (for example when Claude Code is not signed in), or an error kind.
+    const error = result.is_error === true || result.subtype !== "success";
+    return `${error ? "Claude Code's error" : "Its last message"}: "${oneLine([result.result.trim()], mask)}".`;
+  }
+  if (other.length > 0) return `The last lines of its output: "${oneLine(other.slice(-3), mask)}".`;
+  return null;
 }
 
-// The session's output after its first `from` bytes (its size at the launch), which the sessions before the launch
-// wrote, with their own calls. Output that is shorter than `from` is all new: the start script moved the earlier output
-// to session.1.jsonl because it grew too large.
+// The start script's line in service.log when a session ended, with its exit code (runScript). After the launch, it is
+// the line of the session that the launch started: `stop`, and on a Mac the launch itself (bootout), end an earlier
+// start script together with its session, before that script writes the line.
+const SESSION_END = /^\S+ the serving session ended with code (\d+)$/m;
+
+function sizeOf(file) {
+  return existsSync(file) ? statSync(file).size : 0;
+}
+
+// The text of the file `log` (the session's output, or service.log) after its first `from` bytes (its size at the
+// launch), which the sessions before the launch wrote. Output that is shorter than `from` is all new: the start script
+// moved the earlier output to session.1.jsonl because it grew too large.
 function outputAfter(log, from) {
   let fd;
   try {
@@ -876,32 +919,45 @@ function waitSeconds(env) {
 }
 
 // What the output of the session that the launch started says about its start (sessionStart), once a wait for a request
-// returned or after `seconds`. The Skill's first wait has `wait_seconds: 0`, so it returns at once.
-function waitForStart(dir, from, seconds) {
-  const log = join(dir, "session.jsonl");
+// returned, once the session ended (its line in service.log), or after `seconds`. The Skill's first wait has
+// `wait_seconds: 0`, so it returns at once. `from` holds the sizes of session.jsonl and service.log at the launch. When
+// no wait returned, `ended` is the session's exit code (null while it runs), and `why` what its output says about why
+// (notWaitingWhy, masked with `mask`).
+function waitForStart(dir, from, seconds, mask) {
   const until = Date.now() + seconds * 1000;
   for (;;) {
-    const seen = sessionStart(outputAfter(log, from));
-    if (seen.waitTool !== null || Date.now() >= until) return seen;
+    // service.log first: when it holds the session's end, the session's output is complete.
+    const end = SESSION_END.exec(outputAfter(join(dir, "service.log"), from.log));
+    const output = outputAfter(join(dir, "session.jsonl"), from.output);
+    const seen = sessionStart(output);
+    if (seen.waitTool !== null) return { ...seen, ended: null, why: null };
+    if (end !== null || Date.now() >= until) return { ...seen, ended: end === null ? null : Number(end[1]), why: notWaitingWhy(output, mask) };
     execFileSync("sleep", ["1"]);
   }
 }
 
 // Launches the start script, and waits for the session's start (waitForStart), unless nothing was launched (then
 // `seen` is null).
-function launchAndWait(env, machine, dir) {
+function launchAndWait(env, machine, dir, mask) {
   const seconds = waitSeconds(env);
-  const from = outputSize(dir);
+  const from = { output: sizeOf(join(dir, "session.jsonl")), log: sizeOf(join(dir, "service.log")) };
   const how = launch(env, machine, dir);
-  const seen = env.DOABLE_CODE_AGENT_NO_LAUNCH ? null : waitForStart(dir, from, seconds);
+  const seen = env.DOABLE_CODE_AGENT_NO_LAUNCH ? null : waitForStart(dir, from, seconds, mask);
   return { how, seen };
+}
+
+// What setup and start say when the session did not start to wait for a request: at once when it ended, with its exit
+// code, else after the wait; with why, when its output says it.
+function notWaitingWords({ ended, why }, dir) {
+  const what = ended === null ? "It did not start to wait in 2 minutes." : `The session ended with code ${ended} before it started to wait for requests.`;
+  return [what, why, `Read ${join(dir, "session.jsonl")} and ${join(dir, "service.log")}.`].filter((part) => part !== null).join(" ");
 }
 
 // `selfUpdate` is the machine's self-update: "on", "off" or "development folder" (selfUpdateOf).
 function printStart(seen, dir, print, selfUpdate) {
   if (seen === null) return;
   const { permissionMode, waitTool, updateAsked } = seen;
-  if (waitTool === null) print(`It did not start to wait in 2 minutes. Read ${join(dir, "session.jsonl")} and ${join(dir, "service.log")}.`);
+  if (waitTool === null) print(notWaitingWords(seen, dir));
   // Doable records no machine whose wait it answers with its ask: the session ended, and it is not connected.
   else if (updateAsked !== null) {
     print(`Doable needs the plugin ${updateAsked} on this machine, so the session ended at its first wait for a request. ${ASKED_NEXT[selfUpdate]}`);
@@ -918,9 +974,22 @@ function printStart(seen, dir, print, selfUpdate) {
   }
 }
 
-// `mask` masks the last lines of page.log that setup prints when the page does not run: main gives the page's mask.
+// Claude Code refuses the bypass permission mode for root ("--dangerously-skip-permissions cannot be used with root/sudo
+// privileges"), so a session that root runs ends at once. setup and start refuse first, before they change anything.
+// `uid` is the user id of the process (process.getuid): the tests give one.
+function refuseRoot(command, uid) {
+  if (uid === 0) {
+    fail(
+      `Run ${command} as a normal user, not as root and not with sudo. The session runs in the bypass permission mode, which Claude Code refuses for root, so the session would never start. Use the account that is signed in to Claude Code on the Claude plan.`,
+    );
+  }
+}
+
+// `mask` masks the last lines of page.log and of the session's output that setup prints when the page does not run or
+// the session does not start: main gives the page's mask. `options.uid` is the user id of the process (refuseRoot).
 export function setup(options, env, print = console.log, mask = maskBasic) {
-  const { folder, machine, promptFile, autoUpdate = true } = options;
+  const { folder, machine, promptFile, autoUpdate = true, uid = process.getuid() } = options;
+  refuseRoot("setup", uid);
   checkMachine(machine);
   const key = env.DOABLE_API_KEY || "";
   if (!ORGANIZATION_KEY.test(key)) {
@@ -964,7 +1033,7 @@ export function setup(options, env, print = console.log, mask = maskBasic) {
     print(`Removed ${RETIRED_POLICY_FILE}: a session takes its rules from its prompt now.`);
   }
 
-  const { how, seen } = launchAndWait(env, machine, dir);
+  const { how, seen } = launchAndWait(env, machine, dir, mask);
   const look = pageAfterLaunch(dir, config, seen, mask);
   print(`The Doable code agent "${machine}" serves ${folderPath}: ${how}.`);
   // When the session says that it runs in another mode, printStart says so in place of this note.
@@ -1001,8 +1070,9 @@ export function stop(machine, env, print = console.log) {
 }
 
 // `autoUpdate`, `page` and `pagePort` are the choices of `--auto-update`, `--page` and `--page-port`, or undefined:
-// start keeps the choice of config.json. `mask` is setup's.
-export function start(machine, env, print = console.log, { autoUpdate, page, pagePort } = {}, mask = maskBasic) {
+// start keeps the choice of config.json. `uid` and `mask` are setup's.
+export function start(machine, env, print = console.log, { autoUpdate, page, pagePort, uid = process.getuid() } = {}, mask = maskBasic) {
+  refuseRoot("start", uid);
   checkMachine(machine);
   const dir = serviceDir(env, machine);
   if (!existsSync(join(dir, "config.json"))) fail(`No code agent "${machine}" is set up on this machine: run setup first.`);
@@ -1019,7 +1089,7 @@ export function start(machine, env, print = console.log, { autoUpdate, page, pag
   // A new command line can fail where the old one worked: the person who starts the session learns, as at setup,
   // whether it waits for requests, in which permission mode it runs (settings can turn the bypass mode off), and
   // whether it waits through the plugin's server.
-  const { how, seen } = launchAndWait(env, machine, dir);
+  const { how, seen } = launchAndWait(env, machine, dir, mask);
   const look = pageAfterLaunch(dir, config, seen, mask);
   print(`The code agent "${machine}": ${how}.`);
   print(chromeNote(chosen));
@@ -1223,8 +1293,7 @@ function pageLogEnd(dir, mask) {
     .filter(Boolean)
     .slice(-8);
   if (lines.length === 0) return "Its page.log is empty.";
-  const last = mask(lines.join(" | "));
-  return `The last lines of page.log: ${last.length > 500 ? `${last.slice(0, 500)}…` : last}`;
+  return `The last lines of page.log: ${oneLine(lines, mask)}`;
 }
 
 // The process id of the page that the start script started (runningPage) once that page listens (its address line in

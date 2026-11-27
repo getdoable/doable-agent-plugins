@@ -554,12 +554,13 @@ const resultLine = (id, { isError = false, text = '{"request":null,"capabilities
 const WAITED = `${initLine()}${callLine("toolu_1")}${resultLine("toolu_1")}`;
 
 // A machine set up with no launch, whose `claude` is a fake: it writes `output` as the serving session's output, then
-// stops the start script's loop, or with `keepRunning` stays on as a session that serves. `launching` is the
+// stops the start script's loop, or with `keepRunning` stays on as a session that serves, and ends with the exit code
+// `code`. `launching` is the
 // environment of a real launch: the start script runs in the background as on a machine without launchd (on a Mac
 // too), and setup and start wait 2 seconds at most for the session's first wait for a request. A test that launches a
 // start script and does not test the page sets it up with `page: false`: else its page would listen on the default
 // port of this computer.
-function servedMachine(output, { keepRunning = false } = {}) {
+function servedMachine(output, { keepRunning = false, code = 0 } = {}) {
   const m = machine();
   const dir = serviceDir(m.env, "mac-mini-1");
   const outputFile = join(m.base, "output.jsonl");
@@ -567,7 +568,7 @@ function servedMachine(output, { keepRunning = false } = {}) {
   const claude = join(m.base, "fake-claude");
   const then = keepRunning ? "/bin/sleep 30" : `/usr/bin/touch '${join(dir, "stopped")}'`;
   // The plugin commands of the self-update before the session answer as for an installed plugin with no newer release.
-  fakeClaude(claude, { list: `/bin/cat ${q(m.listFile)}`, session: `/bin/cat '${outputFile}'\n${then}` });
+  fakeClaude(claude, { list: `/bin/cat ${q(m.listFile)}`, session: `/bin/cat '${outputFile}'\n${then}\nexit ${code}` });
   const env = { ...m.env, DOABLE_CLAUDE_BIN: claude };
   const { DOABLE_CODE_AGENT_NO_LAUNCH: _noLaunch, ...withLaunch } = env;
   const launching = { ...withLaunch, DOABLE_CODE_AGENT_NO_LAUNCHD: "1", DOABLE_CODE_AGENT_WAIT_S: "2" };
@@ -591,7 +592,11 @@ function endGroup(pid) {
 
 const STARTED = 'The code agent "mac-mini-1": started in the background; after a reboot, run `start` again.';
 const CONNECTED = "It is connected: it waits for Doable's requests.";
-const notWaiting = (dir) => `It did not start to wait in 2 minutes. Read ${join(dir, "session.jsonl")} and ${join(dir, "service.log")}.`;
+const readLogs = (dir) => `Read ${join(dir, "session.jsonl")} and ${join(dir, "service.log")}.`;
+// What setup and start say when the session ended before its first wait for a request returned: at once, with its exit
+// code, and with why when its output says it.
+const endedBeforeWait = (dir, code, why = null) =>
+  [`The session ended with code ${code} before it started to wait for requests.`, why, readLogs(dir)].filter((part) => part !== null).join(" ");
 
 test("start says connected when the plugin's wait for a request returned, and reads past a line that is not JSON", () => {
   // The session's stderr goes to the same output.
@@ -605,7 +610,7 @@ test("start does not count a wait of the session before the launch", () => {
   const m = servedMachine(initLine());
   setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, page: false }, m.env, () => {});
   writeFileSync(join(m.dir, "session.jsonl"), WAITED);
-  assert.deepEqual(printedBy((print) => start("mac-mini-1", m.launching, print)), [STARTED, CHROME_NOTE, notWaiting(m.dir)]);
+  assert.deepEqual(printedBy((print) => start("mac-mini-1", m.launching, print)), [STARTED, CHROME_NOTE, endedBeforeWait(m.dir, 0)]);
 });
 
 test("start does not count a wait call that Claude Code refused or that Doable refused, nor the result of another call", () => {
@@ -619,7 +624,7 @@ test("start does not count a wait call that Claude Code refused or that Doable r
       resultLine("toolu_3", { isError: true, text: "doable_auth_error: The API key was revoked." }),
   );
   setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, page: false }, m.env, () => {});
-  assert.deepEqual(printedBy((print) => start("mac-mini-1", m.launching, print)), [STARTED, CHROME_NOTE, notWaiting(m.dir)]);
+  assert.deepEqual(printedBy((print) => start("mac-mini-1", m.launching, print)), [STARTED, CHROME_NOTE, endedBeforeWait(m.dir, 0)]);
 });
 
 test("setup says when the session runs in another permission mode than the bypass mode, and then not that it runs in the bypass mode", () => {
@@ -661,6 +666,95 @@ test("start reads all of the new output when the start script moved a large earl
   writeFileSync(join(m.dir, "session.jsonl"), `${"x".repeat(20 * 1024 * 1024)}\n`);
   assert.deepEqual(printedBy((print) => start("mac-mini-1", m.launching, print)), [STARTED, CHROME_NOTE, CONNECTED]);
   assert.ok(existsSync(join(m.dir, "session.1.jsonl")));
+});
+
+// The output of `claude -p --output-format stream-json --verbose` when Claude Code is not signed in (the Linux check of
+// 2026-11-27): the turn ends at once with an error result, and the session ends with code 1.
+const NOT_SIGNED_IN = "Not logged in · Please run /login";
+const NOT_SIGNED_IN_OUTPUT =
+  initLine() +
+  jsonLine({ type: "assistant", message: { content: [{ type: "text", text: NOT_SIGNED_IN }] } }) +
+  jsonLine({ type: "result", subtype: "success", is_error: true, result: NOT_SIGNED_IN });
+// Claude Code's refusal of the bypass mode for root, on stderr before any event (the same check).
+const ROOT_REFUSAL = "--dangerously-skip-permissions cannot be used with root/sudo privileges for security reasons";
+
+test("setup and start say at once that the session ended before its first wait, with its exit code and the text of its result: Claude Code's error when Claude Code is not signed in, else its last message", () => {
+  // A line of stderr before the events: the result's text comes first.
+  let m = servedMachine(`Warning: a line of stderr\n${NOT_SIGNED_IN_OUTPUT}`, { code: 1 });
+  // A wait longer than the time that the test allows: only the session's end ends it in time.
+  let launching = { ...m.launching, DOABLE_CODE_AGENT_WAIT_S: "60" };
+  const ended = endedBeforeWait(m.dir, 1, `Claude Code's error: "${NOT_SIGNED_IN}".`);
+  const begun = Date.now();
+  const atSetup = printedBy((print) => setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, page: false }, launching, print, maskSecrets));
+  assert.ok(atSetup.includes(ended), atSetup.join("\n"));
+  assert.ok(!atSetup.includes(CONNECTED), atSetup.join("\n"));
+  assert.deepEqual(printedBy((print) => start("mac-mini-1", launching, print, {}, maskSecrets)), [STARTED, CHROME_NOTE, ended]);
+
+  // A turn that ended with no error and no wait (for example the model found no Skill): its last message.
+  const message = "I cannot find the doable-code-agent skill, so I cannot serve requests.";
+  m = servedMachine(`${initLine()}${jsonLine({ type: "result", subtype: "success", is_error: false, result: message })}`);
+  launching = { ...m.launching, DOABLE_CODE_AGENT_WAIT_S: "60" };
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, page: false }, m.env, () => {});
+  assert.deepEqual(printedBy((print) => start("mac-mini-1", launching, print, {}, maskSecrets)), [
+    STARTED,
+    CHROME_NOTE,
+    endedBeforeWait(m.dir, 0, `Its last message: "${message}".`),
+  ]);
+  assert.ok(Date.now() - begun < 30000, `${Date.now() - begun} ms`);
+});
+
+test("when the session's output has no result, setup and start give its last three lines that are no event, masked: at its end, and after the wait while it runs", (t) => {
+  // Four lines of stderr, a half-written event, and a line with a URL's password and a Doable key.
+  const stderr = [
+    "Warning: an early line",
+    "Fetching https://qa-bot:hunter2-secret@proxy.example.com/plugins",
+    `\x1b[31mError: the key ${KEY} was not accepted\x1b[0m`,
+    '{"type":"assistant","message":{"content":[',
+    ROOT_REFUSAL,
+  ].join("\n");
+  const why = `The last lines of its output: "Fetching https://qa-bot:****@proxy.example.com/plugins | Error: the key sk-doable-**** was not accepted | ${ROOT_REFUSAL}".`;
+  let m = servedMachine(`${stderr}\n`, { code: 1 });
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, page: false }, m.env, () => {});
+  assert.deepEqual(printedBy((print) => start("mac-mini-1", m.launching, print, {}, maskSecrets)), [STARTED, CHROME_NOTE, endedBeforeWait(m.dir, 1, why)]);
+
+  // The session runs, has written the same lines, and no wait returned in the wait (2 seconds here).
+  m = servedMachine(`${initLine()}${stderr}\n`, { keepRunning: true });
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, page: false }, m.env, () => {});
+  const pidFile = join(m.dir, "pid");
+  t.after(() => existsSync(pidFile) && endGroup(readFileSync(pidFile, "utf8").trim()));
+  const printed = printedBy((print) => start("mac-mini-1", m.launching, print, {}, maskSecrets));
+  assert.deepEqual(printed, [STARTED, CHROME_NOTE, `It did not start to wait in 2 minutes. ${why} ${readLogs(m.dir)}`]);
+  assert.ok(!printed.join("\n").includes("hunter2") && !printed.join("\n").includes(KEY), printed.join("\n"));
+});
+
+test("a session whose first wait returned stays connected, with no reason, also when it then ended with an error and wrote stderr", () => {
+  // Contrast to the two tests above: the same error result and stderr line after the session's first wait.
+  const m = servedMachine(`${WAITED}${ROOT_REFUSAL}\n${jsonLine({ type: "result", subtype: "success", is_error: true, result: NOT_SIGNED_IN })}`, { code: 1 });
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, page: false }, m.env, () => {});
+  assert.deepEqual(printedBy((print) => start("mac-mini-1", m.launching, print, {}, maskSecrets)), [STARTED, CHROME_NOTE, CONNECTED]);
+});
+
+test("setup and start refuse at once to run as root, say why, and change nothing; as another user they go on", () => {
+  const m = machine();
+  const dir = serviceDir(m.env, "mac-mini-1");
+  const refusal = (command) => ({
+    message: `Run ${command} as a normal user, not as root and not with sudo. The session runs in the bypass permission mode, which Claude Code refuses for root, so the session would never start. Use the account that is signed in to Claude Code on the Claude plan.`,
+  });
+  assert.throws(() => setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, uid: 0 }, m.env, () => {}), refusal("setup"));
+  assert.equal(existsSync(dir), false);
+  // Contrast: the same setup as another user.
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, uid: 501 }, m.env, () => {});
+  assert.ok(existsSync(join(dir, "run.sh")));
+
+  stop("mac-mini-1", m.env, () => {});
+  const before = "#!/bin/bash\n# the start script before\n";
+  writeFileSync(join(dir, "run.sh"), before);
+  assert.throws(() => start("mac-mini-1", m.env, () => {}, { uid: 0 }), refusal("start"));
+  assert.equal(readFileSync(join(dir, "run.sh"), "utf8"), before);
+  assert.ok(existsSync(join(dir, "stopped")));
+  // Contrast: start as another user writes the start script again.
+  assert.deepEqual(printedBy((print) => start("mac-mini-1", m.env, print, { uid: 501 })), [NOT_STARTED, CHROME_NOTE]);
+  assert.match(readFileSync(join(dir, "run.sh"), "utf8"), sessionLine(quotedPattern(m.claude)));
 });
 
 test("on a machine without launchd, setup and start refuse while the session runs, but not after stop", () => {
@@ -1183,6 +1277,33 @@ test("with self-update off, service.log says that Doable asked for a newer plugi
   const printed = [];
   assert.equal(updateRequest({ dir: devDir, from: 0 }, { PATH: dev.env.PATH }, (line) => printed.push(line.replace(/^\S+ /, "")), maskSecrets), ASKED_WAIT);
   assert.deepEqual(printed, [asked, needs("The session loads the plugin from a development folder")]);
+});
+
+test("service.log holds the exit code of each serving session, not the code of the command that writes the time", () => {
+  // In the line that the session ended, $? after $(date ...) is the code of date: 0 for each session.
+  const m = machine();
+  const calls = join(m.base, "calls");
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, page: false }, withFakeSleep(m, calls), () => {});
+  const dir = serviceDir(m.env, "mac-mini-1");
+  // The first session ends with code 3; the second one with code 0, and it ends the loop.
+  const count = q(join(m.base, "sessions"));
+  fakeClaude(m.claude, {
+    list: `/bin/cat ${q(m.listFile)}`,
+    session: `n=$(( $(/bin/cat ${count} 2>/dev/null || echo 0) + 1 )); echo $n > ${count}
+if [ $n = 2 ]; then /usr/bin/touch ${q(join(dir, "stopped"))}; exit 0; fi
+exit 3`,
+    calls,
+  });
+  writeFileSync(calls, "");
+  execFileSync("/bin/bash", [join(dir, "run.sh")], { env: { PATH: "/usr/bin:/bin" }, stdio: "pipe", timeout: 60000 });
+  assert.deepEqual(logLines(dir), [
+    "the serving session starts",
+    "the serving session ended with code 3",
+    "the serving session starts",
+    "the serving session ended with code 0",
+  ]);
+  // The code of the step after the session still chooses the wait: no ask, so 5 minutes.
+  assert.deepEqual(readFileSync(calls, "utf8").trim().split("\n"), ["session", "sleep 300", "session"]);
 });
 
 test("setup and start say that Doable needs a newer plugin, not that the session is connected, when its first wait got Doable's ask", () => {

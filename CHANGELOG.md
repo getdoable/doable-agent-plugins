@@ -47,6 +47,23 @@ choice for the page). The session's prompt does not change.
 - README ("Always on", "The code agent's page"), TESTING (scenario 73), PRIVACY. The manual `page`
   command stays, for a machine with the page off or for one more page on another port.
 
+### Fixed
+
+- `service.log` holds the exit code of each serving session. The start script wrote `$?` after
+  `$(date ...)` in the same line, so the line said "ended with code 0" for each session, and the
+  page showed that code. The start script now keeps the code on the line after the session.
+- When the session does not start to wait for requests, the setup and `start` say why. They stop
+  the wait at once when the session ended, and say its exit code; while it runs, they still wait 2
+  minutes. Then they give the text of Claude Code's result (for example "Not logged in · Please
+  run /login" when Claude Code is not signed in), else the last three lines of the session's
+  output that are not events, masked with the service's mask. Before, they said only that the
+  session did not start to wait in 2 minutes.
+- The setup and `start` refuse at once to run as root (also with `sudo`), and say to run them as
+  a normal user. Claude Code refuses the bypass permission mode for root
+  ("--dangerously-skip-permissions cannot be used with root/sudo privileges"), so a session of
+  root never started.
+- README ("Always on", "When the session does not start"), TESTING (scenarios 67 and 74).
+
 ### Known limits
 
 - Any account or program on this computer can open the page at any time while the service runs,

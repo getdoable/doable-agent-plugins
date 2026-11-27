@@ -308,8 +308,11 @@ Before the first request, look at this folder and write your capability summary,
 ### Always on
 
 The plugin's service script runs the session in the background on this machine and keeps it on.
-Run Claude Code on the Claude plan (`claude auth login`): the script removes `ANTHROPIC_API_KEY`
-from the session's environment, so that its usage is not billed to the API. The session runs with
+Run Claude Code on the Claude plan (`claude auth login`), as the user that runs the setup: the
+script removes `ANTHROPIC_API_KEY` from the session's environment, so that its usage is not billed
+to the API. Run the setup and the other commands as that normal user, not as root and not with
+`sudo`: Claude Code refuses the bypass permission mode for root, so the setup and `start` refuse to
+run as root. The session runs with
 no permission check and with Claude in Chrome: read
 [With nobody at the terminal](#with-nobody-at-the-terminal) for what that lets it do.
 
@@ -382,6 +385,22 @@ Run the setup again only after `stop`. On a machine without launchd, the setup a
 while the session runs, so that two sessions do not serve with the same machine name: run `stop`
 first. The key stays in its file until `remove`.
 Revoke it in Settings > API Keys when you no longer need it.
+
+#### When the session does not start
+
+When the session does not start to wait for requests, the setup and `start` say so: at once when
+the session ended, with its exit code, else after 2 minutes. They also say why, when the session's
+output says it: the text of Claude Code's result, else the last three lines of the output that are
+not events, with secrets masked. For example:
+
+- "Not logged in · Please run /login": Claude Code is not signed in for the user that runs the
+  session. As that user, run `claude auth login` on the Claude plan, then `stop` and `start`.
+- "--dangerously-skip-permissions cannot be used with root/sudo privileges": the start script runs
+  as root, for example from a system service that a person wrote. The setup and `start` refuse to
+  run as root: start the session only with them, as a normal user.
+
+The start script starts the session again 5 minutes after it ended. `service.log` holds the exit
+code of each session ("the serving session ended with code N"), and the page shows it.
 
 #### Self-update
 
