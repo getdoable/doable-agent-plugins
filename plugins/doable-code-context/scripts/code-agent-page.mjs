@@ -5,8 +5,9 @@
 //
 // The page reads /data.json every 5 seconds: the session's state, the request in progress and one short line of each
 // request. It reads the rest only for the part that the person opens: one request (/request.json?id=CA-...), a page of
-// the sessions (/sessions.json?page=N&size=N), one session (/session.json?n=N) or a page of service.log (/log.json?page=N).
-// So a machine that served hundreds of requests, each with hundreds of steps, does not send them all every 5 seconds.
+// the sessions (/sessions.json?page=N&size=N&open=ID), one session (/session.json?id=ID), a page of service.log
+// (/log.json?page=N), or the requests whose whole text holds the words of the search (/search.json?q=WORDS). So a
+// machine that served hundreds of requests, each with hundreds of steps, does not send them all every 5 seconds.
 //
 // The session's output holds the password of each login that it made (the result is a tool call), and can hold keys
 // and tokens in its commands. So a login's password never leaves the parser (it keeps only the username and the note),
@@ -67,6 +68,16 @@ const CODE_FILE_LIMIT = 100;
 const LOG_PAGE_LINES = 200;
 const PAGE_SIZES = [10, 25, 50];
 const REQUEST_ID = /^CA-[0-9A-Z]{6}$/;
+// How the page names a session: its Claude Code session id, which stays the same when the start script moves the log
+// (a number from the oldest session would change then).
+const SESSION_REF = /^[A-Za-z0-9._-]{1,100}$/;
+// The longest search that /search.json takes.
+const SEARCH_CHARS = 200;
+// Doable waits up to 24 hours for the answer to a request's question while no session serves the request, then expires
+// the request (orchestration's agent_v2/code_agent.py). No log of this computer records that, so the page says
+// "probably".
+const QUESTION_WAIT_MS = 24 * 60 * 60 * 1000;
+const EXPIRED = "probably expired: no answer in 24 hours";
 // The three Doable MCP tools of a machine, under any server name (mcp__doable__..., mcp__plugin_doable-code-context_doable__...).
 const DOABLE_TOOL = /^mcp__.+__(wait_for_code_agent_request|update_code_agent_request|read_code_agent_mail)$/;
 // A line that the start script writes to service.log before and after each session.
@@ -221,10 +232,12 @@ function newSession(init) {
     lastAt: null,
     result: null,
     planLimit: null,
-    // Its calls of the wait for a request, whether one of them returned with no error, and the version that Doable asked
-    // for in a wait's answer (then the session ends).
+    // Its calls of the wait for a request, whether one of them returned with no error, the waits that failed since the
+    // last one that returned (the session gets no request while they fail), and the version that Doable asked for in a
+    // wait's answer (then the session ends).
     waits: 0,
     waited: false,
+    failedWaits: 0,
     updateAsked: null,
     requestIds: [],
     failedCalls: [],
@@ -479,10 +492,12 @@ function toolResult(state, session, part, at) {
   }
   if (call.kind === "wait") {
     if (failed) {
+      session.failedWaits += 1;
       pushLimited(session.failedCalls, { at: call.at, what: "wait for a request", text: keep(words) }, FAILED_CALL_LIMIT);
       return;
     }
     session.waited = true;
+    session.failedWaits = 0;
     const answer = parseJson(words);
     const task = answer?.request;
     if (!isTask(task)) {
@@ -840,11 +855,13 @@ function stepView(step, mask) {
   };
 }
 
-// A session as the page shows it. `n` is its number in the logs, from 1 for the oldest. The steps that it made outside
-// a request come only with `withSteps` (/session.json).
-function sessionView(session, pair, ended, fileTime, mask, n, withSteps) {
+// A session as the page shows it. `n` is its number in the logs, from 1 for the oldest, only to show: it changes when
+// the start script moves the log. `ref` names the session in /session.json and in the page's address (sessionRefs). The
+// steps that it made outside a request come only with `withSteps` (/session.json).
+function sessionView(session, pair, ended, fileTime, mask, n, ref, withSteps) {
   const view = {
     n,
+    ref,
     id: session.id,
     startKnown: session.startKnown,
     startedAt: pair.startedAt ?? session.firstAt,
@@ -859,6 +876,7 @@ function sessionView(session, pair, ended, fileTime, mask, n, withSteps) {
     doableServers: session.doableServers,
     planLimit: session.planLimit !== null && session.planLimit.status !== "allowed" ? session.planLimit : null,
     waited: session.waited,
+    failedWaits: session.failedWaits,
     updateAsked: session.updateAsked,
     requests: session.requestIds.length,
     failedCalls: session.failedCalls.map((call) => ({ at: call.at, what: call.what, text: cut(mask(call.text ?? ""), REASON_CHARS) })),
@@ -871,12 +889,16 @@ function sessionView(session, pair, ended, fileTime, mask, n, withSteps) {
   return view;
 }
 
-// The status that the page shows. A request that a session held when it ended is no longer served (requestNote).
-function statusWords(request, sessionEnded) {
+// The status that the page shows at the time `now` (ms). A request that a session held when it ended is no longer served
+// (requestNote). Its question that got no answer in the logs for 24 hours is probably expired (QUESTION_WAIT_MS).
+function statusWords(request, sessionEnded, now) {
   if (request.cancelRequested || request.status === "cancelled") return "cancelled";
   if (request.status === "done" || request.status === "failed" || request.status === "declined") return request.status;
   if (request.status === "working") return sessionEnded ? "left when its session ended" : "working";
-  if (request.status === "needs_answer") return sessionEnded ? "waiting for an answer; no session serves it" : "waiting for an answer";
+  if (request.status === "needs_answer") {
+    if (!sessionEnded) return "waiting for an answer";
+    return questionTime(request) + QUESTION_WAIT_MS <= now ? EXPIRED : "waiting for an answer; no session serves it";
+  }
   if (request.status === "queued") return "given back to the queue";
   return request.status === null ? "unknown" : request.status.replaceAll("_", " ");
 }
@@ -892,6 +914,9 @@ function isOpenStatus(status) {
 function requestNote(status, answered) {
   if (status === "waiting for an answer; no session serves it") {
     return "No session serves it now. It waits up to 24 hours for the asker's answer. When the answer comes, Doable keeps it for this machine for 30 minutes, then gives it back to the queue, and the next session can take it.";
+  }
+  if (status === EXPIRED) {
+    return "No session served it after its question, and the logs on this computer show no answer in 24 hours. By Doable's rules, the request has expired, or the answer came and another machine took it. The asker sees in Doable how it stands.";
   }
   if (status !== "left when its session ended") return null;
   if (answered) {
@@ -915,18 +940,31 @@ function servedAt(request) {
   return taken?.at ?? request.takenAt;
 }
 
-// The text of the request's last question when no answer came after it.
+// The request's last question (its line) when no answer came after it.
 function waitingQuestion(request) {
   for (let i = request.events.length - 1; i >= 0; i -= 1) {
     if (request.events[i].kind === "answer") return null;
-    if (request.events[i].kind === "question") return request.events[i].text;
+    if (request.events[i].kind === "question") return request.events[i];
   }
   return null;
 }
 
-// One line of the list of requests (/data.json): the start of the text only.
-function requestRow(request, sessionEnded, mask) {
-  const status = statusWords(request, sessionEnded);
+// When the request's question that waits was asked (ms), or its last line when the logs hold no such question.
+function questionTime(request) {
+  return Date.parse(waitingQuestion(request)?.at ?? lastTime(request) ?? "");
+}
+
+// When the request ended: its result, the end of Doable's wait for the answer (EXPIRED), or its last line. An open
+// request has no end.
+function finishedAt(request, status) {
+  if (request.result !== null) return request.result.at;
+  if (isOpenStatus(status)) return null;
+  if (status === EXPIRED) return iso(questionTime(request) + QUESTION_WAIT_MS);
+  return lastTime(request);
+}
+
+// One line of the list of requests (/data.json): the start of the text only. `status` is its statusWords.
+function requestRow(request, status, mask) {
   const question = status.startsWith("waiting for an answer") ? waitingQuestion(request) : null;
   return {
     id: request.id,
@@ -939,10 +977,11 @@ function requestRow(request, sessionEnded, mask) {
     askedAt: request.askedAt,
     takenAt: request.takenAt,
     servedAt: servedAt(request),
-    finishedAt: request.result !== null ? request.result.at : isOpenStatus(status) ? null : lastTime(request),
+    finishedAt: finishedAt(request, status),
     // The mask comes before the cut (KEEP_CHARS).
     text: request.text === null ? null : cut(mask(request.text), ROW_TEXT_CHARS),
-    question: typeof question === "string" ? cut(mask(question), QUESTION_CHARS) : null,
+    question: typeof question?.text === "string" ? cut(mask(question.text), QUESTION_CHARS) : null,
+    questionAt: question?.at ?? null,
     outcome: request.result?.outcome ?? null,
     refused: request.events.filter((event) => event.kind === "refused").length,
     stepCount: request.steps.length + request.stepsLeftOut,
@@ -951,9 +990,9 @@ function requestRow(request, sessionEnded, mask) {
 
 // A request with its whole text, its lines, its result and the steps in `steps` (all of them for /request.json, the
 // newest few for the request in progress).
-function requestView(request, sessionEnded, mask, steps) {
+function requestView(request, status, mask, steps) {
   const result = request.result;
-  const row = requestRow(request, sessionEnded, mask);
+  const row = requestRow(request, status, mask);
   return {
     ...row,
     note: requestNote(row.status, request.answer !== null),
@@ -990,29 +1029,37 @@ function requestView(request, sessionEnded, mask, steps) {
 }
 
 // What the session does now, for the page's header: "working" (on `requestId`), "waiting for an answer", "serving" (it
-// waits for Doable's requests), "starting", "cannot start" (with the lines of its output that say why), "plan limit",
-// "between sessions", "no log", or the service's "stopped" or "not running".
-function servingState({ service, logFound, state, ended, entries, otherOutput }) {
+// waits for Doable's requests), "cannot reach Doable" (its waits for a request fail), "starting", "cannot start" (with
+// the lines of its output that say why), "plan limit", "between sessions", "no log", or the service's "stopped" or
+// "not running".
+function servingState({ service, logFound, state, ended, entries, otherOutput, now }) {
   const none = (name, lines = []) => ({ state: name, requestId: null, lines });
   if (service !== "on") return none(service);
   if (!logFound) return none("no log");
   const last = state.sessions.length - 1;
   const newest = state.sessions[last];
-  const lastAt = newest?.lastAt == null ? null : Date.parse(newest.lastAt);
   // The output after the newest session's last event (all of it when no session wrote an event).
   const after = () => otherOutput.filter((line) => newest === undefined || line.after === newest.lastAt).map((line) => line.text);
-  // A start line after the newest session's last event: the start script started a session that wrote no event yet.
-  if (newest === undefined || (lastAt !== null && entries.some((entry) => entry.kind === "start" && entry.at > lastAt))) {
+  if (newest === undefined) {
     const lines = after();
     return none(lines.length > 0 ? "cannot start" : "starting", lines);
   }
+  // The start script's last start line came after the newest session's last event: it started a session that wrote no
+  // event yet. That session cannot start only when the start script also wrote its end. Until then it can still be
+  // connecting, and the output before the start line can be the earlier session's own.
+  const lastAt = newest.lastAt === null ? null : Date.parse(newest.lastAt);
+  const start = entries.findLastIndex((entry) => entry.kind === "start");
+  if (lastAt !== null && start >= 0 && entries[start].at > lastAt) {
+    return entries.slice(start + 1).some((entry) => entry.kind === "end") ? none("cannot start", after()) : none("starting");
+  }
   if (!ended[last]) {
     const held = [...state.requests.values()].filter((request) => request.sessionIndex === last);
-    const working = held.filter((request) => statusWords(request, false) === "working");
+    const working = held.filter((request) => statusWords(request, false, now) === "working");
     const serving = working.find((request) => request.id === state.current) ?? working.at(-1);
     if (serving !== undefined) return { state: "working", requestId: serving.id, lines: [] };
-    const asking = held.filter((request) => statusWords(request, false) === "waiting for an answer").at(-1);
+    const asking = held.filter((request) => statusWords(request, false, now) === "waiting for an answer").at(-1);
     if (asking !== undefined) return { state: "waiting for an answer", requestId: asking.id, lines: [] };
+    if (newest.failedWaits > 0) return none("cannot reach Doable");
     return none(newest.waits > 0 ? "serving" : "starting");
   }
   if (newest.planLimit?.status === "rejected") return none("plan limit");
@@ -1028,25 +1075,46 @@ class Refusal extends Error {
   }
 }
 
-// The data of the page for one state of the files, with every string masked. Each part is built when a route asks.
-function pageModel(state, { machine, serviceState: service, selfUpdate, askedUpdate: asked = null, serviceLog, currentLogTime, logFound }) {
+// The name of each session in /session.json and in the page's address: its Claude Code session id, or "position-N" (N
+// from 1 for the oldest) for a session whose id is missing, has another form, or is also another session's id.
+function sessionRefs(sessions) {
+  const counts = new Map();
+  for (const session of sessions) counts.set(session.id, (counts.get(session.id) ?? 0) + 1);
+  return sessions.map((session, i) =>
+    typeof session.id === "string" && SESSION_REF.test(session.id) && counts.get(session.id) === 1 ? session.id : `position-${i + 1}`,
+  );
+}
+
+// The data of the page for one state of the files at the time `now` (ms), with every string masked. Each part is built
+// when a route asks. `changesAt` is the time when a status changes with the time alone (QUESTION_WAIT_MS).
+function pageModel(state, { machine, serviceState: service, selfUpdate, askedUpdate: asked = null, serviceLog, currentLogTime, logFound, now = Date.now() }) {
   const mask = makeMasker(state.passwords);
   const sessions = state.sessions;
   const last = sessions.length - 1;
   const pairs = pairWithServiceLog(sessions, serviceLog.entries);
+  const refs = sessionRefs(sessions);
   // A session ended when a later one started, when it wrote its result, when the start script wrote its end, or when
   // the service does not run.
   const ended = sessions.map((session, i) => i < last || session.result !== null || pairs[i].end !== null || service !== "on");
-  const sessionAt = (i, withSteps) => sessionView(sessions[i], pairs[i], ended[i], i === last ? currentLogTime : null, mask, i + 1, withSteps);
+  const sessionAt = (i, withSteps) => sessionView(sessions[i], pairs[i], ended[i], i === last ? currentLogTime : null, mask, i + 1, refs[i], withSteps);
   const endedOf = (request) => ended[request.sessionIndex] ?? true;
+  const statusOf = (request) => statusWords(request, endedOf(request), now);
   const newestFirst = () => [...state.requests.values()].reverse();
   const otherOutput = () => state.otherOutput.map((line) => ({ after: line.after, text: cut(mask(line.text), REASON_CHARS) }));
+  let changesAt = Infinity;
+  for (const request of state.requests.values()) {
+    const expires = questionTime(request) + QUESTION_WAIT_MS;
+    if (statusOf(request) === "waiting for an answer; no session serves it" && Number.isFinite(expires)) changesAt = Math.min(changesAt, expires);
+  }
+  // The text of each request, masked, for /search.json: made at the first search of this state.
+  let searchable = null;
   return {
+    changesAt,
     // /data.json: the service, the newest session, the request in progress, one line of each request (newest first).
     summary() {
       const requests = newestFirst();
       const output = otherOutput();
-      const serving = servingState({ service, logFound, state, ended, entries: serviceLog.entries, otherOutput: output });
+      const serving = servingState({ service, logFound, state, ended, entries: serviceLog.entries, otherOutput: output, now });
       return maskAll(
         {
           machine,
@@ -1056,9 +1124,9 @@ function pageModel(state, { machine, serviceState: service, selfUpdate, askedUpd
           session: last >= 0 ? sessionAt(last, false) : null,
           sessionCount: sessions.length,
           now: requests
-            .filter((request) => !endedOf(request) && statusWords(request, false) === "working")
-            .map((request) => requestView(request, false, mask, request.steps.slice(-NOW_STEPS))),
-          requests: requests.map((request) => requestRow(request, endedOf(request), mask)),
+            .filter((request) => statusOf(request) === "working")
+            .map((request) => requestView(request, "working", mask, request.steps.slice(-NOW_STEPS))),
+          requests: requests.map((request) => requestRow(request, statusOf(request), mask)),
           otherOutput: output,
           logLineCount: serviceLog.lines.length,
         },
@@ -1069,18 +1137,24 @@ function pageModel(state, { machine, serviceState: service, selfUpdate, askedUpd
     request(id) {
       const request = state.requests.get(id);
       if (request === undefined) throw new Refusal(404, `No request ${id} is in the logs on this computer.`);
-      return maskAll(requestView(request, endedOf(request), mask, request.steps), mask);
+      return maskAll(requestView(request, statusOf(request), mask, request.steps), mask);
     },
-    // /sessions.json: a page of the sessions, newest first, one line each. A page after the last gives the last.
-    sessions(page, size) {
-      const total = sessions.length;
-      const pages = Math.max(1, Math.ceil(total / size));
-      const at = Math.min(page, pages);
+    // The page of the sessions that /sessions.json gives: the page that holds the session `open` (newer sessions move
+    // it to a later page), else `page`, and the last page for a page after it.
+    sessionsPage(page, size, open = null) {
+      const at = open === null ? -1 : refs.indexOf(open);
+      if (at >= 0) return Math.floor((last - at) / size) + 1;
+      return Math.min(page, Math.max(1, Math.ceil(sessions.length / size)));
+    },
+    // /sessions.json: a page of the sessions, newest first, one line each.
+    sessions(page, size, open = null) {
+      const at = this.sessionsPage(page, size, open);
       const rows = [];
       for (let i = last - (at - 1) * size; i >= 0 && i > last - at * size; i -= 1) {
         const view = sessionAt(i, false);
         rows.push({
           n: view.n,
+          ref: view.ref,
           id: view.id,
           startKnown: view.startKnown,
           startedAt: view.startedAt,
@@ -1090,22 +1164,33 @@ function pageModel(state, { machine, serviceState: service, selfUpdate, askedUpd
           requests: view.requests,
         });
       }
-      return maskAll({ page: at, size, pages, total, sessions: rows }, mask);
+      return maskAll({ page: at, size, pages: Math.max(1, Math.ceil(sessions.length / size)), total: sessions.length, sessions: rows }, mask);
     },
     // /session.json: one session with its facts, its failed calls and its steps outside a request.
-    session(n) {
-      if (n > sessions.length) throw new Refusal(404, `No session ${n} is in the logs on this computer.`);
-      return maskAll(sessionAt(n - 1, true), mask);
+    session(ref) {
+      const at = refs.indexOf(ref);
+      if (at < 0) throw new Refusal(404, `No session ${ref} is in the logs on this computer.`);
+      return maskAll(sessionAt(at, true), mask);
+    },
+    // The page of service.log that /log.json gives: `page`, or the last page for a page after it.
+    logPage(page) {
+      return Math.min(page, Math.max(1, Math.ceil(serviceLog.lines.length / LOG_PAGE_LINES)));
     },
     // /log.json: a page of service.log, page 1 with the newest lines; the lines of a page are oldest first.
     log(page) {
       const total = serviceLog.lines.length;
-      const pages = Math.max(1, Math.ceil(total / LOG_PAGE_LINES));
-      const at = Math.min(page, pages);
+      const at = this.logPage(page);
       const to = Math.max(0, total - (at - 1) * LOG_PAGE_LINES);
       const from = Math.max(0, to - LOG_PAGE_LINES);
       const lines = serviceLog.lines.slice(from, to).map((line) => cut(mask(line), REASON_CHARS));
-      return maskAll({ page: at, pages, total, from: total === 0 ? 0 : from + 1, to, lines }, mask);
+      return maskAll({ page: at, pages: Math.max(1, Math.ceil(total / LOG_PAGE_LINES)), total, from: total === 0 ? 0 : from + 1, to, lines }, mask);
+    },
+    // /search.json: the ids of the requests (newest first) whose whole text holds `words`, in any case. It searches the
+    // masked text, so that a search cannot find a secret that the page hides.
+    search(words) {
+      searchable ??= newestFirst().map((request) => [request.id, mask(request.text ?? "").toLowerCase()]);
+      const lower = words.toLowerCase();
+      return { ids: searchable.filter(([, text]) => text.includes(lower)).map(([id]) => id) };
     },
   };
 }
@@ -1115,12 +1200,14 @@ export function pageView(state, options) {
   return pageModel(state, options).summary();
 }
 
-// The data of one machine's page. Its model is built again only when a log, service.log, update-asked or the service's
-// state changed, and each answer's text once for each model.
+// The data of one machine's page. Its model is built again when a log, service.log, update-asked or the service's state
+// changed, or when the time reached its `changesAt`; each answer's text is made once for each model. `now` gives the
+// time (ms).
 export class PageData {
-  constructor({ machine, env }) {
+  constructor({ machine, env, now = Date.now }) {
     this.machine = machine;
     this.env = env;
+    this.now = now;
     this.dir = serviceDir(env, machine);
     this.logs = new SessionLogs(this.dir);
     this.serviceLog = new ServiceLog(join(this.dir, SERVICE_LOG));
@@ -1136,15 +1223,17 @@ export class PageData {
     const current = statOrNull(join(this.dir, CURRENT_LOG));
     const currentLogTime = current === null ? null : current.mtime.toISOString();
     const key = [this.logs.generation, service, selfUpdate, asked?.version, asked?.at, serviceLog.key, currentLogTime].join("|");
-    if (key !== this.cached.key) {
-      const model = pageModel(state, { machine: this.machine, serviceState: service, selfUpdate, askedUpdate: asked, serviceLog, currentLogTime, logFound: this.logs.found });
+    const now = this.now();
+    if (key !== this.cached.key || now >= this.cached.model.changesAt) {
+      const model = pageModel(state, { machine: this.machine, serviceState: service, selfUpdate, askedUpdate: asked, serviceLog, currentLogTime, logFound: this.logs.found, now });
       this.cached = { key, model, texts: new Map() };
     }
     return this.cached;
   }
 
-  text(name, build) {
-    const cached = this.refresh();
+  // The text of an answer, kept under `name` for this model. A name holds no page number past the last page: else each
+  // such number would keep one more copy of the last page.
+  text(name, build, cached = this.refresh()) {
     if (!cached.texts.has(name)) cached.texts.set(name, JSON.stringify(build(cached.model)));
     return cached.texts.get(name);
   }
@@ -1157,16 +1246,25 @@ export class PageData {
     return this.text(`request ${id}`, (model) => model.request(id));
   }
 
-  sessionsJson(page, size) {
-    return this.text(`sessions ${page} ${size}`, (model) => model.sessions(page, size));
+  sessionsJson(page, size, open = null) {
+    const cached = this.refresh();
+    const at = cached.model.sessionsPage(page, size, open);
+    return this.text(`sessions ${at} ${size}`, (model) => model.sessions(at, size), cached);
   }
 
-  sessionJson(n) {
-    return this.text(`session ${n}`, (model) => model.session(n));
+  sessionJson(ref) {
+    return this.text(`session ${ref}`, (model) => model.session(ref));
   }
 
   logJson(page) {
-    return this.text(`log ${page}`, (model) => model.log(page));
+    const cached = this.refresh();
+    const at = cached.model.logPage(page);
+    return this.text(`log ${at}`, (model) => model.log(at), cached);
+  }
+
+  // Not kept: each search's words would keep one more answer.
+  searchJson(words) {
+    return JSON.stringify(this.refresh().model.search(words));
   }
 }
 
@@ -1179,18 +1277,21 @@ const ROUTES = new Map([
   ["/", []],
   ["/data.json", []],
   ["/request.json", ["id"]],
-  ["/sessions.json", ["page", "size"]],
-  ["/session.json", ["n"]],
+  ["/sessions.json", ["page", "size", "open"]],
+  ["/session.json", ["id"]],
   ["/log.json", ["page"]],
+  ["/search.json", ["q"]],
 ]);
-const NOT_FOUND = "Not found. This page has only /, /data.json, /request.json, /sessions.json, /session.json and /log.json.";
+const NOT_FOUND = "Not found. This page has only /, /data.json, /request.json, /sessions.json, /session.json, /log.json and /search.json.";
+const SESSION_ID_WORDS = "the id of a session: 1 to 100 letters, digits, '.', '_' or '-'";
 const TAKES = {
   "/": "/ takes no parameter.",
   "/data.json": "/data.json takes no parameter.",
   "/request.json": "/request.json takes id, the id of a request: CA- and 6 capital letters or digits.",
-  "/sessions.json": "/sessions.json takes page, a whole number from 1, and size: 10, 25 or 50.",
-  "/session.json": "/session.json takes n, the number of a session: a whole number from 1.",
+  "/sessions.json": `/sessions.json takes page, a whole number from 1, size: 10, 25 or 50, and open, ${SESSION_ID_WORDS}.`,
+  "/session.json": `/session.json takes id, ${SESSION_ID_WORDS}.`,
   "/log.json": "/log.json takes page, a whole number from 1.",
+  "/search.json": `/search.json takes q, the words to search for: 1 to ${SEARCH_CHARS} characters.`,
 };
 const WHOLE_NUMBER = /^[1-9]\d{0,8}$/;
 
@@ -1221,29 +1322,35 @@ function routeOf(url) {
 
 // A whole number from 1, or `fallback` when the parameter is not given.
 function numberParam(route, name, fallback) {
-  if (!route.params.has(name)) {
-    if (fallback === undefined) throw new Refusal(400, TAKES[route.path]);
-    return fallback;
-  }
+  if (!route.params.has(name)) return fallback;
   const value = route.params.get(name);
   if (!WHOLE_NUMBER.test(value)) throw new Refusal(400, TAKES[route.path]);
   return Number(value);
 }
 
+// A parameter that must match `form`, or `fallback` when it is not given and `fallback` is not undefined.
+function formParam(route, name, form, fallback) {
+  if (!route.params.has(name) && fallback !== undefined) return fallback;
+  const value = route.params.get(name) ?? "";
+  if (!form.test(value)) throw new Refusal(400, TAKES[route.path]);
+  return value;
+}
+
 // The JSON text of a data route.
 function dataText(route, data) {
   if (route.path === "/data.json") return data.json();
-  if (route.path === "/request.json") {
-    const id = route.params.get("id") ?? "";
-    if (!REQUEST_ID.test(id)) throw new Refusal(400, TAKES[route.path]);
-    return data.requestJson(id);
-  }
+  if (route.path === "/request.json") return data.requestJson(formParam(route, "id", REQUEST_ID));
   if (route.path === "/sessions.json") {
     const size = numberParam(route, "size", PAGE_SIZES[0]);
     if (!PAGE_SIZES.includes(size)) throw new Refusal(400, TAKES[route.path]);
-    return data.sessionsJson(numberParam(route, "page", 1), size);
+    return data.sessionsJson(numberParam(route, "page", 1), size, formParam(route, "open", SESSION_REF, null));
   }
-  if (route.path === "/session.json") return data.sessionJson(numberParam(route, "n"));
+  if (route.path === "/session.json") return data.sessionJson(formParam(route, "id", SESSION_REF));
+  if (route.path === "/search.json") {
+    const words = (route.params.get("q") ?? "").trim();
+    if (words === "" || words.length > SEARCH_CHARS) throw new Refusal(400, TAKES[route.path]);
+    return data.searchJson(words);
+  }
   return data.logJson(numberParam(route, "page", 1));
 }
 
@@ -1302,9 +1409,9 @@ function answer(request, response, port, data) {
   send(response, 200, "application/json; charset=utf-8", body, headers);
 }
 
-// The page's server for `machine`, listening on 127.0.0.1 at `port` (0: a free port).
-export function startPageServer({ machine, env, port }) {
-  const data = new PageData({ machine, env });
+// The page's server for `machine`, listening on 127.0.0.1 at `port` (0: a free port). `now` gives the time (ms).
+export function startPageServer({ machine, env, port, now = Date.now }) {
+  const data = new PageData({ machine, env, now });
   const server = createServer((request, response) => answer(request, response, server.address().port, data));
   return new Promise((resolve, reject) => {
     server.once("error", (error) => {
@@ -1369,9 +1476,13 @@ button { cursor: pointer; }
 button:disabled { cursor: default; opacity: 0.45; }
 a { color: var(--accent); }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* The list and the tab strip cut what is outside them: the ring of a row and of a tab is inside. */
+.row-head:focus-visible, .tab:focus-visible { outline-offset: -2px; }
 .wrap { max-width: 1100px; margin: 0 auto; padding: 0 16px; }
 p { margin: 6px 0; }
 .muted { color: var(--muted); }
+/* A request's id does not break at its hyphen. */
+.nowrap { white-space: nowrap; }
 .note { color: var(--muted); font-size: 13px; }
 
 /* Header */
@@ -1445,19 +1556,30 @@ li.event-answer .bubble { background: var(--ok-bg); }
 .tab { display: inline-flex; align-items: center; gap: 7px; margin-bottom: -1px; padding: 8px 12px; border: 0; border-bottom: 2px solid transparent; background: none; color: var(--muted); font-weight: 600; white-space: nowrap; }
 .tab[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }
 .tab .count { border-radius: 999px; padding: 0 7px; background: var(--gray-bg); color: var(--gray); font-size: 12px; line-height: 19px; }
+/* On a phone the three tabs share the width, each with its count under its name, so that no tab is cut. */
+@media (max-width: 520px) {
+  .tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; overflow: visible; }
+  .tab { flex-direction: column; gap: 2px; padding: 6px 4px 7px; white-space: normal; text-align: center; }
+}
 .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0 0 10px; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .chip { border: 1px solid var(--line-strong); background: var(--surface); border-radius: 999px; padding: 2px 10px; font-size: 13px; }
 .chip .count { color: var(--muted); margin-left: 4px; }
 .chip[aria-pressed="true"] { background: var(--accent-bg); border-color: var(--accent); color: var(--accent); }
 .search { flex: 1 1 220px; min-width: 0; border: 1px solid var(--line-strong); border-radius: 8px; padding: 5px 10px; background: var(--surface); }
-.size { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; }
-.size select { border: 1px solid var(--line-strong); border-radius: 8px; padding: 3px 6px; background: var(--surface); }
+.size { display: inline-flex; align-items: center; color: var(--muted); font-size: 13px; }
+.size > span { margin-right: 8px; }
+.size button { min-width: 36px; height: 30px; padding: 0 8px; border: 1px solid var(--line-strong); background: var(--surface); font-size: 13px; }
+.size button + button { margin-left: -1px; }
+.size button:first-of-type { border-radius: 8px 0 0 8px; }
+.size button:last-of-type { border-radius: 0 8px 8px 0; }
+.size button[aria-pressed="true"] { position: relative; background: var(--accent-bg); border-color: var(--accent); color: var(--accent); font-weight: 700; }
+.size button:focus-visible { position: relative; z-index: 1; }
 
 /* Lists of requests and sessions */
 .rows { list-style: none; margin: 0; padding: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
 .rows > li + li { border-top: 1px solid var(--line); }
-.row-head { display: grid; align-items: center; gap: 12px; width: 100%; margin: 0; padding: 10px 14px; border: 0; background: none; text-align: left; }
+.row-head { display: grid; align-items: center; gap: 12px; width: 100%; margin: 0; padding: 10px 14px; border: 0; background: none; text-align: left; scroll-margin-top: 16px; }
 .request-head { grid-template-columns: 178px 82px minmax(0, 0.85fr) minmax(0, 2.4fr) 74px 66px; }
 .session-head { grid-template-columns: 132px 84px minmax(0, 1.9fr) minmax(0, 1.5fr) 96px; }
 .row-head:hover { background: var(--sunken); }
@@ -1492,7 +1614,7 @@ dl.facts dd { margin: 0; overflow-wrap: anywhere; }
 @media (max-width: 520px) { dl.facts { grid-template-columns: minmax(0, 1fr); gap: 0; } dl.facts dd { margin-bottom: 6px; } }
 .callout { background: var(--warn-bg); border-radius: 8px; padding: 8px 12px; }
 ol.timeline, ol.steps { list-style: none; padding: 0; margin: 6px 0; }
-ol.timeline > li, ol.steps > li { display: grid; grid-template-columns: 118px minmax(0, 1fr); gap: 2px 12px; padding: 6px 0; border-top: 1px solid var(--line); }
+ol.timeline > li, ol.steps > li { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 2px 12px; padding: 6px 0; border-top: 1px solid var(--line); }
 ol.timeline > li:first-child, ol.steps > li:first-child { border-top: 0; }
 .time { color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .what { font-weight: 600; margin-right: 8px; }
@@ -1502,8 +1624,10 @@ li.said .words { font-style: italic; }
 .detail { display: block; margin-top: 2px; font: 12px/1.45 var(--mono); color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; }
 @media (max-width: 520px) { ol.timeline > li, ol.steps > li { grid-template-columns: minmax(0, 1fr); } }
 .result { margin-top: 14px; padding-top: 2px; border-top: 1px solid var(--line); }
-table { border-collapse: collapse; width: 100%; margin: 6px 0; font-size: 13.5px; }
+/* A fixed first column: a long value without spaces wraps in its own column and leaves the name its words. */
+table { table-layout: fixed; border-collapse: collapse; width: 100%; margin: 6px 0; font-size: 13.5px; }
 th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--line); vertical-align: top; overflow-wrap: anywhere; }
+th:first-child, td:first-child { width: 36%; overflow-wrap: break-word; }
 th { color: var(--muted); font-weight: 600; }
 ul.files { margin: 4px 0; padding-left: 18px; }
 ul.files li { overflow-wrap: anywhere; }
@@ -1522,17 +1646,22 @@ footer.foot { margin: 28px 0 32px; padding-top: 12px; border-top: 1px solid var(
 const SCRIPT = String.raw`
 "use strict";
 const REQUEST_ID = /^CA-[0-9A-Z]{6}$/;
+const SESSION_REF = ${SESSION_REF};
 const PAGE_SIZES = [10, 25, 50];
 const STEP_PAGE = 50;
 const NOW_LINES = 4;
+const EXPIRED = ${JSON.stringify(EXPIRED)};
+// Where this tab keeps the search's words through a reload (the address does not hold them).
+const SEARCH_KEY = "doable-code-agent-search";
 const TABS = [["requests", "Requests"], ["sessions", "Sessions"], ["log", "Service log"]];
 // The serving session's state: the pill, its color, and what it means.
 const SERVING = {
   working: ["Working", "info", "It works on a request now."],
   "waiting for an answer": ["Waiting for an answer", "warn", "Its request waits for the asker's answer."],
   serving: ["Serving", "ok", "It runs and waits for Doable's requests."],
+  "cannot reach Doable": ["Cannot reach Doable", "bad", "Its waits for a request fail, so it gets no request. It tries again."],
   starting: ["Starting", "info", "The session started and has not waited for a request yet."],
-  "no log": ["No log yet", "muted", "No log yet: the serving session has not written anything on this computer. When it runs, its steps show here."],
+  "no log": ["No log yet", "muted", "The serving session has not written anything on this computer. When it runs, its steps show here."],
   "cannot start": ["Cannot start", "bad", "The session ended before it waited for a request, or wrote only errors."],
   "plan limit": ["Plan limit reached", "warn", "The session stopped at the plan limit. The start script starts a new session 5 minutes after one ends."],
   "between sessions": ["Between sessions", "muted", "The start script starts a new session 5 minutes after one ends, or 30 minutes after one that Doable asked for a plugin that this computer does not run."],
@@ -1566,6 +1695,7 @@ const STATUS = {
   "given back to the queue": ["Back in the queue", "muted", "other"],
   "taken by another machine": ["Another machine", "muted", "other"],
   expired: ["Expired", "muted", "other"],
+  [EXPIRED]: ["Probably expired", "muted", "other"],
 };
 const FILTERS = [
   ["all", "All", "Every request"],
@@ -1573,7 +1703,7 @@ const FILTERS = [
   ["done", "Done", "Done"],
   ["failed", "Failed", "Failed, timed out or lost"],
   ["declined", "Declined", "Declined"],
-  ["other", "Other", "Cancelled, left unfinished when its session ended, given back to the queue, taken by another machine, or expired"],
+  ["other", "Other", "Cancelled, left unfinished when its session ended, given back to the queue, taken by another machine, expired, or probably expired (no answer in 24 hours)"],
 ];
 const EVENT_LABEL = { taken: "The session took it", "taken again": "The session took it again", progress: "Progress",
   question: "Question to the asker", answer: "Answer from the asker", result: "Result sent",
@@ -1588,10 +1718,12 @@ const content = document.getElementById("content");
 const statusBox = document.getElementById("status");
 const title = document.getElementById("title");
 
-// Where the person is: the tab, and the place in each tab. The address keeps it (#requests&page=2).
+// Where the person is: the tab, and the place in each tab. The address keeps it (#requests&page=2), but not the search's
+// words (setSearch). The session is the id of the open session (SESSION_REF).
 const place = { tab: "requests", page: 1, size: 10, filter: "all", q: "", open: null, sessionsPage: 1, session: null, logPage: 1 };
-// The answers of the last reads.
-const got = { data: null, requests: new Map(), sessions: null, sessionDetails: new Map(), log: null };
+// The answers of the last reads. The search holds the words of the last search on the server and the ids that it found;
+// sessionsAsked says which page of the sessions the answer in sessions was asked for.
+const got = { data: null, requests: new Map(), sessions: null, sessionsAsked: null, sessionDetails: new Map(), log: null, search: null };
 // The texts, lists and folds that the person opened, and the page of each list of steps.
 const opened = new Set();
 const stepPages = new Map();
@@ -1608,17 +1740,21 @@ let logBox = null;
 let listBox = null;
 // Whether the page has rendered once: the first render shows the line that the address opened (after a reload).
 let rendered = false;
+// The day of the last render: a time of today shows no date, so the page renders again after midnight.
+let renderedDay = null;
 // The search box stays the same element, so that typing in it goes on while the page renders again.
 const search = el("input", "search");
 search.type = "search";
-search.placeholder = "Search the id, the asker or the text";
-search.setAttribute("aria-label", "Search the requests");
+search.placeholder = "Search";
+search.setAttribute("aria-label", "Search the requests by id, asker or text");
 search.addEventListener("input", () => {
-  place.q = search.value;
+  setSearch(search.value);
   place.page = 1;
   place.open = null;
   writePlace();
   renderList();
+  // The server searches the whole text of each request; the list here has only its start.
+  if (place.q.trim()) load();
 });
 
 function el(tag, className, text) {
@@ -1685,14 +1821,15 @@ function ago(iso) {
 function lasting(iso) {
   return "for " + span(Date.now() - Date.parse(iso));
 }
+// A time of today, or a day and a time, with the time zone: the Service log tab's times are UTC.
 function clock(iso) {
   if (!iso) return "";
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "";
   const today = new Date().toDateString() === date.toDateString();
   return today
-    ? date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" })
-    : date.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    ? date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit", timeZoneName: "short" })
+    : date.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", timeZoneName: "short" });
 }
 // A time that the page writes again each second.
 function liveTime(iso, format, className) {
@@ -1720,12 +1857,24 @@ function statusPill(status) {
   const [label, tone] = statusOf(status);
   return pill(label, tone, status);
 }
-function link(url, text) {
+function link(url, text, key) {
   if (typeof url !== "string" || !/^https?:\/\//i.test(url)) return null;
-  const node = el("a", null, text);
+  const node = focusable(el("a", null, text), key);
   node.href = url;
   node.target = "_blank";
   node.rel = "noopener noreferrer";
+  return node;
+}
+// A text in which each request id is one piece: it does not break at the id's hyphen.
+function withIds(tag, className, text) {
+  const node = el(tag, className);
+  let at = 0;
+  for (const match of text.matchAll(/CA-[0-9A-Z]{6}/g)) {
+    if (match.index > at) add(node, el("span", null, text.slice(at, match.index)));
+    add(node, el("span", "nowrap", match[0]));
+    at = match.index + match[0].length;
+  }
+  if (at < text.length) add(node, el("span", null, text.slice(at)));
   return node;
 }
 function firstLine(text) {
@@ -1743,7 +1892,7 @@ function askerWords(request) {
     let words = "Asked from a Doable chat";
     if (request.suite) words += " of the suite “" + request.suite + "”";
     if (request.environment) words += ", environment “" + request.environment + "”";
-    add(box, el("span", null, words + ". "), link(request.chatUrl, "Open the chat"));
+    add(box, el("span", null, words + ". "), link(request.chatUrl, "Open the chat", "chat:" + request.id));
   } else if (request.askedBy === "claude_code") {
     add(box, el("span", null, request.askedByUser ? "Asked by " + request.askedByUser + " from their Claude Code." : "Asked from a person's Claude Code with an organization API key, which names no person."));
   } else add(box, el("span", "muted", "The asker is not in the logs."));
@@ -1768,7 +1917,7 @@ function flip(key) {
 }
 function folded(key, summary, body) {
   const box = el("details", "fold");
-  add(box, el("summary", null, summary), body);
+  add(box, focusable(el("summary", null, summary), "fold:" + key), body);
   box.open = opened.has(key);
   box.addEventListener("toggle", () => {
     if (box.open) opened.add(key);
@@ -1830,8 +1979,29 @@ function pager(total, page, size, goTo, label, key) {
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
-// The address: #requests&page=2&size=25&filter=done&q=login&open=CA-AB12CD, #sessions&page=1&open=7, #log&page=2
+// The address: #requests&page=2&size=25&filter=done&open=CA-AB12CD, #sessions&page=1&open=<a session's id>, #log&page=2
 // ---------------------------------------------------------------------------------------------------------------------
+
+// The search's words stay out of the address: the browser's history would keep each word that the person types. This
+// tab's session storage keeps them through a reload.
+function setSearch(q) {
+  place.q = q;
+  if (search.value !== q) search.value = q;
+  try {
+    if (q) window.sessionStorage.setItem(SEARCH_KEY, q);
+    else window.sessionStorage.removeItem(SEARCH_KEY);
+  } catch {
+    // A browser that refuses the storage (a private window, blocked site data): the search lasts until a reload.
+  }
+}
+function storedSearch() {
+  try {
+    return window.sessionStorage.getItem(SEARCH_KEY) || "";
+  } catch {
+    // The same refusal: a reload starts with no search.
+    return "";
+  }
+}
 function decoded(value) {
   try {
     return decodeURIComponent(value);
@@ -1852,16 +2022,16 @@ function readPlace() {
     if (at > 0) values[part.slice(0, at)] = decoded(part.slice(at + 1));
   }
   place.tab = TABS.some(([key]) => key === tab) ? tab : "requests";
-  place.size = PAGE_SIZES.includes(Number(values.size)) ? Number(values.size) : 10;
+  // The size of a page changes only with an address that holds one.
+  if (PAGE_SIZES.includes(Number(values.size))) place.size = Number(values.size);
+  setSearch(storedSearch());
   if (place.tab === "requests") {
     place.page = wholeNumber(values.page, 1);
     place.filter = FILTERS.some(([key]) => key === values.filter) ? values.filter : "all";
-    place.q = values.q || "";
-    search.value = place.q;
     place.open = REQUEST_ID.test(values.open || "") ? values.open : null;
   } else if (place.tab === "sessions") {
     place.sessionsPage = wholeNumber(values.page, 1);
-    place.session = wholeNumber(values.open, null);
+    place.session = SESSION_REF.test(values.open || "") ? values.open : null;
   } else place.logPage = wholeNumber(values.page, 1);
 }
 function writePlace() {
@@ -1873,13 +2043,15 @@ function writePlace() {
     put("page", place.page, 1);
     put("size", place.size, 10);
     put("filter", place.filter, "all");
-    put("q", place.q, "");
     put("open", place.open, null);
   } else if (place.tab === "sessions") {
     put("page", place.sessionsPage, 1);
     put("size", place.size, 10);
     put("open", place.session, null);
-  } else put("page", place.logPage, 1);
+  } else {
+    put("page", place.logPage, 1);
+    put("size", place.size, 10);
+  }
   window.history.replaceState(null, "", "#" + parts.join("&"));
 }
 // A change of place: the page renders at once from what it has, then reads the part that the person opened.
@@ -1889,17 +2061,15 @@ function go(change, focusKey) {
   render(focusKey);
   load();
 }
-// Opens a request's line in the Requests tab, on the page that holds it, from the "Needs attention" part or "Now".
+// Opens a request's line in the Requests tab, from the "Needs attention" part or "Now". The list shows the page that
+// holds the open line (fillList).
 function openRequest(id) {
-  let rows = matching(got.data.requests);
-  if (!rows.some((row) => row.id === id)) {
+  const row = got.data.requests.find((item) => item.id === id);
+  if (row && !matches(row)) {
     place.filter = "all";
-    place.q = "";
-    search.value = "";
-    rows = got.data.requests;
+    setSearch("");
   }
-  const at = rows.findIndex((row) => row.id === id);
-  go({ tab: "requests", open: id, page: Math.floor(Math.max(0, at) / place.size) + 1 }, "row:" + id);
+  go({ tab: "requests", open: id }, "row:" + id);
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -1951,8 +2121,14 @@ function renderHeader(data) {
 function needItem(key, tone, heading, action) {
   const box = anchor(el("div", "alert" + (tone === "bad" ? " bad" : "")), key);
   attr(box, "role", "group");
-  add(box, add(el("div", "alert-head"), el("h3", null, heading), action));
+  add(box, add(el("div", "alert-head"), withIds("h3", null, heading), action));
   return box;
+}
+// The lines of failed calls: the time, what the call was, and Doable's words.
+function failedList(calls) {
+  const list = el("ul");
+  for (const call of calls) add(list, add(el("li"), timeOf(call.at), el("span", null, " The " + (WHAT[call.what] || call.what) + ": "), el("span", "words", call.text)));
+  return list;
 }
 function openButton(id) {
   return button("button", "Open " + id, () => openRequest(id), "open:" + id);
@@ -1976,6 +2152,15 @@ function renderAttention(data) {
     else add(box, el("p", "note", "Its output has no line that says why. The Service log tab shows what the start script saw."));
     items.push(box);
   }
+  if (session && session.running && session.failedWaits > 0) {
+    // The waits that failed since the last one that worked are the newest waits in the session's failed calls.
+    const waits = session.failedCalls.filter((call) => call.what === "wait for a request").slice(-Math.min(3, session.failedWaits));
+    const box = needItem("attention:waits", "bad", "The session cannot reach Doable");
+    add(box, el("p", null, count(session.failedWaits, "wait for a request has", "waits for a request have") + " failed since the last one that worked. The session tries again, and it gets no request until a wait works."));
+    if (waits.length) add(box, failedList(waits));
+    if (session.failedWaits > waits.length) add(box, el("p", "note", "The Sessions tab shows up to 20 failed calls of the session."));
+    items.push(box);
+  }
   for (const row of data.requests) {
     if (!row.status.startsWith("waiting for an answer")) continue;
     const box = needItem("attention:" + row.id, "warn", row.id + " waits for an answer", openButton(row.id));
@@ -1995,10 +2180,7 @@ function renderAttention(data) {
     const refused = request.events.filter((event) => event.kind === "refused");
     if (!refused.length) continue;
     const box = needItem("attention:refused:" + request.id, "bad", "Doable did not take " + count(refused.length, "call", "calls") + " of " + request.id, openButton(request.id));
-    const list = add(box, el("ul")).lastChild;
-    for (const event of refused.slice(-3)) {
-      add(list, add(el("li"), timeOf(event.at), el("span", null, " The " + (WHAT[event.what] || event.what) + ": "), el("span", "words", event.text)));
-    }
+    add(box, failedList(refused.slice(-3)));
     if (refused.length > 3) add(box, el("p", "note", count(refused.length - 3, "earlier one is", "earlier ones are") + " in its details."));
     items.push(box);
   }
@@ -2045,19 +2227,30 @@ function eventItem(event) {
   if (event.text) add(body, event.kind === "question" || event.kind === "answer" ? el("span", "bubble", event.text) : el("span", "words", event.text));
   return item;
 }
+// The request's last question and the answer that came after it, if any.
+function questionAndAnswer(events) {
+  const at = events.findLastIndex((event) => event.kind === "question");
+  if (at < 0) return [];
+  const answer = events.slice(at + 1).find((event) => event.kind === "answer");
+  return answer ? [events[at], answer] : [events[at]];
+}
 function nowCard(request) {
   const card = anchor(el("article", "card now-card"), "now:" + request.id);
-  add(card, add(el("div", "card-head"), statusPill(request.status), el("strong", "mono", request.id), el("span", "muted", askerShort(request)),
+  add(card, add(el("div", "card-head"), statusPill(request.status), el("strong", "mono nowrap", request.id), el("span", "muted", askerShort(request)),
     request.servedAt ? liveTime(request.servedAt, lasting, "muted") : null, el("span", "grow"),
     button("button", "Details", () => openRequest(request.id), "details:" + request.id)));
   if (request.text) add(card, clamped("now-text:" + request.id, request.text, "text", 3));
+  // The question and its answer stay in view; the newest lines of the rest come under them.
+  const asked = questionAndAnswer(request.events);
+  if (asked.length) add(card, el("h4", null, asked.length > 1 ? "Question and answer" : "Question"), add(el("ol", "timeline"), ...asked.map(eventItem)));
+  const others = request.events.filter((event) => !asked.includes(event));
   const key = "now-lines:" + request.id;
   const all = opened.has(key);
-  const events = all ? request.events : request.events.slice(-NOW_LINES);
+  const events = all ? others : others.slice(-NOW_LINES);
   if (events.length) {
     add(card, el("h4", null, "Latest lines"));
     add(card, add(el("ol", "timeline"), ...events.map(eventItem)));
-    if (request.events.length > NOW_LINES) add(card, attr(button("more", all ? "Show the newest " + NOW_LINES : "Show all " + request.events.length + " lines", () => flip(key), "more:" + key), "aria-expanded", all));
+    if (others.length > NOW_LINES) add(card, attr(button("more", all ? "Show the newest " + NOW_LINES : "Show all " + others.length + " lines", () => flip(key), "more:" + key), "aria-expanded", all));
   }
   if (request.steps.length) {
     add(card, el("h4", null, "Latest steps (" + count(request.stepCount, "step", "steps") + " in all)"));
@@ -2070,11 +2263,16 @@ function renderNow(data) {
   add(box, el("h2", "section-title", "Now"));
   if (data.now.length) return add(box, ...data.now.map(nowCard));
   const idle = add(box, el("p", "idle")).lastChild;
-  if (data.serving.state === "waiting for an answer") add(idle, el("span", null, "No request in progress: " + data.serving.requestId + " waits for its answer."));
+  if (data.serving.state === "waiting for an answer") add(idle, withIds("span", null, "No request in progress: " + data.serving.requestId + " waits for its answer."));
   else if (data.serving.state === "serving") {
     add(idle, el("span", null, "No request in progress: the session waits for Doable's next request."));
-    const last = data.requests.find((row) => row.finishedAt);
-    if (last) add(idle, el("span", null, " The last one, " + last.id + ", ended "), liveTime(last.finishedAt, ago), el("span", null, "."));
+    // The request that ended last. The list is in the order in which the logs first name each request, and the session
+    // can end a request that it took earlier after a later one (its answer came later).
+    const ended = data.requests.filter((row) => row.finishedAt && row.status !== EXPIRED);
+    const last = ended.reduce((a, b) => (Date.parse(b.finishedAt) > Date.parse(a.finishedAt) ? b : a), ended[0]);
+    if (last) add(idle, el("span", null, " The last one, "), el("span", "nowrap", last.id), el("span", null, ", ended "), liveTime(last.finishedAt, ago), el("span", null, "."));
+  } else if (data.serving.state === "cannot reach Doable") {
+    add(idle, el("span", null, "No request in progress: the session's waits for a request fail (“Needs attention” shows why)."));
   } else add(idle, el("span", null, "No request in progress."));
   return box;
 }
@@ -2102,10 +2300,18 @@ function renderPanel(data) {
 }
 
 // The Requests tab: the filter, the search, the size of a page, the rows of this page and the pages.
-function matching(rows) {
+// Whether a row has the chosen status and the search's words: in its id or its asker, or in its text. The list holds
+// only the start of each text: the server's answer (/search.json) says which whole texts hold the words.
+function matches(row) {
+  if (place.filter !== "all" && statusOf(row.status)[2] !== place.filter) return false;
   const words = place.q.trim().toLowerCase();
-  return rows.filter((row) => (place.filter === "all" || statusOf(row.status)[2] === place.filter) &&
-    (!words || [row.id, askerShort(row), row.text].some((value) => value && value.toLowerCase().includes(words))));
+  if (!words) return true;
+  if ([row.id, askerShort(row), row.text].some((value) => value && value.toLowerCase().includes(words))) return true;
+  return got.search !== null && got.search.words === words && got.search.ids.has(row.id);
+}
+// The rows to list. The open row stays when it no longer matches (its status changed): the person reads it.
+function matching(rows) {
+  return rows.filter((row) => row.id === place.open || matches(row));
 }
 function renderRequests(data) {
   const box = el("div");
@@ -2125,17 +2331,15 @@ function renderRequests(data) {
   fillList(data);
   return box;
 }
+// The size of a page: three buttons, not a list that opens. A render every 5 seconds would close an open list.
 function sizeChoice() {
-  const label = add(el("label", "size"), el("span", null, "Rows"));
-  const choice = el("select");
+  const box = attr(attr(el("div", "size"), "role", "group"), "aria-label", "Rows on a page");
+  add(box, el("span", null, "Rows"));
   for (const size of PAGE_SIZES) {
-    const option = el("option", null, String(size));
-    option.value = String(size);
-    option.selected = size === place.size;
-    add(choice, option);
+    const choice = attr(button(null, String(size), () => go({ size, page: 1, sessionsPage: 1 }, "size:" + size), "size:" + size), "aria-pressed", size === place.size);
+    add(box, choice);
   }
-  choice.addEventListener("change", () => go({ size: Number(choice.value), page: 1, sessionsPage: 1 }, "size"));
-  return add(label, focusable(choice, "size"));
+  return box;
 }
 function renderList() {
   if (!listBox || !got.data) return;
@@ -2146,13 +2350,20 @@ function fillList(data) {
   const rows = matching(data.requests);
   if (!rows.length) {
     listBox.replaceChildren(el("p", "empty", "No request matches the filter and the search."), button("button", "Show all requests", () => {
-      search.value = "";
-      go({ filter: "all", q: "", page: 1 }, "search");
+      setSearch("");
+      go({ filter: "all", page: 1 }, "search");
     }, "show-all"));
     return;
   }
   const pages = Math.max(1, Math.ceil(rows.length / place.size));
-  const page = Math.min(place.page, pages);
+  // The page that holds the open row: a new request moves each row down by one, and the open row can move to the next
+  // page. The address follows.
+  const at = place.open ? rows.findIndex((row) => row.id === place.open) : -1;
+  const page = at >= 0 ? Math.floor(at / place.size) + 1 : Math.min(place.page, pages);
+  if (page !== place.page) {
+    place.page = page;
+    writePlace();
+  }
   const list = el("ol", "rows");
   for (const row of rows.slice((page - 1) * place.size, page * place.size)) add(list, requestLine(row));
   listBox.replaceChildren(list, pager(rows.length, page, place.size, (to) => go({ page: to, open: null }, "requests-pages:" + to), "Pages of requests", "requests-pages"));
@@ -2170,17 +2381,22 @@ function requestLine(row) {
   attr(attr(head, "aria-expanded", open), "aria-controls", "detail-" + row.id);
   const text = cell("c-text", firstLine(row.text));
   text.title = row.text || "";
+  const asker = cell("c-asker", askerShort(row));
+  asker.title = askerShort(row);
   const came = row.askedAt || row.takenAt;
   let took = "";
-  if (row.finishedAt && row.takenAt) took = span(Date.parse(row.finishedAt) - Date.parse(row.takenAt));
-  add(head, cell("c-status", statusPill(row.status)), cell("c-id", row.id), cell("c-asker", askerShort(row)), text,
+  if (row.finishedAt && row.takenAt && row.status !== EXPIRED) took = span(Date.parse(row.finishedAt) - Date.parse(row.takenAt));
+  // The time counts on only while a session holds the request.
+  const held = !row.finishedAt && row.servedAt && (row.status === "working" || row.status === "waiting for an answer");
+  add(head, cell("c-status", statusPill(row.status)), cell("c-id", row.id), asker, text,
     cell("c-when", came ? liveTime(came, ago) : "—"),
-    cell("c-took", took || (row.servedAt && !row.finishedAt ? liveTime(row.servedAt, (iso) => span(Date.now() - Date.parse(iso))) : "")));
-  head.lastChild.title = took ? "From the time the session took it to its end" : "";
+    cell("c-took", took || (held ? liveTime(row.servedAt, (iso) => span(Date.now() - Date.parse(iso))) : "")));
+  head.lastChild.title = took ? "From the time the session took it to its end" : held ? "Since the session took it" : "";
   add(item, head);
   if (open) {
     const body = el("div", "row-body");
     body.id = "detail-" + row.id;
+    if (!matches(row)) add(body, el("p", "note", "It no longer matches the chosen status or the search. It stays in the list while it is open."));
     add(item, add(body, requestDetail(row.id)));
   }
   return item;
@@ -2229,9 +2445,13 @@ function requestDetail(id) {
   if (!request) return el("p", "muted", "Reading the request…");
   if (request.missing) return el("p", "muted", request.missing);
   const box = el("div");
-  let took = null;
-  if (request.finishedAt && request.takenAt) took = span(Date.parse(request.finishedAt) - Date.parse(request.takenAt));
-  else if (request.servedAt && !request.finishedAt) took = liveTime(request.servedAt, lasting);
+  // How long it took, or how long it works or waits now. A time counts on only while a session holds the request.
+  let time = [null, null];
+  if (request.status === EXPIRED) time = ["Doable's wait for the answer ended", when(request.finishedAt)];
+  else if (request.finishedAt && request.takenAt) time = ["Took", span(Date.parse(request.finishedAt) - Date.parse(request.takenAt))];
+  else if (request.status === "working" && request.servedAt) time = ["Working", liveTime(request.servedAt, lasting)];
+  else if (request.status === "waiting for an answer" && (request.questionAt || request.servedAt)) time = ["Waiting for the answer", liveTime(request.questionAt || request.servedAt, lasting)];
+  else if (request.questionAt) time = ["Question asked", when(request.questionAt)];
   add(box, facts([
     // The pill, and the status's own words when the pill says less (left when its session ended).
     ["Status", add(el("span"), statusPill(request.status), statusOf(request.status)[0].toLowerCase() === request.status ? null : el("span", null, " " + request.status))],
@@ -2239,7 +2459,7 @@ function requestDetail(id) {
     ["Organization", request.organization],
     ["Asked", request.askedAt ? when(request.askedAt) : "not in the logs"],
     ["Taken", request.takenAt ? when(request.takenAt) : null],
-    [request.finishedAt ? "Took" : "Working", took],
+    time,
   ]));
   if (request.note) add(box, el("p", "callout", request.note));
   if (request.text) add(box, el("h4", null, "Request"), clamped("text:" + id, request.text, "text", 6));
@@ -2289,24 +2509,25 @@ function failedCalls(session) {
   }
   return box;
 }
-function sessionDetail(n) {
-  const session = got.sessionDetails.get(n);
+function sessionDetail(ref) {
+  const session = got.sessionDetails.get(ref);
   if (!session) return el("p", "muted", "Reading the session…");
   if (session.missing) return el("p", "muted", session.missing);
   const box = add(el("div"), sessionFacts(session));
   if (session.running && got.data.service.state === "on") add(box, el("p", "note", "It runs now."));
   add(box, failedCalls(session));
   if (session.steps.length) {
-    const key = "own:" + n;
+    const key = "own:" + ref;
     add(box, folded(key, "What it did outside a request (" + count(session.steps.length, "step", "steps") + ")", pagedSteps(key, session.steps, session.stepsLeftOut)));
   }
   return box;
 }
+// A session's line. Its id (ref) names it in the address and in the reads; its number in the logs only shows.
 function sessionLine(session) {
-  const open = place.session === session.n;
-  const item = anchor(el("li", "row" + (open ? " open" : "")), "session:" + session.n);
-  const head = button("row-head session-head", null, () => go({ session: open ? null : session.n }, "session:" + session.n), "session:" + session.n);
-  attr(attr(head, "aria-expanded", open), "aria-controls", "session-" + session.n);
+  const open = place.session === session.ref;
+  const item = anchor(el("li", "row" + (open ? " open" : "")), "session:" + session.ref);
+  const head = button("row-head session-head", null, () => go({ session: open ? null : session.ref }, "session:" + session.ref), "session:" + session.ref);
+  attr(attr(head, "aria-expanded", open), "aria-controls", "session-" + session.ref);
   const [label, tone] = sessionTone(session);
   const time = cell("c-time", (session.startKnown ? clock(session.startedAt) : "before " + clock(session.startedAt)) + " → " + (session.running ? "now" : clock(session.endedAt)) +
     (session.startedAt && (session.endedAt || session.running) ? " (" + span((session.running ? Date.now() : Date.parse(session.endedAt)) - Date.parse(session.startedAt)) + ")" : ""));
@@ -2316,10 +2537,14 @@ function sessionLine(session) {
   add(item, head);
   if (open) {
     const body = el("div", "row-body");
-    body.id = "session-" + session.n;
-    add(item, add(body, sessionDetail(session.n)));
+    body.id = "session-" + session.ref;
+    add(item, add(body, sessionDetail(session.ref)));
   }
   return item;
+}
+// What the page asks /sessions.json for: the page, its size and the open session.
+function sessionsAsk() {
+  return "/sessions.json?page=" + place.sessionsPage + "&size=" + place.size + (place.session ? "&open=" + encodeURIComponent(place.session) : "");
 }
 function renderSessions(data) {
   const box = el("div");
@@ -2327,6 +2552,12 @@ function renderSessions(data) {
   const page = got.sessions;
   if (!page) return add(box, el("p", "muted", "Reading the sessions…"));
   if (page.missing) return add(box, el("p", "muted", page.missing));
+  // The page that the server gave for this ask: the one that holds the open session (newer sessions move it to a later
+  // page), or the last page for a page after it. The address follows.
+  if (got.sessionsAsked === sessionsAsk() && page.page !== place.sessionsPage) {
+    place.sessionsPage = page.page;
+    writePlace();
+  }
   add(box, el("p", "note", "Newest first. After hours of restarts (for example at a plan limit) they are many."));
   add(box, add(el("ol", "rows"), ...page.sessions.map(sessionLine)));
   add(box, pager(page.total, page.page, page.size, (to) => go({ sessionsPage: to, session: null }, "sessions-pages:" + to), "Pages of sessions", "sessions-pages"));
@@ -2346,13 +2577,13 @@ function otherOutput(lines) {
 function renderLog(data) {
   const box = el("div");
   if (SELF_UPDATE[data.service.selfUpdate]) add(box, el("p", "note", SELF_UPDATE[data.service.selfUpdate]));
-  add(box, el("h4", null, "The service's log"));
+  add(box, el("h4", null, "The service's log (its times are UTC)"));
   const page = got.log;
   if (!page) add(box, el("p", "muted", "Reading the log…"));
   else if (page.missing) add(box, el("p", "muted", page.missing));
   else if (!page.total) add(box, el("p", "muted", "No line yet."));
   else {
-    logBox = attr(attr(el("pre", "log", page.lines.join("\n")), "tabindex", 0), "aria-label", "The service's log");
+    logBox = focusable(attr(attr(el("pre", "log", page.lines.join("\n")), "tabindex", 0), "aria-label", "The service's log"), "log:box");
     add(box, logBox);
     const nav = attr(el("nav", "pager"), "aria-label", "Pages of the log");
     const older = button(null, "Older lines", () => go({ logPage: page.page + 1 }, "log:older"), "log:older");
@@ -2397,6 +2628,7 @@ function render(focusKey) {
   focusables = new Map();
   logBox = null;
   listBox = null;
+  renderedDay = new Date().toDateString();
   renderHeader(data);
   content.replaceChildren(...[renderAttention(data), renderNow(data), renderTabs(data), renderPanel(data)].filter(Boolean));
   // The log shows its newest lines, unless the person scrolled up in it.
@@ -2430,9 +2662,14 @@ function showUpdated() {
   updated.textContent = ms < 2000 ? "Updated now" : "Updated " + span(ms) + " ago";
   updated.title = "The page reads the logs again every 5 seconds.";
 }
-// Each second: the time since the last read, and each time on the page that counts.
+// Each second: the time since the last read, and each time on the page that counts. After midnight, the whole page
+// again: a time of today shows no date, and yesterday's times need theirs.
 function tick() {
   showUpdated();
+  if (renderedDay !== null && renderedDay !== new Date().toDateString() && !selecting()) {
+    render();
+    return;
+  }
   for (const [node, iso, format] of live) node.textContent = format(iso);
 }
 // The reads of the parts that the person opened, besides /data.json, each with where its answer goes.
@@ -2440,9 +2677,17 @@ function wanted() {
   const list = [];
   const keep = (map, key) => (answer) => map.set(key, answer);
   if (place.tab === "requests" && place.open) list.push(["/request.json?id=" + encodeURIComponent(place.open), keep(got.requests, place.open)]);
+  const words = place.q.trim();
+  if (place.tab === "requests" && words) {
+    list.push(["/search.json?q=" + encodeURIComponent(words), (answer) => (got.search = { words: words.toLowerCase(), ids: new Set(answer.ids || []) })]);
+  }
   if (place.tab === "sessions") {
-    list.push(["/sessions.json?page=" + place.sessionsPage + "&size=" + place.size, (answer) => (got.sessions = answer)]);
-    if (place.session) list.push(["/session.json?n=" + place.session, keep(got.sessionDetails, place.session)]);
+    const ask = sessionsAsk();
+    list.push([ask, (answer) => {
+      got.sessions = answer;
+      got.sessionsAsked = ask;
+    }]);
+    if (place.session) list.push(["/session.json?id=" + encodeURIComponent(place.session), keep(got.sessionDetails, place.session)]);
   }
   if (place.tab === "log") list.push(["/log.json?page=" + place.logPage, (answer) => (got.log = answer)]);
   return list;

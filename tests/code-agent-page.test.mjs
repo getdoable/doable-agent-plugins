@@ -54,8 +54,15 @@ const USER_SCOPED = "mcp__doable__";
 const MODEL = "claude-opus-5-5";
 const CHAT_URL = "https://app.getdoable.ai/org/acme/suites/ts-kfpwqzra/chat/0199c1a2-7b1e-7c55-9c0f-3c1d5a6f2b90";
 // The routes of the page's data, and a path of each that the server answers.
-const DATA_PATHS = ["/data.json", "/request.json?id=CA-AAAAA1", "/sessions.json?page=1&size=10", "/session.json?n=1", "/log.json?page=1"];
-const NOT_FOUND = "Not found. This page has only /, /data.json, /request.json, /sessions.json, /session.json and /log.json.\n";
+const DATA_PATHS = ["/data.json", "/request.json?id=CA-AAAAA1", "/sessions.json?page=1&size=10&open=s-1", "/session.json?id=s-1", "/log.json?page=1", "/search.json?q=login"];
+const NOT_FOUND = "Not found. This page has only /, /data.json, /request.json, /sessions.json, /session.json, /log.json and /search.json.\n";
+const SESSIONS_TAKES = "/sessions.json takes page, a whole number from 1, size: 10, 25 or 50, and open, the id of a session: 1 to 100 letters, digits, '.', '_' or '-'.";
+const SESSION_TAKES = "/session.json takes id, the id of a session: 1 to 100 letters, digits, '.', '_' or '-'.";
+const SEARCH_TAKES = "/search.json takes q, the words to search for: 1 to 200 characters.";
+// The time of the page's server in the tests: three hours after the logs' first times, so that no question that waits
+// is 24 hours old. A test of that age gives its own clock.
+const CLOCK = () => Date.parse("2026-11-25T12:00:00.000Z");
+const HOUR = 60 * 60 * 1000;
 // Doable's ask for a newer plugin, in the answer of a wait for a request.
 const ASK =
   "Doable needs the plugin 0.6.4 on this machine. End the session now, and call no other tool. An Always on service updates the plugin and starts the session again.";
@@ -250,15 +257,15 @@ function turnOn(t, m) {
 }
 
 // /data.json of the machine's page.
-function summaryOf(m) {
-  return JSON.parse(new PageData({ machine: m.name, env: m.env }).json());
+function summaryOf(m, now = CLOCK) {
+  return JSON.parse(new PageData({ machine: m.name, env: m.env, now }).json());
 }
 
 // Every route's answer for the machine's page: /data.json (summary), /request.json of each request (newest first),
 // /session.json of each session (current: the newest; earlier: the others, newest first), the lines of /log.json's
 // first page, and the text of all these answers.
-function routes(m) {
-  const page = new PageData({ machine: m.name, env: m.env });
+function routes(m, now = CLOCK) {
+  const page = new PageData({ machine: m.name, env: m.env, now });
   const texts = [page.json(), page.sessionsJson(1, 50), page.logJson(1)];
   const summary = JSON.parse(texts[0]);
   const requests = summary.requests.map((row) => {
@@ -266,8 +273,8 @@ function routes(m) {
     return JSON.parse(texts.at(-1));
   });
   const sessions = [];
-  for (let n = 1; n <= summary.sessionCount; n += 1) {
-    texts.push(page.sessionJson(n));
+  for (const { ref } of JSON.parse(texts[1]).sessions.reverse()) {
+    texts.push(page.sessionJson(ref));
     sessions.push(JSON.parse(texts.at(-1)));
   }
   return {
@@ -461,8 +468,8 @@ test("/data.json gives one short line of each request, the request in progress w
 
   const [working, done] = summary.requests;
   assert.deepEqual(Object.keys(done).sort(), [
-    "askedAt", "askedBy", "askedByUser", "environment", "finishedAt", "id", "organization", "outcome", "question", "refused", "servedAt",
-    "status", "stepCount", "suite", "takenAt", "text",
+    "askedAt", "askedBy", "askedByUser", "environment", "finishedAt", "id", "organization", "outcome", "question", "questionAt", "refused",
+    "servedAt", "status", "stepCount", "suite", "takenAt", "text",
   ]);
   assert.equal(done.text, `${long.slice(0, 300)}…`);
   assert.equal(done.stepCount, 40);
@@ -748,7 +755,7 @@ test("the page shows that no log and no request is there yet", (t) => {
 // The session's state in the header, Doable's ask, and the files that a result names
 // ---------------------------------------------------------------------------------------------------------------------
 
-test("the header's state says what the session does now: working on a request, waiting for an answer, serving, starting, cannot start, at the plan limit, between sessions, stopped or not running", (t) => {
+test("the header's state says what the session does now: working on a request, waiting for an answer, serving, cannot reach Doable, starting, cannot start, at the plan limit, between sessions, stopped or not running", (t) => {
   const stateOf = (text, { on = true, serviceLog = null, stopped = false } = {}) => {
     const m = machine(t);
     if (on) turnOn(t, m);
@@ -774,13 +781,20 @@ test("the header's state says what the session does now: working on a request, w
   assert.deepEqual(stateOf("Invalid API key · Please run /login\n"), { state: "cannot start", requestId: null, lines: ["Invalid API key · Please run /login"] });
   const noWait = new Log().init("s-1").call("Skill", { skill: "doable-code-context:doable-code-agent" }, "Launching skill").end("error_during_execution", "No Doable tool.", true);
   assert.deepEqual(stateOf(noWait.text()), { state: "cannot start", requestId: null });
-  // A start of the start script after the newest session's last event, and errors after it: the new start wrote no event.
+  // A start of the start script after the newest session's last event, then its end, and errors after the last event:
+  // the new start wrote no event before it ended.
   const ended = done().end("success", "Served.", false);
+  const restart = ["2026-11-25T09:00:00Z the serving session starts", "2026-11-25T09:00:30Z the serving session ended with code 0", "2026-11-25T09:05:30Z the serving session starts"];
+  assert.deepEqual(stateOf(`${ended.text()}error: unknown option '--chrome'\n`, { serviceLog: [...restart, "2026-11-25T09:05:31Z the serving session ended with code 1"] }), {
+    state: "cannot start",
+    requestId: null,
+    lines: ["error: unknown option '--chrome'"],
+  });
+  // Contrast: with no end after that start, the new session can still be connecting, and the output before the start
+  // line can be the earlier session's own: it starts.
   assert.deepEqual(
-    stateOf(`${ended.text()}error: unknown option '--chrome'\n`, {
-      serviceLog: ["2026-11-25T09:00:00Z the serving session starts", "2026-11-25T09:00:30Z the serving session ended with code 0", "2026-11-25T09:05:30Z the serving session starts"],
-    }),
-    { state: "cannot start", requestId: null, lines: ["error: unknown option '--chrome'"] },
+    stateOf(`${ended.text()}Error: MCP server "doable" closed the connection\n`, { serviceLog: restart }),
+    { state: "starting", requestId: null },
   );
   // Contrast: the same start before the session's events is the session's own start.
   assert.deepEqual(
@@ -789,6 +803,12 @@ test("the header's state says what the session does now: working on a request, w
     }),
     { state: "between sessions", requestId: null },
   );
+  // Each wait for a request fails: the session cannot reach Doable, also when no wait ever worked. One wait that works
+  // makes it serve again.
+  const failing = (log) => log.call(`${PLUGIN}wait_for_code_agent_request`, { wait_seconds: 290 }, "doable_server_error: 503 Service Unavailable", { isError: true });
+  assert.deepEqual(stateOf(failing(failing(done().wait(null))).text()), { state: "cannot reach Doable", requestId: null });
+  assert.deepEqual(stateOf(failing(new Log().init("s-1")).bash("Wait before the next call", "sleep 20").text()), { state: "cannot reach Doable", requestId: null });
+  assert.deepEqual(stateOf(failing(failing(done())).wait(null).text()), { state: "serving", requestId: null });
   const limit = new Log().init("s-1").wait(null).quiet("rejected").end("success", "Claude AI usage limit reached|1795881600", true);
   assert.deepEqual(stateOf(limit.text()), { state: "plan limit", requestId: null });
   assert.deepEqual(stateOf(sixRequests().text(), { stopped: true }), { state: "stopped", requestId: null });
@@ -866,8 +886,8 @@ function get(port, path, { host = `127.0.0.1:${port}`, method = "GET" } = {}) {
   });
 }
 
-async function serve(t, m) {
-  const server = await startPageServer({ machine: m.name, env: m.env, port: 0 });
+async function serve(t, m, now = CLOCK) {
+  const server = await startPageServer({ machine: m.name, env: m.env, port: 0, now });
   t.after(() => server.close());
   return server.address().port;
 }
@@ -925,13 +945,20 @@ test("the server takes only GET of its routes, and refuses a path that is no rou
   const refused = {
     "/?x=1": "/ takes no parameter.\n",
     "/data.json?x=1": "/data.json takes no parameter.\n",
-    "/sessions.json?page=0": "/sessions.json takes page, a whole number from 1, and size: 10, 25 or 50.\n",
-    "/sessions.json?size=7": "/sessions.json takes page, a whole number from 1, and size: 10, 25 or 50.\n",
-    "/sessions.json?page=1&page=2": "/sessions.json takes page, a whole number from 1, and size: 10, 25 or 50.\n",
-    "/session.json": "/session.json takes n, the number of a session: a whole number from 1.\n",
-    "/session.json?n=-1": "/session.json takes n, the number of a session: a whole number from 1.\n",
+    "/sessions.json?page=0": `${SESSIONS_TAKES}\n`,
+    "/sessions.json?size=7": `${SESSIONS_TAKES}\n`,
+    "/sessions.json?page=1&page=2": `${SESSIONS_TAKES}\n`,
+    "/sessions.json?open=../x": `${SESSIONS_TAKES}\n`,
+    "/session.json": `${SESSION_TAKES}\n`,
+    "/session.json?n=1": `${SESSION_TAKES}\n`,
+    "/session.json?id=": `${SESSION_TAKES}\n`,
+    "/session.json?id=s%201": `${SESSION_TAKES}\n`,
+    [`/session.json?id=${"s".repeat(101)}`]: `${SESSION_TAKES}\n`,
     "/log.json?page=x": "/log.json takes page, a whole number from 1.\n",
     "/log.json?page=%E0%A4%A": "/log.json takes page, a whole number from 1.\n",
+    "/search.json": `${SEARCH_TAKES}\n`,
+    "/search.json?q=%20%20": `${SEARCH_TAKES}\n`,
+    [`/search.json?q=${"a".repeat(201)}`]: `${SEARCH_TAKES}\n`,
   };
   for (const [path, body] of Object.entries(refused)) {
     const answer = await get(port, path);
@@ -939,7 +966,12 @@ test("the server takes only GET of its routes, and refuses a path that is no rou
     assert.equal(answer.body, body, path);
   }
   // Contrast: the same routes with their parameters answer.
-  for (const path of ["/sessions.json", "/sessions.json?page=2&size=25", "/log.json", "/session.json?n=1"]) assert.equal((await get(port, path)).status, 200, path);
+  for (const path of ["/sessions.json", "/sessions.json?page=2&size=25", "/sessions.json?open=nobody", "/log.json", "/session.json?id=s-1", `/search.json?q=${"a".repeat(200)}`]) {
+    assert.equal((await get(port, path)).status, 200, path);
+  }
+  const unknown = await get(port, "/session.json?id=s-9");
+  assert.equal(unknown.status, 404);
+  assert.equal(unknown.body, "No session s-9 is in the logs on this computer.\n");
 });
 
 test("/request.json gives one request, refuses an id that is not a request's id, and says when the logs hold no such request", async (t) => {
@@ -975,18 +1007,22 @@ test("/sessions.json gives the sessions newest first in pages, /session.json one
   const first = sessions(1, 10);
   assert.deepEqual([first.page, first.pages, first.total, first.size], [1, 3, 23, 10]);
   assert.deepEqual(first.sessions.map((session) => session.n), [23, 22, 21, 20, 19, 18, 17, 16, 15, 14]);
-  assert.deepEqual(first.sessions.map((session) => session.id).slice(0, 2), ["s-23", "s-22"]);
+  assert.deepEqual(first.sessions.map((session) => [session.id, session.ref]).slice(0, 2), [["s-23", "s-23"], ["s-22", "s-22"]]);
   assert.equal(first.sessions[0].steps, undefined);
   assert.deepEqual(sessions(3, 10).sessions.map((session) => session.n), [3, 2, 1]);
   // A page after the last gives the last.
   assert.equal(sessions(9, 10).page, 3);
   assert.equal(sessions(1, 25).sessions.length, 23);
+  // With an open session, the page that holds it, whatever page was asked; with an id that no session has, the page asked.
+  assert.equal(JSON.parse(page.sessionsJson(1, 10, "s-3")).page, 3);
+  assert.equal(JSON.parse(page.sessionsJson(1, 10, "s-14")).page, 1);
+  assert.equal(JSON.parse(page.sessionsJson(2, 10, "s-99")).page, 2);
 
-  const one = JSON.parse(page.sessionJson(5));
+  const one = JSON.parse(page.sessionJson("s-5"));
   assert.equal(one.n, 5);
   assert.equal(one.id, "s-5");
   assert.deepEqual(one.steps.map((step) => step.target), ["Look at the folder"]);
-  assert.throws(() => page.sessionJson(24), { status: 404, message: "No session 24 is in the logs on this computer." });
+  assert.throws(() => page.sessionJson("s-24"), { status: 404, message: "No session s-24 is in the logs on this computer." });
 
   const newest = JSON.parse(page.logJson(1));
   assert.deepEqual([newest.page, newest.pages, newest.total, newest.from, newest.to], [1, 3, 450, 251, 450]);
@@ -1023,7 +1059,14 @@ test("each answer has a Content-Security-Policy with its own nonce for the one i
     for (const htmlSink of ["innerHTML", "outerHTML", "insertAdjacentHTML", "document.write"]) assert.ok(!answer.body.includes(htmlSink), htmlSink);
     for (const secret of SECRETS) assert.ok(!answer.body.includes(secret));
     // The script reads only the page's own data routes.
-    assert.deepEqual([...new Set([...answer.body.matchAll(/"(\/[a-z]+\.json)/g)].map((match) => match[1]))].sort(), ["/data.json", "/log.json", "/request.json", "/session.json", "/sessions.json"]);
+    assert.deepEqual([...new Set([...answer.body.matchAll(/"(\/[a-z]+\.json)/g)].map((match) => match[1]))].sort(), [
+      "/data.json",
+      "/log.json",
+      "/request.json",
+      "/search.json",
+      "/session.json",
+      "/sessions.json",
+    ]);
     nonces.push(nonce);
   }
   assert.notEqual(nonces[0], nonces[1]);
@@ -1660,10 +1703,30 @@ function descendants(node) {
   return node.childNodes.flatMap((child) => [child, ...descendants(child)]);
 }
 
+// This tab's session storage, kept in a map (a reload in the same tab keeps it).
+class FakeStorage {
+  constructor() {
+    this.items = new Map();
+  }
+
+  getItem(name) {
+    return this.items.get(name) ?? null;
+  }
+
+  setItem(name, value) {
+    this.items.set(name, String(value));
+  }
+
+  removeItem(name) {
+    this.items.delete(name);
+  }
+}
+
 // The page's script on the machine's real page server, with the address `hash`. `page.fail` makes each read fail:
-// "unreachable" (no answer) or { status, body }.
-async function scriptPage(t, m, hash = "") {
-  const port = await serve(t, m);
+// "unreachable" (no answer) or { status, body }. `now` is the server's clock, and `storage` the tab's session storage
+// (none: a browser that refuses it).
+async function scriptPage(t, m, hash = "", { now = CLOCK, storage = null } = {}) {
+  const port = await serve(t, m, now);
   const page = { fail: null, reading: 0, scrolledTo: null };
   const element = (tag) => new FakeElement(tag, page);
   const body = element("body");
@@ -1678,6 +1741,7 @@ async function scriptPage(t, m, hash = "") {
     location: { hash },
     history: { replaceState: (state, title, address) => (page.window.location.hash = address) },
     addEventListener: () => {},
+    ...(storage === null ? {} : { sessionStorage: storage }),
   };
   page.cards = () => descendants(body).filter((node) => node.dataset.key !== undefined);
   page.parts = parts;
@@ -1766,7 +1830,7 @@ test("the page shows what needs a person first, then the request in progress, th
   assert.deepEqual(headings(calm.parts.content, "H2"), ["Now"]);
 });
 
-test("the requests come in pages of 10, the address keeps the page, and Previous, Next and the size of a page move through them", async (t) => {
+test("the requests come in pages of 10, the address keeps the page, Previous, Next and the size of a page move through them, and a reload on the Service log tab keeps the size", async (t) => {
   const m = machine(t);
   turnOn(t, m);
   const log = new Log().init("s-1");
@@ -1789,17 +1853,35 @@ test("the requests come in pages of 10, the address keeps the page, and Previous
   assert.equal(page.window.location.hash, "#requests");
   assert.equal(buttonOf(page.parts.content, "Previous").disabled, true);
 
-  const size = find(page.parts.content, (node) => node.tagName === "SELECT");
-  size.value = "25";
-  size.dispatch("change");
+  // The size of a page: three buttons, the chosen one pressed.
+  const sizes = () => find(page.parts.content, (node) => node.getAttribute?.("aria-label") === "Rows on a page").childNodes.filter((node) => node.tagName === "BUTTON");
+  assert.deepEqual(sizes().map((node) => [node.textContent, node.getAttribute("aria-pressed")]), [["10", "true"], ["25", "false"], ["50", "false"]]);
+  sizes()[1].click();
   assert.deepEqual(rowIds(page), newest);
   assert.equal(page.window.location.hash, "#requests&size=25");
   assert.equal(range(), "1–25 of 25");
+  assert.deepEqual(sizes().map((node) => node.getAttribute("aria-pressed")), ["false", "true", "false"]);
   await page.idle();
 
-  // The next read keeps the place.
+  // The next read with new data keeps the place, and the focus on the size that the person chose.
+  const before = sizes()[1];
+  before.focus();
+  log.wait(task("CA-R00026"));
+  writeFileSync(join(m.dir, "session.jsonl"), log.text());
   await page.load();
-  assert.deepEqual(rowIds(page), newest);
+  assert.deepEqual(rowIds(page), ["CA-R00026", ...newest.slice(0, 24)]);
+  assert.ok(sizes()[1] !== before, "the read did not build the list again");
+  assert.ok(page.document.activeElement === sizes()[1], "the focus left the size of a page");
+
+  // The Service log tab's address keeps the size too: a reload there, then the Requests tab, shows 25 rows again.
+  buttonOf(page.parts.content, "Service log0").click();
+  assert.equal(page.window.location.hash, "#log&size=25");
+  await page.idle();
+  const reloaded = await scriptPage(t, m, page.window.location.hash);
+  buttonOf(reloaded.parts.content, "Requests26").click();
+  assert.equal(rowIds(reloaded).length, 25);
+  assert.equal(reloaded.window.location.hash, "#requests&size=25");
+  await reloaded.idle();
 });
 
 test("the status chips and the search box narrow the list, and a list that nothing matches says so", async (t) => {
@@ -1835,7 +1917,6 @@ test("the status chips and the search box narrow the list, and a list that nothi
   assert.deepEqual(rowIds(page), ["CA-CCCCC3"]);
   type("ca-ddddd4");
   assert.deepEqual(rowIds(page), ["CA-DDDDD4"]);
-  assert.equal(page.window.location.hash, "#requests&q=ca-ddddd4");
   type("nothing like this");
   assert.deepEqual(rowIds(page), []);
   assert.ok(page.parts.content.textContent.includes("No request matches the filter and the search."));
@@ -1906,17 +1987,18 @@ test("the Sessions tab lists the sessions one line each, newest first, with how 
   assert.deepEqual(
     lines.map((line) => [line.dataset.key, find(line, (node) => node.className === "c-how").textContent, find(line, (node) => node.className === "c-count").textContent]),
     [
-      ["session:5", "runs now", "1 request"],
-      ["session:4", "stopped at the plan limit", "0 requests"],
-      ["session:3", "stopped at the plan limit", "0 requests"],
-      ["session:2", "stopped at the plan limit", "0 requests"],
-      ["session:1", "ended its turn", "1 request"],
+      ["session:s-5", "runs now", "1 request"],
+      ["session:limit-2", "stopped at the plan limit", "0 requests"],
+      ["session:limit-1", "stopped at the plan limit", "0 requests"],
+      ["session:limit-0", "stopped at the plan limit", "0 requests"],
+      ["session:s-1", "ended its turn", "1 request"],
     ],
   );
   headOf(lines[1]).click();
   await page.idle();
-  assert.equal(page.window.location.hash, "#sessions&open=4");
-  const opened = byKey(page, "session:4");
+  // The address names the session by its id, which a move of the log does not change.
+  assert.equal(page.window.location.hash, "#sessions&open=limit-2");
+  const opened = byKey(page, "session:limit-2");
   assert.equal(factOf(opened, "How it ended"), "It stopped with an error. Its last message: Claude AI usage limit reached|1795881600");
   // The plan limit's time has its time zone.
   const resets = new Date(1795881600 * 1000);
@@ -2056,4 +2138,327 @@ test("the page says whether self-update is on, and what happens when it is off, 
     const fact = find(page.parts.status, (node) => node.tagName === "LI" && node.textContent.startsWith("Self-update"));
     assert.deepEqual([fact.textContent, fact.title], [short[state], words[state]]);
   }
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// The person's place and focus through the reads every 5 seconds, and what the page says of requests that no session
+// serves
+// ---------------------------------------------------------------------------------------------------------------------
+
+// The time zone's short name of a time, as the page shows it.
+const zoneOf = (iso) => new Intl.DateTimeFormat(undefined, { timeZoneName: "short" }).formatToParts(new Date(iso)).find((part) => part.type === "timeZoneName").value;
+
+test("the focus stays on a fold's summary, the chat link and the service log's box when a read with new data builds the page again", async (t) => {
+  const m = machine(t);
+  turnOn(t, m);
+  const log = new Log().init("s-1").wait(task("CA-AAAAA1", { request: "Which roles can approve a request?" }));
+  log.read("/repo/roles.ts");
+  writeFileSync(join(m.dir, "session.jsonl"), log.text());
+  writeFileSync(join(m.dir, "service.log"), "2026-11-25T09:00:00Z the serving session starts\n");
+  const page = await scriptPage(t, m, "#requests&open=CA-AAAAA1");
+  const summary = () => find(rowOf(page, "CA-AAAAA1"), (node) => node.tagName === "SUMMARY");
+  const chat = () => find(rowOf(page, "CA-AAAAA1"), (node) => node.tagName === "A");
+  assert.equal(chat().href, CHAT_URL);
+  for (const [i, part] of [summary, chat].entries()) {
+    const before = part();
+    before.focus();
+    log.read(`/repo/more-${i}.ts`);
+    writeFileSync(join(m.dir, "session.jsonl"), log.text());
+    await page.load();
+    // assert.ok, not assert.equal: a diff of two elements prints the whole page.
+    assert.ok(part() !== before, "the read did not build the line again");
+    assert.ok(page.document.activeElement === part(), `the focus left ${before.tagName}`);
+  }
+
+  buttonOf(page.parts.content, "Service log1").click();
+  await page.idle();
+  const box = () => find(page.parts.content, (node) => node.tagName === "PRE");
+  const before = box();
+  before.focus();
+  appendFileSync(join(m.dir, "service.log"), "2026-11-25T09:30:00Z the serving session ended with code 0\n");
+  await page.load();
+  assert.ok(box() !== before, "the read did not build the log's box again");
+  assert.ok(page.document.activeElement === box(), "the focus left the log's box");
+});
+
+test("an open request stays open on the page that holds it when a new request moves it to the next page, and so does an open session when a new session starts", async (t) => {
+  const m = machine(t);
+  turnOn(t, m);
+  const log = new Log().init("s-1");
+  const ids = Array.from({ length: 20 }, (_, i) => `CA-R${String(i + 1).padStart(5, "0")}`);
+  for (const id of ids) log.wait(task(id)).update({ request_id: id, result: { outcome: "done", summary: "Answered." } }, task(id, { status: "done" }));
+  writeFileSync(join(m.dir, "session.jsonl"), log.text());
+  // The last line of page 2, open.
+  const page = await scriptPage(t, m, "#requests&page=2&open=CA-R00001");
+  assert.equal(rowIds(page).at(-1), "CA-R00001");
+  assert.equal(headOf(rowOf(page, "CA-R00001")).getAttribute("aria-expanded"), "true");
+
+  log.wait(task("CA-NEW001"));
+  writeFileSync(join(m.dir, "session.jsonl"), log.text());
+  await page.load();
+  await page.idle();
+  assert.deepEqual(rowIds(page), ["CA-R00001"]);
+  assert.equal(headOf(rowOf(page, "CA-R00001")).getAttribute("aria-expanded"), "true");
+  assert.ok(rowOf(page, "CA-R00001").textContent.includes("Answered."));
+  assert.equal(page.window.location.hash, "#requests&page=3&open=CA-R00001");
+
+  // Ten sessions: the oldest is the last line of page 1. An eleventh session moves it to page 2.
+  const other = machine(t);
+  turnOn(t, other);
+  const sessions = new Log();
+  for (let i = 1; i <= 10; i += 1) sessions.at(`2026-11-25T${String(i).padStart(2, "0")}:00:01.000Z`).init(`s-${i}`).bash("Look at the folder", "ls");
+  writeFileSync(join(other.dir, "session.jsonl"), sessions.text());
+  const list = await scriptPage(t, other, "#sessions&open=s-1");
+  const sessionKeys = () => descendants(list.parts.content).filter((node) => node.dataset.key?.startsWith("session:")).map((node) => node.dataset.key);
+  assert.equal(sessionKeys().at(-1), "session:s-1");
+  assert.equal(headOf(byKey(list, "session:s-1")).getAttribute("aria-expanded"), "true");
+  sessions.at("2026-11-25T11:00:01.000Z").init("s-11").bash("Look at the folder", "ls");
+  writeFileSync(join(other.dir, "session.jsonl"), sessions.text());
+  await list.load();
+  await list.idle();
+  assert.deepEqual(sessionKeys(), ["session:s-1"]);
+  assert.equal(headOf(byKey(list, "session:s-1")).getAttribute("aria-expanded"), "true");
+  assert.equal(list.window.location.hash, "#sessions&page=2&open=s-1");
+});
+
+test("an open request that ends while the Open chip is on stays in the list, open, with a note that it no longer matches", async (t) => {
+  const m = machine(t);
+  turnOn(t, m);
+  const log = new Log().init("s-1").wait(task("CA-BBBBB2")).update({ request_id: "CA-BBBBB2", result: { outcome: "done", summary: "Answered." } }, task("CA-BBBBB2", { status: "done" }));
+  log.wait(task("CA-AAAAA1")).update({ request_id: "CA-AAAAA1", progress: "Reading the roles" }, task("CA-AAAAA1"));
+  writeFileSync(join(m.dir, "session.jsonl"), log.text());
+  const page = await scriptPage(t, m, "#requests&filter=open&open=CA-AAAAA1");
+  assert.deepEqual(rowIds(page), ["CA-AAAAA1"]);
+  const note = "It no longer matches the chosen status or the search. It stays in the list while it is open.";
+  assert.ok(!rowOf(page, "CA-AAAAA1").textContent.includes(note));
+
+  log.update({ request_id: "CA-AAAAA1", result: { outcome: "done", summary: "The managers approve." } }, task("CA-AAAAA1", { status: "done" }));
+  writeFileSync(join(m.dir, "session.jsonl"), log.text());
+  await page.load();
+  await page.idle();
+  // Only the open line stays: the other request that is done is not in the Open list.
+  assert.deepEqual(rowIds(page), ["CA-AAAAA1"]);
+  assert.equal(headOf(rowOf(page, "CA-AAAAA1")).getAttribute("aria-expanded"), "true");
+  assert.ok(rowOf(page, "CA-AAAAA1").textContent.includes("The managers approve."));
+  assert.ok(rowOf(page, "CA-AAAAA1").textContent.includes(note));
+  assert.equal(page.window.location.hash, "#requests&filter=open&open=CA-AAAAA1");
+  // Closed, it leaves the list.
+  headOf(rowOf(page, "CA-AAAAA1")).click();
+  assert.deepEqual(rowIds(page), []);
+  await page.idle();
+});
+
+test("a session whose waits for a request fail shows that it cannot reach Doable, with the newest failed waits, until a wait works", async (t) => {
+  const m = machine(t);
+  turnOn(t, m);
+  const log = new Log().init("s-1").wait(null);
+  for (let i = 1; i <= 4; i += 1) {
+    log.call(`${PLUGIN}wait_for_code_agent_request`, { wait_seconds: 290 }, `doable_server_error: 503 Service Unavailable (try ${i})`, { isError: true });
+    log.bash("Wait before the next call", "sleep 20");
+  }
+  writeFileSync(join(m.dir, "session.jsonl"), log.text());
+  const page = await scriptPage(t, m);
+  const { content, status } = page.parts;
+  assert.equal(find(status, (node) => node.className?.includes("big")).textContent, "Cannot reach Doable");
+  assert.deepEqual(headings(content, "H2"), ["Needs attention", "Now"]);
+  const item = byKey(page, "attention:waits");
+  assert.equal(find(item, (node) => node.tagName === "H3").textContent, "The session cannot reach Doable");
+  assert.ok(item.textContent.includes("4 waits for a request have failed since the last one that worked."));
+  assert.deepEqual(
+    find(item, (node) => node.tagName === "UL").childNodes.map((line) => line.childNodes.at(-1).textContent),
+    [2, 3, 4].map((i) => `doable_server_error: 503 Service Unavailable (try ${i})`),
+  );
+
+  // A wait that works: the session serves again, and nothing needs a person.
+  log.wait(null);
+  writeFileSync(join(m.dir, "session.jsonl"), log.text());
+  await page.load();
+  assert.equal(find(status, (node) => node.className?.includes("big")).textContent, "Serving");
+  assert.deepEqual(headings(content, "H2"), ["Now"]);
+});
+
+// A session that asked a question and ended, and a later session that waits for requests. `at` is the question's time.
+function endedWithQuestion() {
+  const log = new Log().init("s-1").wait(task("CA-AAAAA1"));
+  log.update({ request_id: "CA-AAAAA1", question: "Which role?", wait_seconds: 50 }, task("CA-AAAAA1", { status: "needs_answer", question: "Which role?" }));
+  const at = Date.parse("2026-11-25T09:00:04.000Z");
+  log.at("2026-11-25T09:30:01.000Z").init("s-2").wait(null);
+  return { log, at };
+}
+
+test("a question that no session serves and that got no answer in 24 hours is probably expired: not open, not under Needs attention, with an end, also when no file changed", async (t) => {
+  const m = machine(t);
+  turnOn(t, m);
+  const { log, at } = endedWithQuestion();
+  writeFileSync(join(m.dir, "session.jsonl"), log.text());
+  let now = at + 23 * HOUR;
+  const data = new PageData({ machine: m.name, env: m.env, now: () => now });
+  let [row] = JSON.parse(data.json()).requests;
+  assert.equal(new Date(Date.parse(row.questionAt)).getTime(), at);
+  assert.deepEqual([row.status, row.finishedAt, row.question], ["waiting for an answer; no session serves it", null, "Which role?"]);
+
+  // One hour after the 24 hours: the same files give the new status.
+  now = at + 25 * HOUR;
+  [row] = JSON.parse(data.json()).requests;
+  assert.deepEqual([row.status, row.finishedAt, row.question], ["probably expired: no answer in 24 hours", new Date(at + 24 * HOUR).toISOString(), null]);
+  assert.equal(
+    JSON.parse(data.requestJson("CA-AAAAA1")).note,
+    "No session served it after its question, and the logs on this computer show no answer in 24 hours. By Doable's rules, the request has expired, or the answer came and another machine took it. The asker sees in Doable how it stands.",
+  );
+
+  const page = await scriptPage(t, m, "", { now: () => at + 25 * HOUR });
+  assert.deepEqual(headings(page.parts.content, "H2"), ["Now"]);
+  const chips = find(page.parts.content, (node) => node.className === "chips").childNodes.map((chip) => chip.textContent);
+  assert.deepEqual(chips, ["All1", "Other1"]);
+  assert.equal(find(headOf(rowOf(page, "CA-AAAAA1")), (node) => node.className === "c-took").textContent, "");
+  // Contrast: before the 24 hours, the question is under "Needs attention" and the request is open.
+  const before = await scriptPage(t, m, "", { now: () => at + 23 * HOUR });
+  assert.deepEqual(headings(before.parts.content, "H2"), ["Needs attention", "Now"]);
+  assert.deepEqual(find(before.parts.content, (node) => node.className === "chips").childNodes.map((chip) => chip.textContent), ["All1", "Open1"]);
+});
+
+test("the details of a request that waits for its answer say since when it waits, and count on only while a session holds it", async (t) => {
+  const m = machine(t);
+  turnOn(t, m);
+  const { log, at } = endedWithQuestion();
+  writeFileSync(join(m.dir, "session.jsonl"), log.text());
+  const page = await scriptPage(t, m, "#requests&open=CA-AAAAA1");
+  const row = rowOf(page, "CA-AAAAA1");
+  const asked = new Date(at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "long" });
+  assert.equal(factOf(row, "Question asked"), asked);
+  assert.equal(find(row, (node) => node.tagName === "DT" && node.textContent === "Working"), undefined);
+  assert.equal(find(headOf(row), (node) => node.className === "c-took").textContent, "");
+  // The times of its lines carry their time zone.
+  const times = descendants(row).filter((node) => node.className === "time").map((node) => node.textContent);
+  assert.ok(times.length > 0 && times.every((text) => text.endsWith(zoneOf(at))), times.join(" | "));
+
+  // Contrast: while the running session holds the request, the time counts on.
+  const held = machine(t);
+  turnOn(t, held);
+  const asking = new Log().init("s-1").wait(task("CA-AAAAA1"));
+  asking.update({ request_id: "CA-AAAAA1", question: "Which role?", wait_seconds: 50 }, task("CA-AAAAA1", { status: "needs_answer", question: "Which role?" }));
+  writeFileSync(join(held.dir, "session.jsonl"), asking.text());
+  const live = await scriptPage(t, held, "#requests&open=CA-AAAAA1");
+  assert.match(factOf(rowOf(live, "CA-AAAAA1"), "Waiting for the answer"), /^for \d+ (s|min|h|d)/);
+  assert.match(find(headOf(rowOf(live, "CA-AAAAA1")), (node) => node.className === "c-took").textContent, /^\d+ (s|min|h|d)/);
+});
+
+test("Now names the request that ended last, and shows the question and its answer above the newest lines", async (t) => {
+  const m = machine(t);
+  turnOn(t, m);
+  // CA-AAAAA1 asks; CA-BBBBB2, taken later, ends first; CA-AAAAA1 ends after its answer.
+  const asking = task("CA-AAAAA1");
+  const log = new Log().init("s-1").wait(asking);
+  log.update({ request_id: "CA-AAAAA1", question: "Which role?", wait_seconds: 50 }, { ...asking, status: "needs_answer", question: "Which role?" });
+  log.wait(task("CA-BBBBB2")).update({ request_id: "CA-BBBBB2", result: { outcome: "done", summary: "B answered." } }, task("CA-BBBBB2", { status: "done" }));
+  log.update({ request_id: "CA-AAAAA1", wait_seconds: 0 }, { ...asking, question: "Which role?", answer: "The manager." });
+  log.update({ request_id: "CA-AAAAA1", result: { outcome: "done", summary: "A answered." } }, { ...asking, question: "Which role?", answer: "The manager.", status: "done" });
+  log.wait(null);
+  writeFileSync(join(m.dir, "session.jsonl"), log.text());
+  const page = await scriptPage(t, m);
+  const idle = find(page.parts.content, (node) => node.className === "idle").textContent;
+  assert.match(idle, /The last one, CA-AAAAA1, ended /);
+
+  // A request in progress with a question, its answer and four more lines.
+  const other = machine(t);
+  turnOn(t, other);
+  const working = new Log().init("s-1").wait(asking);
+  working.update({ request_id: "CA-AAAAA1", question: "Which role?", wait_seconds: 50 }, { ...asking, status: "needs_answer", question: "Which role?" });
+  working.update({ request_id: "CA-AAAAA1", wait_seconds: 0 }, { ...asking, question: "Which role?", answer: "The manager." });
+  for (let i = 1; i <= 4; i += 1) working.update({ request_id: "CA-AAAAA1", progress: `Step ${i}` }, { ...asking, question: "Which role?", answer: "The manager." });
+  writeFileSync(join(other.dir, "session.jsonl"), working.text());
+  const now = byKey(await scriptPage(t, other), "now:CA-AAAAA1");
+  assert.deepEqual(headings(now, "H4").slice(0, 2), ["Question and answer", "Latest lines"]);
+  const [qa, latest] = descendants(now).filter((node) => node.tagName === "OL");
+  assert.deepEqual(qa.childNodes.map((line) => line.childNodes[1].textContent), ["Question to the askerWhich role?", "Answer from the askerThe manager."]);
+  assert.deepEqual(latest.childNodes.map((line) => line.childNodes[1].textContent), ["ProgressStep 1", "ProgressStep 2", "ProgressStep 3", "ProgressStep 4"]);
+  assert.ok(buttonOf(now, "Show all 5 lines"));
+});
+
+test("a session keeps its id in /session.json and in the address when the start script moves the log and the session's number changes", (t) => {
+  const m = machine(t);
+  turnOn(t, m);
+  const older = new Log().init("s-1").bash("Look at the folder", "ls").at("2026-11-25T10:00:01.000Z").init("s-2").bash("Look at the folder", "ls");
+  writeFileSync(join(m.dir, "session.1.jsonl"), older.text());
+  writeFileSync(join(m.dir, "session.jsonl"), new Log(PLUGIN, "2026-11-25T11:00:01.000Z").init("s-3").bash("Look at the folder", "ls").text());
+  const data = new PageData({ machine: m.name, env: m.env, now: CLOCK });
+  assert.deepEqual([JSON.parse(data.sessionJson("s-3")).n, JSON.parse(data.sessionJson("s-3")).id], [3, "s-3"]);
+
+  // The move: session.jsonl replaces session.1.jsonl, and a new session writes a new session.jsonl.
+  renameSync(join(m.dir, "session.jsonl"), join(m.dir, "session.1.jsonl"));
+  writeFileSync(join(m.dir, "session.jsonl"), new Log(PLUGIN, "2026-11-25T12:00:01.000Z").init("s-4").bash("Look at the folder", "ls").text());
+  assert.deepEqual([JSON.parse(data.sessionJson("s-3")).n, JSON.parse(data.sessionJson("s-3")).id], [1, "s-3"]);
+  assert.throws(() => data.sessionJson("s-1"), { status: 404, message: "No session s-1 is in the logs on this computer." });
+
+  // A session whose start is not in the logs, and two sessions with one id, are named by their place.
+  const odd = machine(t);
+  const log = new Log().bash("Look at the folder", "ls").at("2026-11-25T10:00:01.000Z").init("same").at("2026-11-25T11:00:01.000Z").init("same").at("2026-11-25T12:00:01.000Z").init("s-4");
+  writeFileSync(join(odd.dir, "session.jsonl"), log.text());
+  const refs = JSON.parse(new PageData({ machine: odd.name, env: odd.env, now: CLOCK }).sessionsJson(1, 10)).sessions.map((session) => session.ref);
+  assert.deepEqual(refs, ["s-4", "position-3", "position-2", "position-1"]);
+});
+
+test("a page number past the last page of the sessions or of service.log adds no copy of the last page to the page's memory", (t) => {
+  const m = machine(t);
+  const log = new Log();
+  for (let i = 1; i <= 12; i += 1) log.at(`2026-11-25T${String(i).padStart(2, "0")}:00:01.000Z`).init(`s-${i}`);
+  writeFileSync(join(m.dir, "session.jsonl"), log.text());
+  writeFileSync(join(m.dir, "service.log"), `${Array.from({ length: 450 }, (_, i) => `line ${i + 1}`).join("\n")}\n`);
+  const data = new PageData({ machine: m.name, env: m.env, now: CLOCK });
+  const kept = () => data.cached.texts.size;
+  data.logJson(3);
+  data.sessionsJson(2, 10);
+  const size = kept();
+  for (const page of [4, 1000, 1001, 999999999]) {
+    assert.equal(JSON.parse(data.logJson(page)).page, 3);
+    assert.equal(JSON.parse(data.sessionsJson(page, 10)).page, 2);
+  }
+  assert.equal(kept(), size);
+  // Contrast: pages that exist are kept, one copy each.
+  data.logJson(2);
+  data.sessionsJson(1, 10);
+  assert.equal(kept(), size + 2);
+});
+
+test("the search finds words anywhere in a request's text through the server, keeps its words out of the address, and a reload in the same tab keeps them", async (t) => {
+  const m = machine(t);
+  turnOn(t, m);
+  const long = `Platform shows the wrong week. ${"The calendar's query reads the week. ".repeat(10)}Also say whether the payroll export reads the same query, password=Hunter-77x.`;
+  const log = new Log().init("s-1");
+  for (const [id, request] of [["CA-AAAAA1", long], ["CA-BBBBB2", "Which roles approve?"]]) {
+    log.wait(task(id, { request })).update({ request_id: id, result: { outcome: "done", summary: "Answered." } }, task(id, { request, status: "done" }));
+  }
+  writeFileSync(join(m.dir, "session.jsonl"), log.text());
+  // The server searches the whole text, masked: a secret that the page hides cannot be found.
+  const data = new PageData({ machine: m.name, env: m.env, now: CLOCK });
+  assert.ok(long.indexOf("payroll") > 300);
+  assert.deepEqual(JSON.parse(data.searchJson("PAYROLL export")).ids, ["CA-AAAAA1"]);
+  assert.deepEqual(JSON.parse(data.searchJson("Hunter-77x")).ids, []);
+
+  const storage = new FakeStorage();
+  const page = await scriptPage(t, m, "", { storage });
+  const box = find(page.parts.content, (node) => node.tagName === "INPUT");
+  box.value = "payroll";
+  box.dispatch("input");
+  await page.idle();
+  assert.deepEqual(rowIds(page), ["CA-AAAAA1"]);
+  assert.equal(page.window.location.hash, "#requests");
+  assert.ok(page.paths.includes("/search.json?q=payroll"));
+  // The asker's cell shows its whole words on hover.
+  assert.equal(find(headOf(rowOf(page, "CA-AAAAA1")), (node) => node.className === "c-asker").title, "Chat: Time off");
+
+  // A reload in the same tab: the search comes back from the tab's storage.
+  const reloaded = await scriptPage(t, m, page.window.location.hash, { storage });
+  assert.equal(find(reloaded.parts.content, (node) => node.tagName === "INPUT").value, "payroll");
+  assert.deepEqual(rowIds(reloaded), ["CA-AAAAA1"]);
+  // Contrast: a browser that refuses the storage starts with no search.
+  const refused = await scriptPage(t, m, page.window.location.hash);
+  assert.deepEqual(rowIds(refused), ["CA-BBBBB2", "CA-AAAAA1"]);
+});
+
+test("a machine whose session has not written anything says so once in the header", async (t) => {
+  const m = machine(t);
+  turnOn(t, m);
+  const page = await scriptPage(t, m);
+  assert.equal(page.parts.status.childNodes[0].textContent, "No log yetThe serving session has not written anything on this computer. When it runs, its steps show here.");
 });
