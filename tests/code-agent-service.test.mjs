@@ -1551,17 +1551,37 @@ function looks(seen) {
     });
 }
 
-// The command line of a process while it runs, else null: no process has the pid, or it ended and waits for its parent
-// (ps shows `<defunct>`).
-function commandOf(pid) {
-  let command;
+// The state and the command line of the process `pid` as ps shows them, or null when no process has the pid. A process
+// that ended and whose parent has not read its end yet (a zombie) has a state that starts with Z, and ps shows its
+// command line as `<defunct>` on macOS and as `[node] <defunct>` on Linux.
+function processRow(pid) {
+  let row;
   try {
-    command = execFileSync("ps", ["-o", "command=", "-p", String(pid)], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    row = execFileSync("ps", ["-o", "stat=", "-o", "command=", "-p", String(pid)], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
   } catch (error) {
     if (error.status === 1) return null;
     throw error;
   }
-  return command === "<defunct>" ? null : command;
+  const [, state, command] = /^(\S+)\s*(.*)$/.exec(row);
+  return { state, command };
+}
+
+// The command line of a process while it runs, else null: no process has the pid, or it ended and waits for its parent
+// to read its end (a zombie). This test process reads the end of its own children only when its event loop runs, so a
+// child of the test that a stop ended stays a zombie until the test's next await.
+function commandOf(pid) {
+  const row = processRow(pid);
+  return row === null || row.state.startsWith("Z") ? null : row.command;
+}
+
+// Waits, with no await (at an await, this test process reads the end of its children), until the process `pid` of a
+// child of this test has ended and waits for the test to read its end.
+function untilZombie(pid) {
+  const until = Date.now() + 10000;
+  while (!processRow(pid)?.state.startsWith("Z")) {
+    if (Date.now() > until) assert.fail(`process ${pid} did not end in 10 seconds`);
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
+  }
 }
 
 // Ends each page of these process ids that still runs, so that a failed assertion leaves no page on this computer.
@@ -2052,6 +2072,35 @@ test("stop also ends the page that a program in page.pid runs as its child, when
   writeFileSync(join(dir, "page.pid"), `${wrapper.pid}\n`);
   stop("mac-mini-1", m.env, () => {});
   assert.deepEqual([commandOf(wrapper.pid), commandOf(child)], [null, null]);
+});
+
+test("a start script and a page that ended, and whose parent has not read their end yet (a zombie), do not run for status, check-page and stop-page", (t) => {
+  const m = machine();
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt }, m.env, () => {});
+  const dir = serviceDir(m.env, "mac-mini-1");
+  const lines = () => printedBy((print) => status("mac-mini-1", m.env, print)).filter((line) => /^(Code agent|The page)/.test(line));
+  // This test process is the parent of both, and it has no await: it does not read their end.
+  const startScript = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)", join(dir, "run.sh")], { stdio: "ignore" });
+  t.after(() => startScript.kill("SIGKILL"));
+  writeFileSync(join(dir, "pid"), `${startScript.pid}\n`);
+  const page = processWithCommand(t, "mac-mini-1");
+  writeFileSync(join(dir, "page.pid"), `${page.pid}\n`);
+  writeFileSync(join(dir, "page.log"), `The page of the code agent "mac-mini-1": ${pageAddress(47615)}\n`);
+  // Contrast: while they run, the code agent is on and its page runs.
+  assert.deepEqual(lines(), ['Code agent "mac-mini-1": on.', `The page: on, at ${pageAddress(47615)}; it runs now.`]);
+  assert.equal(checkPage({ dir }, () => {}, maskSecrets), 0);
+
+  startScript.kill("SIGKILL");
+  page.kill("SIGKILL");
+  untilZombie(startScript.pid);
+  untilZombie(page.pid);
+  assert.deepEqual(lines(), ['Code agent "mac-mini-1": not running.', ONLY_WHILE_ON(47615)]);
+  assert.equal(checkPage({ dir }, () => {}, maskSecrets), PAGE_NOT_RUNNING);
+  // stop-page finds no page to stop: it prints no line and does not wait.
+  assert.equal(execFileSync(process.execPath, [script, "stop-page", "--dir", dir], { encoding: "utf8", env: m.env }), "");
+  assert.equal(existsSync(join(dir, "page.pid")), false);
+  // Both stayed zombies through each look.
+  assert.deepEqual([processRow(startScript.pid)?.state[0], processRow(page.pid)?.state[0]], ["Z", "Z"]);
 });
 
 // The command line of the page that the start script of 0.6.4 starts, word for word but for its node and its folders.

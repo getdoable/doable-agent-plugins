@@ -469,7 +469,9 @@ function pageCommand(machine) {
 }
 
 // Whether the process `pid` runs the page command of `machine`. A process id can be reused after the page ended (for
-// example after a reboot), so a process with another command line is not the page.
+// example after a reboot), so a process with another command line is not the page. A page that ended and whose parent
+// has not read its end yet (a zombie) is not the page either: ps shows no command line for it (`<defunct>` on macOS,
+// `[node] <defunct>` on Linux).
 function runsPage(pid, machine) {
   let command;
   try {
@@ -723,7 +725,8 @@ function useLaunchd(env) {
 }
 
 // The pid of the start script that the `pid` file names, while that script runs (on a machine without launchd), else
-// null. A process that took the pid after the script ended (for example after a reboot) does not count.
+// null. A process that took the pid after the script ended (for example after a reboot) does not count, and neither
+// does the script once it ended and waits for its parent to read its end (a zombie): ps shows no command line for it.
 function runningScript(dir) {
   const pidFile = join(dir, "pid");
   if (!existsSync(pidFile)) return null;
