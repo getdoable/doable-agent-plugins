@@ -312,7 +312,8 @@ Run Claude Code on the Claude plan (`claude auth login`), as the user that runs 
 script removes `ANTHROPIC_API_KEY` from the session's environment, so that its usage is not billed
 to the API. Run the setup and the other commands as that normal user, not as root and not with
 `sudo`: Claude Code refuses the bypass permission mode for root, so the setup and `start` refuse to
-run as root. The session runs with
+run as root (with one exception for a sandbox: read
+[When the session does not start](#when-the-session-does-not-start)). The session runs with
 no permission check and with Claude in Chrome: read
 [With nobody at the terminal](#with-nobody-at-the-terminal) for what that lets it do.
 
@@ -390,14 +391,23 @@ Revoke it in Settings > API Keys when you no longer need it.
 
 When the session does not start to wait for requests, the setup and `start` say so: at once when
 the session ended, with its exit code, else after 2 minutes. They also say why, when the session's
-output says it: the text of Claude Code's result, else the last three lines of the output that are
-not events, with secrets masked. For example:
+output says it: the text of Claude Code's result (or its errors, when the result has no text), else
+the last three lines of the output that are not events, with secrets masked and cut after 500
+characters. For example:
 
 - "Not logged in · Please run /login": Claude Code is not signed in for the user that runs the
   session. As that user, run `claude auth login` on the Claude plan, then `stop` and `start`.
-- "--dangerously-skip-permissions cannot be used with root/sudo privileges": the start script runs
-  as root, for example from a system service that a person wrote. The setup and `start` refuse to
-  run as root: start the session only with them, as a normal user.
+- "--dangerously-skip-permissions cannot be used with root/sudo privileges": the session ran as
+  root. This line is in `session.jsonl` only when a person ran the start script itself as root,
+  for example from a system service that the person wrote: the setup and `start` refuse to run as
+  root before they start a session (except in a sandbox, see below). Start the session only with
+  them, as a normal user.
+
+Claude Code allows the bypass permission mode for root in a sandbox: when its environment has
+`IS_SANDBOX=1`, or a `CLAUDE_CODE_BUBBLEWRAP` that is not empty. On a machine without launchd, the
+start script gets the environment of the setup and `start`, so they also let root through when
+their environment has one of these. On a Mac, launchd starts the start script without them, so the
+setup and `start` refuse root there in all cases.
 
 The start script starts the session again 5 minutes after it ended. `service.log` holds the exit
 code of each session ("the serving session ended with code N"), and the page shows it.

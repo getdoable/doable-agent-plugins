@@ -734,12 +734,54 @@ test("a session whose first wait returned stays connected, with no reason, also 
   assert.deepEqual(printedBy((print) => start("mac-mini-1", m.launching, print, {}, maskSecrets)), [STARTED, CHROME_NOTE, CONNECTED]);
 });
 
+test("when Claude Code's error result has no text in `result`, setup and start give the texts of its `errors` as Claude Code's error", () => {
+  // The result of a turn that failed while it ran: no `result`, its texts in `errors`, and no stderr.
+  const errors = ["queryParams builder failed: no value for wait_seconds", "The turn ended before its first tool call."];
+  let m = servedMachine(`${initLine()}${jsonLine({ type: "result", subtype: "error_during_execution", is_error: true, errors })}`, { code: 1 });
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, page: false }, m.env, () => {});
+  assert.deepEqual(printedBy((print) => start("mac-mini-1", m.launching, print, {}, maskSecrets)), [
+    STARTED,
+    CHROME_NOTE,
+    endedBeforeWait(m.dir, 1, `Claude Code's error: "queryParams builder failed: no value for wait_seconds | The turn ended before its first tool call.".`),
+  ]);
+
+  // Contrast: an error result with no text in `result` and none in `errors` says no reason.
+  m = servedMachine(`${initLine()}${jsonLine({ type: "result", subtype: "error_during_execution", is_error: true, errors: [] })}`, { code: 1 });
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, page: false }, m.env, () => {});
+  assert.deepEqual(printedBy((print) => start("mac-mini-1", m.launching, print, {}, maskSecrets)), [STARTED, CHROME_NOTE, endedBeforeWait(m.dir, 1)]);
+});
+
+test("setup and start mask the secrets in the text of the session's result, and cut a text over 500 characters", () => {
+  // A proxy's address with a password, and a Doable key, in Claude Code's error.
+  const error = `API Error: no connection through https://qa-bot:hunter2-secret@proxy.example.com/v1 with the key ${KEY}`;
+  let m = servedMachine(`${initLine()}${jsonLine({ type: "result", subtype: "success", is_error: true, result: error })}`, { code: 1 });
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, page: false }, m.env, () => {});
+  const printed = printedBy((print) => start("mac-mini-1", m.launching, print, {}, maskSecrets));
+  assert.deepEqual(printed, [
+    STARTED,
+    CHROME_NOTE,
+    endedBeforeWait(m.dir, 1, `Claude Code's error: "API Error: no connection through https://qa-bot:****@proxy.example.com/v1 with the key sk-doable-****".`),
+  ]);
+
+  // A last message of 507 characters: its first 500, then the ellipsis.
+  const first = "x".repeat(500);
+  m = servedMachine(`${initLine()}${jsonLine({ type: "result", subtype: "success", is_error: false, result: `${first} THE END` })}`);
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, page: false }, m.env, () => {});
+  assert.deepEqual(printedBy((print) => start("mac-mini-1", m.launching, print, {}, maskSecrets)), [
+    STARTED,
+    CHROME_NOTE,
+    endedBeforeWait(m.dir, 0, `Its last message: "${first}…".`),
+  ]);
+});
+
+// The error of setup or start (`command`) as root.
+const refusal = (command) => ({
+  message: `Run ${command} as a normal user, not as root and not with sudo. The session runs in the bypass permission mode, which Claude Code refuses for root, so the session would never start. Use the account that is signed in to Claude Code on the Claude plan.`,
+});
+
 test("setup and start refuse at once to run as root, say why, and change nothing; as another user they go on", () => {
   const m = machine();
   const dir = serviceDir(m.env, "mac-mini-1");
-  const refusal = (command) => ({
-    message: `Run ${command} as a normal user, not as root and not with sudo. The session runs in the bypass permission mode, which Claude Code refuses for root, so the session would never start. Use the account that is signed in to Claude Code on the Claude plan.`,
-  });
   assert.throws(() => setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, uid: 0 }, m.env, () => {}), refusal("setup"));
   assert.equal(existsSync(dir), false);
   // Contrast: the same setup as another user.
@@ -756,6 +798,51 @@ test("setup and start refuse at once to run as root, say why, and change nothing
   assert.deepEqual(printedBy((print) => start("mac-mini-1", m.env, print, { uid: 501 })), [NOT_STARTED, CHROME_NOTE]);
   assert.match(readFileSync(join(dir, "run.sh"), "utf8"), sessionLine(quotedPattern(m.claude)));
 });
+
+test("on a machine without launchd, setup and start let root through in Claude Code's sandbox: IS_SANDBOX=1, or a CLAUDE_CODE_BUBBLEWRAP that is not empty", () => {
+  // The start script gets the environment of setup and start there, so Claude Code sees the same values.
+  for (const sandbox of [{ IS_SANDBOX: "1" }, { CLAUDE_CODE_BUBBLEWRAP: "1" }]) {
+    const m = machine();
+    const env = { ...m.env, DOABLE_CODE_AGENT_NO_LAUNCHD: "1", ...sandbox };
+    const dir = serviceDir(env, "mac-mini-1");
+    setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, uid: 0 }, env, () => {});
+    assert.match(readFileSync(join(dir, "run.sh"), "utf8"), sessionLine(quotedPattern(m.claude)));
+    assert.deepEqual(printedBy((print) => start("mac-mini-1", env, print, { uid: 0 })), [NOT_STARTED, CHROME_NOTE]);
+  }
+  // Contrast: values that Claude Code does not take as a sandbox.
+  for (const other of [{ IS_SANDBOX: "true" }, { CLAUDE_CODE_BUBBLEWRAP: "" }]) {
+    const m = machine();
+    const env = { ...m.env, DOABLE_CODE_AGENT_NO_LAUNCHD: "1", ...other };
+    assert.throws(() => setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, uid: 0 }, env, () => {}), refusal("setup"));
+    assert.equal(existsSync(serviceDir(env, "mac-mini-1")), false);
+    assert.throws(() => start("mac-mini-1", env, () => {}, { uid: 0 }), refusal("start"));
+  }
+});
+
+test(
+  "on a Mac under launchd, setup and start refuse root also in Claude Code's sandbox: the launchd job does not get their environment",
+  { skip: process.platform !== "darwin" && "launchd runs only on a Mac" },
+  () => {
+    const m = machine();
+    // No key and no machine set up: if root were let through, setup and start would stop at their next check, before a
+    // launch by launchd.
+    const { DOABLE_CODE_AGENT_NO_LAUNCH: _noLaunch, DOABLE_API_KEY: _key, ...underLaunchd } = m.env;
+    for (const sandbox of [{ IS_SANDBOX: "1" }, { CLAUDE_CODE_BUBBLEWRAP: "1" }]) {
+      const env = { ...underLaunchd, ...sandbox };
+      assert.throws(() => setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, uid: 0 }, env, () => {}), refusal("setup"));
+      assert.throws(() => start("mac-mini-1", env, () => {}, { uid: 0 }), refusal("start"));
+      // Contrast: the same sandbox as on a machine without launchd lets root through to those checks.
+      const withoutLaunchd = { ...env, DOABLE_CODE_AGENT_NO_LAUNCHD: "1" };
+      assert.throws(() => setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, uid: 0 }, withoutLaunchd, () => {}), {
+        message: "Set DOABLE_API_KEY to an organization API key from Doable's Settings > MCP (it starts with sk-doable-, not sk-doable-personal-).",
+      });
+      assert.throws(() => start("mac-mini-1", withoutLaunchd, () => {}, { uid: 0 }), {
+        message: 'No code agent "mac-mini-1" is set up on this machine: run setup first.',
+      });
+    }
+    assert.equal(existsSync(serviceDir(m.env, "mac-mini-1")), false);
+  },
+);
 
 test("on a machine without launchd, setup and start refuse while the session runs, but not after stop", () => {
   const m = servedMachine(WAITED, { keepRunning: true });

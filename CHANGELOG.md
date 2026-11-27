@@ -55,13 +55,19 @@ choice for the page). The session's prompt does not change.
 - When the session does not start to wait for requests, the setup and `start` say why. They stop
   the wait at once when the session ended, and say its exit code; while it runs, they still wait 2
   minutes. Then they give the text of Claude Code's result (for example "Not logged in · Please
-  run /login" when Claude Code is not signed in), else the last three lines of the session's
-  output that are not events, masked with the service's mask. Before, they said only that the
-  session did not start to wait in 2 minutes.
+  run /login" when Claude Code is not signed in), or its `errors` when the result has no text
+  (for example a turn that failed while it ran), else the last three lines of the session's
+  output that are not events. They mask that text with the service's mask and cut it after 500
+  characters. Before, they said only that the session did not start to wait in 2 minutes.
 - The setup and `start` refuse at once to run as root (also with `sudo`), and say to run them as
   a normal user. Claude Code refuses the bypass permission mode for root
   ("--dangerously-skip-permissions cannot be used with root/sudo privileges"), so a session of
-  root never started.
+  root never started. That line of Claude Code is now in `session.jsonl` only when a person runs
+  the start script itself as root. The setup and `start` follow Claude Code's own rule: Claude
+  Code allows root in a sandbox (`IS_SANDBOX=1`, or a `CLAUDE_CODE_BUBBLEWRAP` that is not empty).
+  On a machine without launchd, where the start script gets their environment, they let root
+  through in such a sandbox. On a Mac, the launchd job does not get those values, so they refuse
+  root there in all cases.
 - README ("Always on", "When the session does not start"), TESTING (scenarios 67 and 74).
 
 ### Known limits

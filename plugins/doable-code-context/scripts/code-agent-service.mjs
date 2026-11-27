@@ -24,8 +24,8 @@
 //   node code-agent-service.mjs page --machine NAME [--port N]
 //   node code-agent-service.mjs browser
 // Each command refuses an option that it does not take (COMMAND_OPTIONS): for example the page command takes its port
-// as --port, and setup and start take the page's port as --page-port. setup and start refuse to run as root
-// (refuseRoot): Claude Code refuses the bypass permission mode for root.
+// as --port, and setup and start take the page's port as --page-port. setup and start refuse to run as root, except in a
+// sandbox on a machine without launchd (refuseRoot): Claude Code refuses the bypass permission mode for root.
 // The start script runs these (DIR is the machine's folder; --plugin and --scope only with self-update on):
 //   node code-agent-service.mjs update-request --dir DIR --from BYTES [--plugin doable-code-context@MARKETPLACE --scope SCOPE]
 //   node code-agent-service.mjs write-start-script --dir DIR
@@ -847,11 +847,24 @@ function sessionStart(output) {
   return { permissionMode, waitTool, updateAsked };
 }
 
+// The text of one result event of Claude Code, as { error, lines }, or null when it has none. A result has its text in
+// `result`: `success` with is_error (for example when Claude Code is not signed in) or an error kind is an error. An
+// error kind can have no `result` and hold its texts in `errors`, for example {"type":"result","subtype":
+// "error_during_execution","is_error":true,"errors":["queryParams builder failed: ..."]}.
+function resultWords(event) {
+  if (typeof event.result === "string" && event.result.trim()) {
+    return { error: event.is_error === true || event.subtype !== "success", lines: [event.result.trim()] };
+  }
+  const errors = Array.isArray(event.errors) ? event.errors.filter((text) => typeof text === "string" && text.trim()).map((text) => text.trim()) : [];
+  return errors.length > 0 ? { error: true, lines: errors } : null;
+}
+
 // Why the session did not start to wait for a request, as its output (`output`, as sessionStart reads it) says it, in a
-// short line masked with `mask`; or null when the output does not say. First the text of Claude Code's result, which
-// Claude Code writes when the turn ends, also when it cannot start the turn (for example "Not logged in · Please run
-// /login" when Claude Code is not signed in). Else the last lines that are no event: an error that Claude Code or
-// another program wrote to stderr, for example Claude Code's refusal of the bypass mode for root, before any event.
+// short line masked with `mask`; or null when the output does not say. First the text of Claude Code's last result with
+// a text (resultWords), which Claude Code writes when the turn ends, also when it cannot start the turn (for example
+// "Not logged in · Please run /login" when Claude Code is not signed in). Else the last lines that are no event: an
+// error that Claude Code or another program wrote to stderr, for example Claude Code's refusal of the bypass mode for
+// root, before any event.
 function notWaitingWhy(output, mask) {
   let result = null;
   const other = [];
@@ -867,13 +880,9 @@ function notWaitingWhy(output, mask) {
       if (!line.startsWith('{"')) other.push(line);
       continue;
     }
-    if (event?.type === "result" && typeof event.result === "string" && event.result.trim()) result = event;
+    if (event?.type === "result") result = resultWords(event) ?? result;
   }
-  if (result !== null) {
-    // `success` with is_error (for example when Claude Code is not signed in), or an error kind.
-    const error = result.is_error === true || result.subtype !== "success";
-    return `${error ? "Claude Code's error" : "Its last message"}: "${oneLine([result.result.trim()], mask)}".`;
-  }
+  if (result !== null) return `${result.error ? "Claude Code's error" : "Its last message"}: "${oneLine(result.lines, mask)}".`;
   if (other.length > 0) return `The last lines of its output: "${oneLine(other.slice(-3), mask)}".`;
   return null;
 }
@@ -975,10 +984,14 @@ function printStart(seen, dir, print, selfUpdate) {
 }
 
 // Claude Code refuses the bypass permission mode for root ("--dangerously-skip-permissions cannot be used with root/sudo
-// privileges"), so a session that root runs ends at once. setup and start refuse first, before they change anything.
-// `uid` is the user id of the process (process.getuid): the tests give one.
-function refuseRoot(command, uid) {
-  if (uid === 0) {
+// privileges"), unless its environment has IS_SANDBOX=1 or a CLAUDE_CODE_BUBBLEWRAP that is not empty (a sandbox), so
+// a session that root runs elsewhere ends at once. setup and start refuse first, before they change anything. The
+// start script of a machine without launchd gets their environment (`env`), so there they let root through in such a
+// sandbox. A launchd job does not get it: on a Mac under launchd they refuse root in any case. `uid` is the user id of
+// the process (process.getuid): the tests give one.
+function refuseRoot(command, uid, env) {
+  const sandbox = env.IS_SANDBOX === "1" || Boolean(env.CLAUDE_CODE_BUBBLEWRAP);
+  if (uid === 0 && !(sandbox && !useLaunchd(env))) {
     fail(
       `Run ${command} as a normal user, not as root and not with sudo. The session runs in the bypass permission mode, which Claude Code refuses for root, so the session would never start. Use the account that is signed in to Claude Code on the Claude plan.`,
     );
@@ -989,7 +1002,7 @@ function refuseRoot(command, uid) {
 // the session does not start: main gives the page's mask. `options.uid` is the user id of the process (refuseRoot).
 export function setup(options, env, print = console.log, mask = maskBasic) {
   const { folder, machine, promptFile, autoUpdate = true, uid = process.getuid() } = options;
-  refuseRoot("setup", uid);
+  refuseRoot("setup", uid, env);
   checkMachine(machine);
   const key = env.DOABLE_API_KEY || "";
   if (!ORGANIZATION_KEY.test(key)) {
@@ -1072,7 +1085,7 @@ export function stop(machine, env, print = console.log) {
 // `autoUpdate`, `page` and `pagePort` are the choices of `--auto-update`, `--page` and `--page-port`, or undefined:
 // start keeps the choice of config.json. `uid` and `mask` are setup's.
 export function start(machine, env, print = console.log, { autoUpdate, page, pagePort, uid = process.getuid() } = {}, mask = maskBasic) {
-  refuseRoot("start", uid);
+  refuseRoot("start", uid, env);
   checkMachine(machine);
   const dir = serviceDir(env, machine);
   if (!existsSync(join(dir, "config.json"))) fail(`No code agent "${machine}" is set up on this machine: run setup first.`);
