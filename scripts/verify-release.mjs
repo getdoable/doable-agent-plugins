@@ -11,7 +11,7 @@ const semver = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:
 const plugins = [
   {
     name: "doable-code-context",
-    version: "0.6.3",
+    version: "0.6.4",
     skillNames: ["doable-connect", "doable-answer-questions", "doable-code-agent"],
     network: "bundled-doable-mcp-config",
   },
@@ -722,6 +722,10 @@ for (const requiredCodeAgentSetup of [
   "#### Self-update",
   "start --machine <machine> --auto-update off",
   "Other computers cannot open it, but any account or program on this computer can, not only you.",
+  // The service runs the page, on by default, so any account of this computer can open it while the service runs: the
+  // README says so, and how to turn it off.
+  "They can open it at any time while the service runs.",
+  "start --machine <machine> --page off",
   "It leaves out the password of each login in a result.",
   "A secret in another form can still show",
 ]) {

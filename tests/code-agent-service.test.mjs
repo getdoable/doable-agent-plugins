@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { createServer, request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import test from "node:test";
@@ -9,8 +10,11 @@ import { fileURLToPath } from "node:url";
 import { maskSecrets } from "../plugins/doable-code-context/scripts/code-agent-page.mjs";
 import {
   ASKED_WAIT,
+  DEFAULT_PAGE_PORT,
   NEW_START_SCRIPT,
+  PAGE_NOT_RUNNING,
   browser,
+  checkPage,
   launchdPlist,
   limitedRun,
   parseArgs,
@@ -23,6 +27,7 @@ import {
   status,
   stop,
   updateRequest,
+  writeStartScript,
 } from "../plugins/doable-code-context/scripts/code-agent-service.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -181,7 +186,7 @@ test("the start script runs the serving session with no permission check, with C
   execFileSync("bash", ["-n", join(dir, "run.sh")]);
   // config.json keeps no allow list and no Chrome switch: every session allows every tool and has Chrome.
   const config = JSON.parse(readFileSync(join(dir, "config.json"), "utf8"));
-  assert.deepEqual(Object.keys(config).sort(), ["autoUpdate", "claude", "folder", "machine", "path", "pluginDir", "wake"]);
+  assert.deepEqual(Object.keys(config).sort(), ["autoUpdate", "claude", "folder", "machine", "page", "pagePort", "path", "pluginDir", "wake"]);
   // Nobody answers the extension's prompt, and nothing but the rules keeps the session from production: setup says so.
   assert.ok(printed.includes(CHROME_NOTE), printed.join("\n"));
   assert.ok(printed.some((line) => line.startsWith("It runs in the bypass permission mode: ")), printed.join("\n"));
@@ -549,10 +554,13 @@ const resultLine = (id, { isError = false, text = '{"request":null,"capabilities
 const WAITED = `${initLine()}${callLine("toolu_1")}${resultLine("toolu_1")}`;
 
 // A machine set up with no launch, whose `claude` is a fake: it writes `output` as the serving session's output, then
-// stops the start script's loop, or with `keepRunning` stays on as a session that serves. `launching` is the
+// stops the start script's loop, or with `keepRunning` stays on as a session that serves, and ends with the exit code
+// `code`. `launching` is the
 // environment of a real launch: the start script runs in the background as on a machine without launchd (on a Mac
-// too), and setup and start wait 2 seconds at most for the session's first wait for a request.
-function servedMachine(output, { keepRunning = false } = {}) {
+// too), and setup and start wait 2 seconds at most for the session's first wait for a request. A test that launches a
+// start script and does not test the page sets it up with `page: false`: else its page would listen on the default
+// port of this computer.
+function servedMachine(output, { keepRunning = false, code = 0 } = {}) {
   const m = machine();
   const dir = serviceDir(m.env, "mac-mini-1");
   const outputFile = join(m.base, "output.jsonl");
@@ -560,7 +568,7 @@ function servedMachine(output, { keepRunning = false } = {}) {
   const claude = join(m.base, "fake-claude");
   const then = keepRunning ? "/bin/sleep 30" : `/usr/bin/touch '${join(dir, "stopped")}'`;
   // The plugin commands of the self-update before the session answer as for an installed plugin with no newer release.
-  fakeClaude(claude, { list: `/bin/cat ${q(m.listFile)}`, session: `/bin/cat '${outputFile}'\n${then}` });
+  fakeClaude(claude, { list: `/bin/cat ${q(m.listFile)}`, session: `/bin/cat '${outputFile}'\n${then}\nexit ${code}` });
   const env = { ...m.env, DOABLE_CLAUDE_BIN: claude };
   const { DOABLE_CODE_AGENT_NO_LAUNCH: _noLaunch, ...withLaunch } = env;
   const launching = { ...withLaunch, DOABLE_CODE_AGENT_NO_LAUNCHD: "1", DOABLE_CODE_AGENT_WAIT_S: "2" };
@@ -584,21 +592,25 @@ function endGroup(pid) {
 
 const STARTED = 'The code agent "mac-mini-1": started in the background; after a reboot, run `start` again.';
 const CONNECTED = "It is connected: it waits for Doable's requests.";
-const notWaiting = (dir) => `It did not start to wait in 2 minutes. Read ${join(dir, "session.jsonl")} and ${join(dir, "service.log")}.`;
+const readLogs = (dir) => `Read ${join(dir, "session.jsonl")} and ${join(dir, "service.log")}.`;
+// What setup and start say when the session ended before its first wait for a request returned: at once, with its exit
+// code, and with why when its output says it.
+const endedBeforeWait = (dir, code, why = null) =>
+  [`The session ended with code ${code} before it started to wait for requests.`, why, readLogs(dir)].filter((part) => part !== null).join(" ");
 
 test("start says connected when the plugin's wait for a request returned, and reads past a line that is not JSON", () => {
   // The session's stderr goes to the same output.
   const m = servedMachine(`Warning: a line of stderr\n${WAITED}`);
-  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt }, m.env, () => {});
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, page: false }, m.env, () => {});
   assert.deepEqual(printedBy((print) => start("mac-mini-1", m.launching, print)), [STARTED, CHROME_NOTE, CONNECTED]);
 });
 
 test("start does not count a wait of the session before the launch", () => {
   // session.jsonl keeps the output of the earlier sessions, with their waits and the results.
   const m = servedMachine(initLine());
-  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt }, m.env, () => {});
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, page: false }, m.env, () => {});
   writeFileSync(join(m.dir, "session.jsonl"), WAITED);
-  assert.deepEqual(printedBy((print) => start("mac-mini-1", m.launching, print)), [STARTED, CHROME_NOTE, notWaiting(m.dir)]);
+  assert.deepEqual(printedBy((print) => start("mac-mini-1", m.launching, print)), [STARTED, CHROME_NOTE, endedBeforeWait(m.dir, 0)]);
 });
 
 test("start does not count a wait call that Claude Code refused or that Doable refused, nor the result of another call", () => {
@@ -611,8 +623,8 @@ test("start does not count a wait call that Claude Code refused or that Doable r
       callLine("toolu_3") +
       resultLine("toolu_3", { isError: true, text: "doable_auth_error: The API key was revoked." }),
   );
-  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt }, m.env, () => {});
-  assert.deepEqual(printedBy((print) => start("mac-mini-1", m.launching, print)), [STARTED, CHROME_NOTE, notWaiting(m.dir)]);
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, page: false }, m.env, () => {});
+  assert.deepEqual(printedBy((print) => start("mac-mini-1", m.launching, print)), [STARTED, CHROME_NOTE, endedBeforeWait(m.dir, 0)]);
 });
 
 test("setup says when the session runs in another permission mode than the bypass mode, and then not that it runs in the bypass mode", () => {
@@ -626,7 +638,7 @@ test("setup says when the session runs in another permission mode than the bypas
     ["bypassPermissions", { bypass: true, other: false }],
   ]) {
     const m = servedMachine(`${initLine(mode)}${callLine("toolu_1")}${resultLine("toolu_1")}`);
-    const printed = printedBy((print) => setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt }, m.launching, print));
+    const printed = printedBy((print) => setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, page: false }, m.launching, print));
     const at = printed.indexOf(CONNECTED);
     assert.ok(at > 0, printed.join("\n"));
     assert.equal(printed.some(bypassNote), expected.bypass, `${mode}:\n${printed.join("\n")}`);
@@ -639,7 +651,7 @@ test("start says when the session waits through another Doable MCP server than t
   // A server of the person's settings with the plugin server's address takes the place of the plugin's server, with
   // its own key and machine header.
   const m = servedMachine(`${initLine()}${callLine("toolu_1", "mcp__doable__wait_for_code_agent_request")}${resultLine("toolu_1")}`);
-  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt }, m.env, () => {});
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, page: false }, m.env, () => {});
   assert.deepEqual(printedBy((print) => start("mac-mini-1", m.launching, print)), [
     STARTED,
     CHROME_NOTE,
@@ -649,16 +661,192 @@ test("start says when the session waits through another Doable MCP server than t
 
 test("start reads all of the new output when the start script moved a large earlier output away", () => {
   const m = servedMachine(WAITED);
-  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt }, m.env, () => {});
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, page: false }, m.env, () => {});
   // Larger than the 20 MB at which the start script moves the output to session.1.jsonl.
   writeFileSync(join(m.dir, "session.jsonl"), `${"x".repeat(20 * 1024 * 1024)}\n`);
   assert.deepEqual(printedBy((print) => start("mac-mini-1", m.launching, print)), [STARTED, CHROME_NOTE, CONNECTED]);
   assert.ok(existsSync(join(m.dir, "session.1.jsonl")));
 });
 
+// The output of `claude -p --output-format stream-json --verbose` when Claude Code is not signed in (the Linux check of
+// 2026-11-27): the turn ends at once with an error result, and the session ends with code 1.
+const NOT_SIGNED_IN = "Not logged in · Please run /login";
+const NOT_SIGNED_IN_OUTPUT =
+  initLine() +
+  jsonLine({ type: "assistant", message: { content: [{ type: "text", text: NOT_SIGNED_IN }] } }) +
+  jsonLine({ type: "result", subtype: "success", is_error: true, result: NOT_SIGNED_IN });
+// Claude Code's refusal of the bypass mode for root, on stderr before any event (the same check).
+const ROOT_REFUSAL = "--dangerously-skip-permissions cannot be used with root/sudo privileges for security reasons";
+
+test("setup and start say at once that the session ended before its first wait, with its exit code and the text of its result: Claude Code's error when Claude Code is not signed in, else its last message", () => {
+  // A line of stderr before the events: the result's text comes first.
+  let m = servedMachine(`Warning: a line of stderr\n${NOT_SIGNED_IN_OUTPUT}`, { code: 1 });
+  // A wait longer than the time that the test allows: only the session's end ends it in time.
+  let launching = { ...m.launching, DOABLE_CODE_AGENT_WAIT_S: "60" };
+  const ended = endedBeforeWait(m.dir, 1, `Claude Code's error: "${NOT_SIGNED_IN}".`);
+  const begun = Date.now();
+  const atSetup = printedBy((print) => setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, page: false }, launching, print, maskSecrets));
+  assert.ok(atSetup.includes(ended), atSetup.join("\n"));
+  assert.ok(!atSetup.includes(CONNECTED), atSetup.join("\n"));
+  assert.deepEqual(printedBy((print) => start("mac-mini-1", launching, print, {}, maskSecrets)), [STARTED, CHROME_NOTE, ended]);
+
+  // A turn that ended with no error and no wait (for example the model found no Skill): its last message.
+  const message = "I cannot find the doable-code-agent skill, so I cannot serve requests.";
+  m = servedMachine(`${initLine()}${jsonLine({ type: "result", subtype: "success", is_error: false, result: message })}`);
+  launching = { ...m.launching, DOABLE_CODE_AGENT_WAIT_S: "60" };
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, page: false }, m.env, () => {});
+  assert.deepEqual(printedBy((print) => start("mac-mini-1", launching, print, {}, maskSecrets)), [
+    STARTED,
+    CHROME_NOTE,
+    endedBeforeWait(m.dir, 0, `Its last message: "${message}".`),
+  ]);
+  assert.ok(Date.now() - begun < 30000, `${Date.now() - begun} ms`);
+});
+
+test("when the session's output has no result, setup and start give its last three lines that are no event, masked: at its end, and after the wait while it runs", (t) => {
+  // Four lines of stderr, a half-written event, and a line with a URL's password and a Doable key.
+  const stderr = [
+    "Warning: an early line",
+    "Fetching https://qa-bot:hunter2-secret@proxy.example.com/plugins",
+    `\x1b[31mError: the key ${KEY} was not accepted\x1b[0m`,
+    '{"type":"assistant","message":{"content":[',
+    ROOT_REFUSAL,
+  ].join("\n");
+  const why = `The last lines of its output: "Fetching https://qa-bot:****@proxy.example.com/plugins | Error: the key sk-doable-**** was not accepted | ${ROOT_REFUSAL}".`;
+  let m = servedMachine(`${stderr}\n`, { code: 1 });
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, page: false }, m.env, () => {});
+  assert.deepEqual(printedBy((print) => start("mac-mini-1", m.launching, print, {}, maskSecrets)), [STARTED, CHROME_NOTE, endedBeforeWait(m.dir, 1, why)]);
+
+  // The session runs, has written the same lines, and no wait returned in the wait (2 seconds here).
+  m = servedMachine(`${initLine()}${stderr}\n`, { keepRunning: true });
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, page: false }, m.env, () => {});
+  const pidFile = join(m.dir, "pid");
+  t.after(() => existsSync(pidFile) && endGroup(readFileSync(pidFile, "utf8").trim()));
+  const printed = printedBy((print) => start("mac-mini-1", m.launching, print, {}, maskSecrets));
+  assert.deepEqual(printed, [STARTED, CHROME_NOTE, `It did not start to wait in 2 minutes. ${why} ${readLogs(m.dir)}`]);
+  assert.ok(!printed.join("\n").includes("hunter2") && !printed.join("\n").includes(KEY), printed.join("\n"));
+});
+
+test("a session whose first wait returned stays connected, with no reason, also when it then ended with an error and wrote stderr", () => {
+  // Contrast to the two tests above: the same error result and stderr line after the session's first wait.
+  const m = servedMachine(`${WAITED}${ROOT_REFUSAL}\n${jsonLine({ type: "result", subtype: "success", is_error: true, result: NOT_SIGNED_IN })}`, { code: 1 });
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, page: false }, m.env, () => {});
+  assert.deepEqual(printedBy((print) => start("mac-mini-1", m.launching, print, {}, maskSecrets)), [STARTED, CHROME_NOTE, CONNECTED]);
+});
+
+test("when Claude Code's error result has no text in `result`, setup and start give the texts of its `errors` as Claude Code's error", () => {
+  // The result of a turn that failed while it ran: no `result`, its texts in `errors`, and no stderr.
+  const errors = ["queryParams builder failed: no value for wait_seconds", "The turn ended before its first tool call."];
+  let m = servedMachine(`${initLine()}${jsonLine({ type: "result", subtype: "error_during_execution", is_error: true, errors })}`, { code: 1 });
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, page: false }, m.env, () => {});
+  assert.deepEqual(printedBy((print) => start("mac-mini-1", m.launching, print, {}, maskSecrets)), [
+    STARTED,
+    CHROME_NOTE,
+    endedBeforeWait(m.dir, 1, `Claude Code's error: "queryParams builder failed: no value for wait_seconds | The turn ended before its first tool call.".`),
+  ]);
+
+  // Contrast: an error result with no text in `result` and none in `errors` says no reason.
+  m = servedMachine(`${initLine()}${jsonLine({ type: "result", subtype: "error_during_execution", is_error: true, errors: [] })}`, { code: 1 });
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, page: false }, m.env, () => {});
+  assert.deepEqual(printedBy((print) => start("mac-mini-1", m.launching, print, {}, maskSecrets)), [STARTED, CHROME_NOTE, endedBeforeWait(m.dir, 1)]);
+});
+
+test("setup and start mask the secrets in the text of the session's result, and cut a text over 500 characters", () => {
+  // A proxy's address with a password, and a Doable key, in Claude Code's error.
+  const error = `API Error: no connection through https://qa-bot:hunter2-secret@proxy.example.com/v1 with the key ${KEY}`;
+  let m = servedMachine(`${initLine()}${jsonLine({ type: "result", subtype: "success", is_error: true, result: error })}`, { code: 1 });
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, page: false }, m.env, () => {});
+  const printed = printedBy((print) => start("mac-mini-1", m.launching, print, {}, maskSecrets));
+  assert.deepEqual(printed, [
+    STARTED,
+    CHROME_NOTE,
+    endedBeforeWait(m.dir, 1, `Claude Code's error: "API Error: no connection through https://qa-bot:****@proxy.example.com/v1 with the key sk-doable-****".`),
+  ]);
+
+  // A last message of 507 characters: its first 500, then the ellipsis.
+  const first = "x".repeat(500);
+  m = servedMachine(`${initLine()}${jsonLine({ type: "result", subtype: "success", is_error: false, result: `${first} THE END` })}`);
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, page: false }, m.env, () => {});
+  assert.deepEqual(printedBy((print) => start("mac-mini-1", m.launching, print, {}, maskSecrets)), [
+    STARTED,
+    CHROME_NOTE,
+    endedBeforeWait(m.dir, 0, `Its last message: "${first}…".`),
+  ]);
+});
+
+// The error of setup or start (`command`) as root.
+const refusal = (command) => ({
+  message: `Run ${command} as a normal user, not as root and not with sudo. The session runs in the bypass permission mode, which Claude Code refuses for root, so the session would never start. Use the account that is signed in to Claude Code on the Claude plan.`,
+});
+
+test("setup and start refuse at once to run as root, say why, and change nothing; as another user they go on", () => {
+  const m = machine();
+  const dir = serviceDir(m.env, "mac-mini-1");
+  assert.throws(() => setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, uid: 0 }, m.env, () => {}), refusal("setup"));
+  assert.equal(existsSync(dir), false);
+  // Contrast: the same setup as another user.
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, uid: 501 }, m.env, () => {});
+  assert.ok(existsSync(join(dir, "run.sh")));
+
+  stop("mac-mini-1", m.env, () => {});
+  const before = "#!/bin/bash\n# the start script before\n";
+  writeFileSync(join(dir, "run.sh"), before);
+  assert.throws(() => start("mac-mini-1", m.env, () => {}, { uid: 0 }), refusal("start"));
+  assert.equal(readFileSync(join(dir, "run.sh"), "utf8"), before);
+  assert.ok(existsSync(join(dir, "stopped")));
+  // Contrast: start as another user writes the start script again.
+  assert.deepEqual(printedBy((print) => start("mac-mini-1", m.env, print, { uid: 501 })), [NOT_STARTED, CHROME_NOTE]);
+  assert.match(readFileSync(join(dir, "run.sh"), "utf8"), sessionLine(quotedPattern(m.claude)));
+});
+
+test("on a machine without launchd, setup and start let root through in Claude Code's sandbox: IS_SANDBOX=1, or a CLAUDE_CODE_BUBBLEWRAP that is not empty", () => {
+  // The start script gets the environment of setup and start there, so Claude Code sees the same values.
+  for (const sandbox of [{ IS_SANDBOX: "1" }, { CLAUDE_CODE_BUBBLEWRAP: "1" }]) {
+    const m = machine();
+    const env = { ...m.env, DOABLE_CODE_AGENT_NO_LAUNCHD: "1", ...sandbox };
+    const dir = serviceDir(env, "mac-mini-1");
+    setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, uid: 0 }, env, () => {});
+    assert.match(readFileSync(join(dir, "run.sh"), "utf8"), sessionLine(quotedPattern(m.claude)));
+    assert.deepEqual(printedBy((print) => start("mac-mini-1", env, print, { uid: 0 })), [NOT_STARTED, CHROME_NOTE]);
+  }
+  // Contrast: values that Claude Code does not take as a sandbox.
+  for (const other of [{ IS_SANDBOX: "true" }, { CLAUDE_CODE_BUBBLEWRAP: "" }]) {
+    const m = machine();
+    const env = { ...m.env, DOABLE_CODE_AGENT_NO_LAUNCHD: "1", ...other };
+    assert.throws(() => setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, uid: 0 }, env, () => {}), refusal("setup"));
+    assert.equal(existsSync(serviceDir(env, "mac-mini-1")), false);
+    assert.throws(() => start("mac-mini-1", env, () => {}, { uid: 0 }), refusal("start"));
+  }
+});
+
+test(
+  "on a Mac under launchd, setup and start refuse root also in Claude Code's sandbox: the launchd job does not get their environment",
+  { skip: process.platform !== "darwin" && "launchd runs only on a Mac" },
+  () => {
+    const m = machine();
+    // No key and no machine set up: if root were let through, setup and start would stop at their next check, before a
+    // launch by launchd.
+    const { DOABLE_CODE_AGENT_NO_LAUNCH: _noLaunch, DOABLE_API_KEY: _key, ...underLaunchd } = m.env;
+    for (const sandbox of [{ IS_SANDBOX: "1" }, { CLAUDE_CODE_BUBBLEWRAP: "1" }]) {
+      const env = { ...underLaunchd, ...sandbox };
+      assert.throws(() => setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, uid: 0 }, env, () => {}), refusal("setup"));
+      assert.throws(() => start("mac-mini-1", env, () => {}, { uid: 0 }), refusal("start"));
+      // Contrast: the same sandbox as on a machine without launchd lets root through to those checks.
+      const withoutLaunchd = { ...env, DOABLE_CODE_AGENT_NO_LAUNCHD: "1" };
+      assert.throws(() => setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, uid: 0 }, withoutLaunchd, () => {}), {
+        message: "Set DOABLE_API_KEY to an organization API key from Doable's Settings > MCP (it starts with sk-doable-, not sk-doable-personal-).",
+      });
+      assert.throws(() => start("mac-mini-1", withoutLaunchd, () => {}, { uid: 0 }), {
+        message: 'No code agent "mac-mini-1" is set up on this machine: run setup first.',
+      });
+    }
+    assert.equal(existsSync(serviceDir(m.env, "mac-mini-1")), false);
+  },
+);
+
 test("on a machine without launchd, setup and start refuse while the session runs, but not after stop", () => {
   const m = servedMachine(WAITED, { keepRunning: true });
-  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt }, m.env, () => {});
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, page: false }, m.env, () => {});
   const pids = [];
   // Each launch's pid, kept before any assertion, so that the test ends each script that it launched.
   const startAndKeepPid = () => {
@@ -688,7 +876,7 @@ test("on a machine without launchd, setup and start refuse while the session run
 test("on a machine without launchd, start goes on when another process has the pid of the ended start script", () => {
   // After a reboot, another process can have the pid that the `pid` file names.
   const m = servedMachine(WAITED);
-  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt }, m.env, () => {});
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, page: false }, m.env, () => {});
   writeFileSync(join(m.dir, "pid"), `${process.pid}\n`);
   assert.deepEqual(printedBy((print) => start("mac-mini-1", m.launching, print)), [STARTED, CHROME_NOTE, CONNECTED]);
 });
@@ -756,7 +944,7 @@ test("start refuses a wait time that is not a whole number of seconds, and launc
   // "2s" is not a number: with it, start waited for ever for a session that never waits. The command runs in its own
   // process with a time limit, so that a start that waits for ever fails the test and does not stop it.
   const m = servedMachine(initLine());
-  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt }, m.env, () => {});
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, page: false }, m.env, () => {});
   let failed;
   try {
     execFileSync(process.execPath, [script, "start", "--machine", "mac-mini-1"], {
@@ -776,7 +964,7 @@ test("start refuses a wait time that is not a whole number of seconds, and launc
 test("on a machine without launchd, status says on while the start script runs, and not running when the pid file names another process", () => {
   // After a reboot, no stop file is there, and another process can have the pid that the `pid` file names.
   const m = servedMachine(WAITED, { keepRunning: true });
-  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt }, m.env, () => {});
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, page: false }, m.env, () => {});
   start("mac-mini-1", m.launching, () => {});
   const pid = readFileSync(join(m.dir, "pid"), "utf8").trim();
   try {
@@ -970,7 +1158,7 @@ test("after a session whose wait got Doable's ask, the start script updates the 
     session: `if [ -e ${q(join(m.base, "sessions"))} ] && [ "$(/bin/cat ${q(join(m.base, "sessions"))})" = 2 ]; then /usr/bin/touch ${q(published)}; fi\n${sessionsInTurn(m.base, dir, 4)}`,
     calls,
   });
-  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt }, withFakeSleep(m, calls), () => {});
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, page: false }, withFakeSleep(m, calls), () => {});
   writeFileSync(calls, "");
   execFileSync("/bin/bash", [join(dir, "run.sh")], { env: { PATH: "/usr/bin:/bin" }, stdio: "pipe", timeout: 60000 });
 
@@ -1112,7 +1300,7 @@ test("with self-update off, service.log says that Doable asked for a newer plugi
     `${why}: a person must update the plugin to 9.9.9, then run stop and start (README, "Self-update"). Until then, each session ends at its first wait for a request, and the next session starts in 30 minutes.`;
   const m = machine();
   const calls = join(m.base, "calls");
-  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, autoUpdate: false }, withFakeSleep(m, calls), () => {});
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, autoUpdate: false, page: false }, withFakeSleep(m, calls), () => {});
   const dir = serviceDir(m.env, "mac-mini-1");
   // The first session gets Doable's ask, and the second one ends the loop. No plugin command runs.
   writeFileSync(join(m.base, "output-1.jsonl"), waitedWith("toolu_1", askAnswer("9.9.9")));
@@ -1178,17 +1366,44 @@ test("with self-update off, service.log says that Doable asked for a newer plugi
   assert.deepEqual(printed, [asked, needs("The session loads the plugin from a development folder")]);
 });
 
+test("service.log holds the exit code of each serving session, not the code of the command that writes the time", () => {
+  // In the line that the session ended, $? after $(date ...) is the code of date: 0 for each session.
+  const m = machine();
+  const calls = join(m.base, "calls");
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, page: false }, withFakeSleep(m, calls), () => {});
+  const dir = serviceDir(m.env, "mac-mini-1");
+  // The first session ends with code 3; the second one with code 0, and it ends the loop.
+  const count = q(join(m.base, "sessions"));
+  fakeClaude(m.claude, {
+    list: `/bin/cat ${q(m.listFile)}`,
+    session: `n=$(( $(/bin/cat ${count} 2>/dev/null || echo 0) + 1 )); echo $n > ${count}
+if [ $n = 2 ]; then /usr/bin/touch ${q(join(dir, "stopped"))}; exit 0; fi
+exit 3`,
+    calls,
+  });
+  writeFileSync(calls, "");
+  execFileSync("/bin/bash", [join(dir, "run.sh")], { env: { PATH: "/usr/bin:/bin" }, stdio: "pipe", timeout: 60000 });
+  assert.deepEqual(logLines(dir), [
+    "the serving session starts",
+    "the serving session ended with code 3",
+    "the serving session starts",
+    "the serving session ended with code 0",
+  ]);
+  // The code of the step after the session still chooses the wait: no ask, so 5 minutes.
+  assert.deepEqual(readFileSync(calls, "utf8").trim().split("\n"), ["session", "sleep 300", "session"]);
+});
+
 test("setup and start say that Doable needs a newer plugin, not that the session is connected, when its first wait got Doable's ask", () => {
   const asks = (next) => `Doable needs the plugin 9.9.9 on this machine, so the session ended at its first wait for a request. ${next}`;
   const updatesNow = asks("The start script updates the plugin now and starts the new release; service.log says how each step went.");
   // Self-update on: start says that the start script updates now.
   let m = servedMachine(waitedWith("toolu_1", askAnswer("9.9.9")));
-  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt }, m.env, () => {});
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, page: false }, m.env, () => {});
   assert.deepEqual(printedBy((print) => start("mac-mini-1", m.launching, print)), [STARTED, CHROME_NOTE, updatesNow]);
   // Self-update off: setup says that a person updates. The answer is the words alone (a client that passes only the
   // answer's text).
   m = servedMachine(waitedWith("toolu_1", askText("9.9.9")));
-  const printed = printedBy((print) => setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, autoUpdate: false }, m.launching, print));
+  const printed = printedBy((print) => setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, autoUpdate: false, page: false }, m.launching, print));
   assert.ok(
     printed.includes(
       asks(
@@ -1201,7 +1416,7 @@ test("setup and start say that Doable needs a newer plugin, not that the session
   // Contrast: an answer that holds a request, with the same words in the request's text and in `update`. The session
   // waits for requests.
   m = servedMachine(waitedWith("toolu_1", REQUEST_WITH_UPDATE));
-  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt }, m.env, () => {});
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, page: false }, m.env, () => {});
   assert.deepEqual(printedBy((print) => start("mac-mini-1", m.launching, print)), [STARTED, CHROME_NOTE, CONNECTED]);
 });
 
@@ -1264,4 +1479,699 @@ test("status shows the version that Doable asked for while update-asked names on
   start("mac-mini-1", m.env, () => {});
   assert.equal(existsSync(file), false);
   assert.deepEqual(askedLines(), []);
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// The page that the start script runs next to the serving session
+// ---------------------------------------------------------------------------------------------------------------------
+
+const pageAddress = (port) => `http://127.0.0.1:${port}/`;
+// What setup, and start with --page or --page-port, say about the page.
+const pageOn = (port) =>
+  `The page: ${pageAddress(port)}. It runs while the code agent runs, and stops with it (README, "The code agent's page"). Other computers cannot open it, but any account or program on this computer can, not only you. To turn it off, run stop, then start --machine mac-mini-1 --page off.`;
+const PAGE_OFF = `The page is off. To turn it on, run stop, then start --machine mac-mini-1 --page on. To run it by hand until Ctrl-C: node ${script} page --machine mac-mini-1`;
+// The start script's line that starts the page of this release, with the node of its PATH and the folder of all
+// machines (launchd's environment does not hold DOABLE_CODE_AGENT_HOME).
+const pageStartLine = (dir, port) =>
+  `  DOABLE_CODE_AGENT_HOME=${q(dirname(dir))} ${q(NODE)} ${q(script)} page --machine 'mac-mini-1' --port ${port} --pid-file "$dir/page.pid" >> "$dir/page.log" 2>&1 &\n`;
+const CHECK_PAGE = `  ${q(NODE)} ${q(script)} check-page --dir "$dir" >> "$dir/service.log" 2>&1\n  [ $? = 5 ] && start_page\n`;
+const STOP_PAGE = `${q(NODE)} ${q(script)} stop-page --dir "$dir" >> "$dir/service.log" 2>&1\n`;
+// The page's command line, as ps shows the page that a start script of this release started.
+const pageCommand = (dir, port) => `${NODE} ${script} page --machine mac-mini-1 --port ${port} --pid-file ${join(dir, "page.pid")}`;
+const notRunning = (port) =>
+  `the page at ${pageAddress(port)} does not run (README, "The code agent's page"); the start script starts it again.`;
+// What the page that the start script runs writes to page.log when its port is in use: the service's own steps.
+const portInUse = (port) =>
+  `Port ${port} is in use on this computer. Run stop, then start --machine mac-mini-1 --page-port <number>, or stop the program that uses the port.`;
+// What status says of a page that is on and does not run while the code agent is stopped or not running.
+const ONLY_WHILE_ON = (port) => `The page: on, at ${pageAddress(port)}; it runs only while the code agent runs.`;
+
+async function freePort() {
+  const server = createServer();
+  await new Promise((done) => server.listen(0, "127.0.0.1", done));
+  const { port } = server.address();
+  await new Promise((done) => server.close(done));
+  return port;
+}
+
+// The session part of a fake `claude` for the page's tests: the n-th session runs the lines of the file
+// `session-<n>.sh` of `base` when there is one, and the session `last` ends the start script's loop.
+const sessionsWithLines = (base, dir, last) => {
+  const count = q(join(base, "sessions"));
+  return `n=$(( $(/bin/cat ${count} 2>/dev/null || echo 0) + 1 )); echo $n > ${count}
+if [ -f ${q(base)}/session-$n.sh ]; then . ${q(base)}/session-$n.sh; fi
+if [ $n = ${last} ]; then /usr/bin/touch ${q(join(dir, "stopped"))}; fi`;
+};
+
+// Lines of a session that write to `seen` what it sees of the page: the process id in page.pid, the HTTP status of the
+// page's address, and the command line of that process.
+const lookAtPage = (dir, port, seen) => `pid=$(/bin/cat ${q(join(dir, "page.pid"))})
+code=$(/usr/bin/curl -s -o /dev/null -w '%{http_code}' ${pageAddress(port)})
+printf '%s\\t%s\\t%s\\n' "$pid" "$code" "$(/bin/ps -ww -o command= -p "$pid")" >> ${q(seen)}
+`;
+
+// Lines of a session that wait, up to 10 seconds, until the page answers 200. The start script waits for its first
+// page to listen or end (check-page), but not for a page that it starts again right before a session.
+const waitForPage = (port) => `i=0
+while [ "$(/usr/bin/curl -s -o /dev/null -w '%{http_code}' ${pageAddress(port)})" != 200 ] && [ $i -lt 100 ]; do /bin/sleep 0.1; i=$((i + 1)); done
+`;
+
+// Lines of a session that wait, up to 10 seconds, until the process of page.pid no longer runs a page.
+const waitForPageEnd = (dir) => `i=0
+while /bin/ps -ww -o command= -p "$(/bin/cat ${q(join(dir, "page.pid"))})" | /usr/bin/grep -q 'code-agent-service.mjs page' && [ $i -lt 100 ]; do /bin/sleep 0.1; i=$((i + 1)); done
+`;
+
+function looks(seen) {
+  return readFileSync(seen, "utf8")
+    .trim()
+    .split("\n")
+    .map((line) => {
+      const [pid, code, command] = line.split("\t");
+      return { pid, code, command };
+    });
+}
+
+// The state and the full command line (-ww: Linux's ps cuts it to COLUMNS) of the process `pid` as ps shows them, or
+// null when no process has the pid. A process that ended and whose parent has not read its end yet (a zombie) has a
+// state that starts with Z, and ps shows its command line as `<defunct>` on macOS and as `[node] <defunct>` on Linux.
+function processRow(pid) {
+  let row;
+  try {
+    row = execFileSync("ps", ["-ww", "-o", "stat=", "-o", "command=", "-p", String(pid)], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+  } catch (error) {
+    if (error.status === 1) return null;
+    throw error;
+  }
+  const [, state, command] = /^(\S+)\s*(.*)$/.exec(row);
+  return { state, command };
+}
+
+// The command line of a process while it runs, else null: no process has the pid, or it ended and waits for its parent
+// to read its end (a zombie). This test process reads the end of its own children only when its event loop runs, so a
+// child of the test that a stop ended stays a zombie until the test's next await. On Linux, a process that is ending
+// can show a state that is not Z yet (R, for example) with only its name in brackets as its command line (`[node]`):
+// this waits for it, up to 5 seconds and with no await, until its state is Z or no process has the pid.
+function commandOf(pid) {
+  const until = Date.now() + 5000;
+  let row = processRow(pid);
+  while (row !== null && !row.state.startsWith("Z") && /^\[[^\]]*\]$/.test(row.command) && Date.now() < until) {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+    row = processRow(pid);
+  }
+  return row === null || row.state.startsWith("Z") ? null : row.command;
+}
+
+// Waits, with no await (at an await, this test process reads the end of its children), until the process `pid` of a
+// child of this test has ended and waits for the test to read its end.
+function untilZombie(pid) {
+  const until = Date.now() + 10000;
+  while (!processRow(pid)?.state.startsWith("Z")) {
+    if (Date.now() > until) assert.fail(`process ${pid} did not end in 10 seconds`);
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
+  }
+}
+
+// Ends each page of these process ids that still runs, so that a failed assertion leaves no page on this computer.
+function endPages(pids) {
+  for (const pid of pids) {
+    if (commandOf(pid)?.includes("code-agent-service.mjs page")) process.kill(Number(pid), "SIGKILL");
+  }
+}
+
+function endPagesOf(dir, seen) {
+  const pids = existsSync(seen) ? looks(seen).map((look) => look.pid) : [];
+  if (existsSync(join(dir, "page.pid"))) pids.push(readFileSync(join(dir, "page.pid"), "utf8").trim());
+  endPages(pids);
+}
+
+// A process whose command line is the page command of `machineName`, as ps shows it: node, waiting, with the words of
+// the page command as its arguments. It serves nothing: only its command line counts.
+function processWithCommand(t, machineName) {
+  const child = spawn(
+    process.execPath,
+    ["-e", "setInterval(() => {}, 1000)", "/srv/plugin/scripts/code-agent-service.mjs", "page", "--machine", machineName, "--port", "47615"],
+    { stdio: "ignore" },
+  );
+  t.after(() => child.kill("SIGKILL"));
+  return child;
+}
+
+// Waits until the page at `port` answers 200.
+async function answered(port) {
+  const until = Date.now() + 10000;
+  for (;;) {
+    const code = await new Promise((done) => {
+      const sent = httpRequest({ host: "127.0.0.1", port, path: "/" }, (response) => {
+        response.resume();
+        done(response.statusCode);
+      });
+      sent.on("error", () => done(null));
+      sent.end();
+    });
+    if (code === 200) return;
+    if (Date.now() > until) assert.fail(`nothing answered 200 at port ${port}`);
+    await new Promise((done) => setTimeout(done, 100));
+  }
+}
+
+test("setup turns the page on at port 47615 and says its address, who can open it and how to turn it off; start keeps or changes the choice; status shows it", () => {
+  const m = machine();
+  const atSetup = printedBy((print) => setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt }, m.env, print));
+  assert.ok(atSetup.includes(pageOn(47615)), atSetup.join("\n"));
+  assert.equal(DEFAULT_PAGE_PORT, 47615);
+  const dir = serviceDir(m.env, "mac-mini-1");
+  const run = () => readFileSync(join(dir, "run.sh"), "utf8");
+  const saved = () => {
+    const config = JSON.parse(readFileSync(join(dir, "config.json"), "utf8"));
+    return [config.page, config.pagePort];
+  };
+  assert.deepEqual(saved(), [true, 47615]);
+  // Before the loop it stops a page that an earlier start script started, then starts its own; it checks the page
+  // before each session's start; and after the loop it stops the page.
+  assert.ok(run().includes(pageStartLine(dir, 47615)), run());
+  // The page's process id goes in place of page.pid by a rename: check-page and stop never read an emptied file.
+  assert.ok(run().includes(`${pageStartLine(dir, 47615)}  echo $! > "$dir/page.pid.start"\n  mv -f "$dir/page.pid.start" "$dir/page.pid"\n`), run());
+  assert.ok(run().includes(`${STOP_PAGE}[ -e "$dir/stopped" ] || start_page\nwhile [ ! -e "$dir/stopped" ]; do\n`), run());
+  assert.ok(run().includes(CHECK_PAGE), run());
+  assert.ok(run().indexOf(CHECK_PAGE) < run().indexOf("the serving session starts"), run());
+  assert.ok(run().endsWith(`done\n${STOP_PAGE}`), run());
+  execFileSync("bash", ["-n", join(dir, "run.sh")]);
+  const pageLine = () => printedBy((print) => status("mac-mini-1", m.env, print)).find((line) => line.startsWith("The page"));
+  // Nothing was launched: the code agent does not run.
+  assert.equal(pageLine(), ONLY_WHILE_ON(47615));
+
+  // start --page off: kept in config.json and said. The start script starts and checks no page, but still stops one
+  // that an earlier start script started.
+  assert.deepEqual(printedBy((print) => start("mac-mini-1", m.env, print, { page: false })), [NOT_STARTED, CHROME_NOTE, PAGE_OFF]);
+  assert.deepEqual(saved(), [false, 47615]);
+  assert.ok(!run().includes("page --machine") && !run().includes("check-page"), run());
+  assert.ok(run().includes(`${STOP_PAGE}while [ ! -e "$dir/stopped" ]; do\n`) && run().endsWith(`done\n${STOP_PAGE}`), run());
+  execFileSync("bash", ["-n", join(dir, "run.sh")]);
+  assert.equal(pageLine(), "The page: off. To turn it on, run stop, then start --machine mac-mini-1 --page on.");
+  // start without the options keeps the choice, and says nothing of it.
+  assert.deepEqual(printedBy((print) => start("mac-mini-1", m.env, print)), [NOT_STARTED, CHROME_NOTE]);
+  assert.deepEqual(saved(), [false, 47615]);
+  assert.deepEqual(printedBy((print) => start("mac-mini-1", m.env, print, { page: true, pagePort: 48001 })), [NOT_STARTED, CHROME_NOTE, pageOn(48001)]);
+  assert.deepEqual(saved(), [true, 48001]);
+  assert.ok(run().includes(pageStartLine(dir, 48001)), run());
+  start("mac-mini-1", m.env, () => {});
+  assert.deepEqual(saved(), [true, 48001]);
+
+  // A config.json of plugin 0.6.3 has no page keys: write-start-script, which 0.6.3's self-update runs from this
+  // release's folder, writes a start script with the page on at 47615.
+  const { page: _page, pagePort: _pagePort, ...config063 } = JSON.parse(readFileSync(join(dir, "config.json"), "utf8"));
+  writeFileSync(join(dir, "config.json"), JSON.stringify(config063));
+  writeStartScript({ dir }, m.env);
+  assert.ok(run().includes(pageStartLine(dir, 47615)) && run().includes(CHECK_PAGE), run());
+
+  // setup with --page off.
+  const other = machine();
+  const off = printedBy((print) => setup({ folder: other.folder, machine: "mac-mini-1", promptFile: other.prompt, page: false }, other.env, print));
+  assert.ok(off.includes(PAGE_OFF), off.join("\n"));
+  assert.ok(!off.includes(pageOn(47615)), off.join("\n"));
+
+  // The command line takes on or off, and a port from 1 to 65535.
+  assert.deepEqual(parseArgs(["start", "--machine", "m", "--page", "off", "--page-port", "48001"]).options, { machine: "m", page: false, pagePort: 48001 });
+  assert.throws(() => parseArgs(["start", "--page", "no"]), /^Error: --page must be on or off\.$/);
+  assert.throws(() => parseArgs(["setup", "--page-port", "0"]), /^Error: --page-port must be a whole number from 1 to 65535\.$/);
+});
+
+test("the start script runs the page of its release next to the session, starts it again when it ended, and stops it when its loop ends", { timeout: 60000 }, async (t) => {
+  const m = machine();
+  const port = await freePort();
+  const dir = serviceDir(m.env, "mac-mini-1");
+  const calls = join(m.base, "calls");
+  const seen = join(m.base, "seen");
+  t.after(() => endPagesOf(dir, seen));
+  // The first session looks at the page and kills it, as a crash would; the second one looks at it again, once it
+  // answers.
+  writeFileSync(join(m.base, "session-1.sh"), `${lookAtPage(dir, port, seen)}kill -9 "$pid"\n`);
+  writeFileSync(join(m.base, "session-2.sh"), `${waitForPage(port)}${lookAtPage(dir, port, seen)}`);
+  fakeClaude(m.claude, { list: `/bin/cat ${q(m.listFile)}`, session: sessionsWithLines(m.base, dir, 2), calls });
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, pagePort: port }, withFakeSleep(m, calls), () => {});
+  writeFileSync(calls, "");
+  execFileSync("/bin/bash", [join(dir, "run.sh")], { env: { PATH: "/usr/bin:/bin" }, stdio: "pipe", timeout: 60000 });
+
+  const [first, second] = looks(seen);
+  assert.deepEqual([first.code, first.command], ["200", pageCommand(dir, port)]);
+  assert.deepEqual([second.code, second.command], ["200", pageCommand(dir, port)]);
+  assert.notEqual(second.pid, first.pid);
+  assert.deepEqual(readFileSync(calls, "utf8").trim().split("\n"), ["session", "sleep 300", "session"]);
+  const started = `the page starts at ${pageAddress(port)}`;
+  const session = ["the serving session starts", "the serving session ended with code 0"];
+  const logged = logLines(dir);
+  assert.deepEqual(logged.slice(0, 3), [started, ...session]);
+  // The page's own lines are the last lines of its page.log: it was killed, and wrote no error.
+  const ended = `${notRunning(port)} The last lines of page.log: The page of the code agent "mac-mini-1": ${pageAddress(port)} | Other computers cannot open it`;
+  assert.ok(logged[3].startsWith(ended), logged[3]);
+  assert.deepEqual(logged.slice(4), [started, ...session, `the page (process ${second.pid}) stopped.`]);
+  // After the loop, no page runs.
+  assert.equal(existsSync(join(dir, "page.pid")), false);
+  assert.deepEqual([commandOf(first.pid), commandOf(second.pid)], [null, null]);
+});
+
+test("a page whose port is in use never keeps the session from its start: service.log says why before each start", { timeout: 60000 }, async (t) => {
+  const m = machine();
+  const taken = createServer();
+  await new Promise((done) => taken.listen(0, "127.0.0.1", done));
+  t.after(() => taken.close());
+  const port = taken.address().port;
+  const dir = serviceDir(m.env, "mac-mini-1");
+  const calls = join(m.base, "calls");
+  t.after(() => endPagesOf(dir, join(m.base, "seen")));
+  // The last session waits until the page that the start script started again before it has ended, so that the loop's
+  // end finds no page to stop.
+  writeFileSync(join(m.base, "session-2.sh"), waitForPageEnd(dir));
+  fakeClaude(m.claude, { list: `/bin/cat ${q(m.listFile)}`, session: sessionsWithLines(m.base, dir, 2), calls });
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, pagePort: port }, withFakeSleep(m, calls), () => {});
+  writeFileSync(calls, "");
+  execFileSync("/bin/bash", [join(dir, "run.sh")], { env: { PATH: "/usr/bin:/bin" }, stdio: "pipe", timeout: 60000 });
+
+  assert.deepEqual(readFileSync(calls, "utf8").trim().split("\n"), ["session", "sleep 300", "session"]);
+  const started = `the page starts at ${pageAddress(port)}`;
+  // The page's words name the service's option (--page-port of start), not the page command's --port.
+  const inUse = `${notRunning(port)} The last lines of page.log: ${portInUse(port)}`;
+  const session = ["the serving session starts", "the serving session ended with code 0"];
+  // The page that could not start is said before the first session too: check-page waits for a page that has just
+  // started to listen or to end.
+  assert.deepEqual(logLines(dir), [started, inUse, started, ...session, inUse, started, ...session]);
+  assert.equal(existsSync(join(dir, "page.pid")), false);
+});
+
+test("a new start script, as after a self-update's exec, stops the page that an earlier one started from another release's folder, and starts its own", { timeout: 60000 }, async (t) => {
+  const m = machine();
+  const port = await freePort();
+  const dir = serviceDir(m.env, "mac-mini-1");
+  const calls = join(m.base, "calls");
+  const seen = join(m.base, "seen");
+  t.after(() => endPagesOf(dir, seen));
+  writeFileSync(join(m.base, "session-1.sh"), lookAtPage(dir, port, seen));
+  fakeClaude(m.claude, { list: `/bin/cat ${q(m.listFile)}`, session: sessionsWithLines(m.base, dir, 1), calls });
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, pagePort: port }, withFakeSleep(m, calls), () => {});
+  // The page that the start script of an older release started: from that release's folder, on the same port, with its
+  // process id in page.pid.
+  const older = join(m.base, "plugins", "cache", "doable", "doable-code-context", "0.6.3");
+  cpSync(pluginRoot, older, { recursive: true });
+  const earlier = spawn(process.execPath, [join(older, "scripts", "code-agent-service.mjs"), "page", "--machine", "mac-mini-1", "--port", String(port)], {
+    env: m.env,
+    stdio: "ignore",
+  });
+  t.after(() => earlier.kill("SIGKILL"));
+  writeFileSync(join(dir, "page.pid"), `${earlier.pid}\n`);
+  await answered(port);
+  assert.ok(commandOf(earlier.pid).includes(join(older, "scripts", "code-agent-service.mjs")));
+  execFileSync("/bin/bash", [join(dir, "run.sh")], { env: { PATH: "/usr/bin:/bin" }, stdio: "pipe", timeout: 60000 });
+
+  const [look] = looks(seen);
+  assert.equal(commandOf(earlier.pid), null);
+  assert.deepEqual([look.code, look.command], ["200", pageCommand(dir, port)]);
+  assert.notEqual(look.pid, String(earlier.pid));
+  assert.deepEqual(logLines(dir), [
+    `the page (process ${earlier.pid}) stopped.`,
+    `the page starts at ${pageAddress(port)}`,
+    "the serving session starts",
+    "the serving session ended with code 0",
+    `the page (process ${look.pid}) stopped.`,
+  ]);
+});
+
+test("stop and remove stop the page of page.pid only when its process runs this machine's page command, and status says whether it runs", (t) => {
+  const m = machine();
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt }, m.env, () => {});
+  const dir = serviceDir(m.env, "mac-mini-1");
+  const pageLine = () => printedBy((print) => status("mac-mini-1", m.env, print)).find((line) => line.startsWith("The page"));
+  const notNow = ONLY_WHILE_ON(47615);
+  // The page of another machine whose name starts with this one's: the process id of page.pid can be reused.
+  const other = processWithCommand(t, "mac-mini-10");
+  writeFileSync(join(dir, "page.pid"), `${other.pid}\n`);
+  assert.equal(pageLine(), notNow);
+  stop("mac-mini-1", m.env, () => {});
+  assert.match(commandOf(other.pid), / page --machine mac-mini-10 --port 47615$/);
+  assert.equal(existsSync(join(dir, "page.pid")), false);
+
+  // This machine's page: status says that it runs, and stop ends it.
+  const own = processWithCommand(t, "mac-mini-1");
+  writeFileSync(join(dir, "page.pid"), `${own.pid}\n`);
+  assert.equal(pageLine(), `The page: on, at ${pageAddress(47615)}; it runs now.`);
+  stop("mac-mini-1", m.env, () => {});
+  assert.equal(commandOf(own.pid), null);
+  assert.equal(pageLine(), notNow);
+
+  // remove ends it too.
+  start("mac-mini-1", m.env, () => {});
+  const again = processWithCommand(t, "mac-mini-1");
+  writeFileSync(join(dir, "page.pid"), `${again.pid}\n`);
+  remove("mac-mini-1", m.env, () => {});
+  assert.equal(commandOf(again.pid), null);
+  assert.equal(existsSync(dir), false);
+  assert.notEqual(commandOf(other.pid), null);
+});
+
+test("check-page says in one masked line that the page does not run, with the end of page.log, and says nothing while it runs", (t) => {
+  const m = machine();
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt }, m.env, () => {});
+  const dir = serviceDir(m.env, "mac-mini-1");
+  const check = () => {
+    const printed = [];
+    const code = checkPage({ dir }, (line) => printed.push(line.replace(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ /, "")), maskSecrets);
+    return { code, printed };
+  };
+  // page.pid names a process that is not a page (this test's), and page.log ends with an error that holds a URL's
+  // password and a Doable key.
+  writeFileSync(join(dir, "page.pid"), `${process.pid}\n`);
+  writeFileSync(
+    join(dir, "page.log"),
+    `The page of the code agent "mac-mini-1": ${pageAddress(47615)}\nError: could not read https://qa-bot:hunter2-secret@git.example.com/x.git\n    at read (${KEY})\n`,
+  );
+  assert.deepEqual(check(), {
+    code: PAGE_NOT_RUNNING,
+    printed: [
+      `${notRunning(47615)} The last lines of page.log: The page of the code agent "mac-mini-1": ${pageAddress(47615)} | Error: could not read https://qa-bot:****@git.example.com/x.git | at read (sk-doable-****)`,
+    ],
+  });
+  rmSync(join(dir, "page.log"));
+  assert.deepEqual(check(), { code: PAGE_NOT_RUNNING, printed: [`${notRunning(47615)} Its page.log is empty.`] });
+
+  // Contrast: a process that runs this machine's page command, whose page.log has the page's address line.
+  const own = processWithCommand(t, "mac-mini-1");
+  writeFileSync(join(dir, "page.pid"), `${own.pid}\n`);
+  writeFileSync(join(dir, "page.log"), `The page of the code agent "mac-mini-1": ${pageAddress(47615)}\n`);
+  assert.deepEqual(check(), { code: 0, printed: [] });
+});
+
+// What setup and start say of a page that does not run after the launch.
+const pageNotRunning = (port, why) =>
+  `The page at ${pageAddress(port)} does not run now. ${why} The code agent serves all the same, and its start script starts the page again before each session (README, "The code agent's page"). Other computers cannot open it, but any account or program on this computer can, not only you. To turn it off, run stop, then start --machine mac-mini-1 --page off.`;
+
+// The processes that run the page command of mac-mini-1 at `port`: node, or a program that runs node.
+function pageProcesses(port) {
+  return execFileSync("ps", ["-A", "-ww", "-o", "pid=", "-o", "command="], { encoding: "utf8" })
+    .split("\n")
+    .map((line) => /^\s*(\d+)\s(.*)$/.exec(line))
+    .filter((row) => row !== null && row[2].includes(`code-agent-service.mjs page --machine mac-mini-1 --port ${port} `))
+    .map((row) => ({ pid: row[1], command: row[2] }));
+}
+
+// The child of `pid` once its command line holds `text` (a child of bash runs bash's command line until its exec).
+async function childOf(pid, text) {
+  const until = Date.now() + 10000;
+  for (;;) {
+    const row = execFileSync("ps", ["-A", "-ww", "-o", "pid=", "-o", "ppid=", "-o", "command="], { encoding: "utf8" })
+      .split("\n")
+      .map((line) => /^\s*(\d+)\s+(\d+)\s(.*)$/.exec(line))
+      .find((one) => one !== null && one[2] === String(pid) && one[3].includes(text));
+    if (row !== undefined) return Number(row[1]);
+    if (Date.now() > until) assert.fail(`process ${pid} has no child that runs ${text}`);
+    await new Promise((done) => setTimeout(done, 50));
+  }
+}
+
+// A version manager's shim at `path`: a program named node that runs node as its child (no exec), and passes no signal
+// on to it.
+function writeShim(path) {
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, `#!/bin/bash\n${q(NODE)} "$@"\n`, { mode: 0o700 });
+}
+
+test("setup and start refuse the page command's --port and name --page-port, and each command refuses an option of another command", () => {
+  const m = machine();
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, pagePort: 48001 }, m.env, () => {});
+  const dir = serviceDir(m.env, "mac-mini-1");
+  const files = () => ["config.json", "run.sh"].map((name) => readFileSync(join(dir, name), "utf8"));
+  const before = files();
+  const refused = (args) => {
+    try {
+      execFileSync(process.execPath, [script, ...args], { stdio: "pipe", env: m.env });
+    } catch (error) {
+      return { status: error.status, stderr: error.stderr.toString() };
+    }
+    assert.fail(`${args.join(" ")} did not fail`);
+  };
+  // The words of a page whose port is in use named --port: start took it with no error and kept the page's port.
+  assert.deepEqual(refused(["start", "--machine", "mac-mini-1", "--port", "47700"]), {
+    status: 1,
+    stderr: "start does not take --port: it takes --machine, --auto-update, --page, --page-port. The page's port is --page-port <number>.\n",
+  });
+  assert.deepEqual(refused(["setup", "--folder", m.folder, "--machine", "mac-mini-1", "--prompt-file", m.prompt, "--port", "47700"]), {
+    status: 1,
+    stderr: "setup does not take --port: it takes --folder, --machine, --prompt-file, --auto-update, --page, --page-port. The page's port is --page-port <number>.\n",
+  });
+  assert.deepEqual(files(), before);
+  assert.throws(() => parseArgs(["page", "--machine", "m", "--page-port", "47700"]), /^Error: page does not take --page-port: it takes --machine, --port, --pid-file\.$/);
+  assert.throws(() => parseArgs(["status", "--machine", "m", "--page", "off"]), /^Error: status does not take --page: it takes --machine\.$/);
+  assert.throws(() => parseArgs(["browser", "--machine", "m"]), /^Error: browser does not take --machine: it takes no option\.$/);
+  // Contrast: each command takes its own options.
+  assert.deepEqual(parseArgs(["start", "--machine", "m", "--page-port", "47700"]).options, { machine: "m", pagePort: 47700 });
+  assert.deepEqual(parseArgs(["page", "--machine", "m", "--port", "47700", "--pid-file", "/srv/m/page.pid"]).options, {
+    machine: "m",
+    port: 47700,
+    pidFile: "/srv/m/page.pid",
+  });
+  assert.deepEqual(parseArgs(["stop-page", "--dir", "/srv/m"]).options, { dir: "/srv/m" });
+});
+
+test("setup and start look at the page after the launch, and say why it does not run, with the service's option to move it", { timeout: 90000 }, async (t) => {
+  const m = servedMachine(WAITED, { keepRunning: true });
+  // A wait longer than the start script's steps before its first session, which run node four times.
+  const launching = { ...m.launching, DOABLE_CODE_AGENT_WAIT_S: "20" };
+  const taken = createServer();
+  await new Promise((done) => taken.listen(0, "127.0.0.1", done));
+  const port = taken.address().port;
+  const pids = [];
+  t.after(() => {
+    if (taken.listening) taken.close();
+    for (const pid of pids) endGroup(pid);
+    endPages(pageProcesses(port).map((row) => row.pid));
+  });
+  // Each launch's pid, kept before any assertion, so that the test ends each script that it launched.
+  const launched = (command) => {
+    const printed = printedBy(command);
+    pids.push(readFileSync(join(m.dir, "pid"), "utf8").trim());
+    return printed;
+  };
+  const inUse = pageNotRunning(port, `The last lines of page.log: ${portInUse(port)}`);
+  const atSetup = launched((print) => setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, pagePort: port }, launching, print));
+  assert.ok(atSetup.includes(inUse), atSetup.join("\n"));
+  assert.ok(!atSetup.includes(pageOn(port)), atSetup.join("\n"));
+  // start says it with no option too.
+  stop("mac-mini-1", launching, () => {});
+  assert.deepEqual(
+    launched((print) => start("mac-mini-1", launching, print)),
+    [STARTED, CHROME_NOTE, CONNECTED, inUse],
+  );
+
+  // Contrast: with the port free, start says nothing of the page, and status says that it runs.
+  stop("mac-mini-1", launching, () => {});
+  await new Promise((done) => taken.close(done));
+  assert.deepEqual(launched((print) => start("mac-mini-1", launching, print)), [STARTED, CHROME_NOTE, CONNECTED]);
+  const pageLine = printedBy((print) => status("mac-mini-1", launching, print)).find((line) => line.startsWith("The page"));
+  assert.equal(pageLine, `The page: on, at ${pageAddress(port)}; it runs now.`);
+  stop("mac-mini-1", launching, () => {});
+});
+
+test("a start script that starts after stop, as launchd runs it at each login, starts no page and keeps page.log", { timeout: 60000 }, async (t) => {
+  const m = machine();
+  const port = await freePort();
+  const dir = serviceDir(m.env, "mac-mini-1");
+  t.after(() => endPages(pageProcesses(port).map((row) => row.pid)));
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, pagePort: port }, m.env, () => {});
+  stop("mac-mini-1", m.env, () => {});
+  // The reason why the page of the last run ended, which check-page had not read yet.
+  writeFileSync(join(dir, "page.log"), "Error: the reason of the last run\n");
+  execFileSync("/bin/bash", [join(dir, "run.sh")], { env: { PATH: "/usr/bin:/bin" }, stdio: "pipe", timeout: 60000 });
+  assert.equal(readFileSync(join(dir, "service.log"), "utf8"), "");
+  assert.equal(readFileSync(join(dir, "page.log"), "utf8"), "Error: the reason of the last run\n");
+  assert.equal(existsSync(join(dir, "page.pid")), false);
+});
+
+test("status says why the page does not run: the code agent is stopped or not running, the logs while it is on, or a start script of an older release", (t) => {
+  const m = machine();
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt }, m.env, () => {});
+  const dir = serviceDir(m.env, "mac-mini-1");
+  const lines = () => printedBy((print) => status("mac-mini-1", m.env, print)).filter((line) => /^(Code agent|The page)/.test(line));
+  // Nothing was launched, then stop: neither log says why, because the page runs only while the code agent runs.
+  assert.deepEqual(lines(), ['Code agent "mac-mini-1": not running.', ONLY_WHILE_ON(47615)]);
+  stop("mac-mini-1", m.env, () => {});
+  assert.deepEqual(lines(), ['Code agent "mac-mini-1": stopped.', ONLY_WHILE_ON(47615)]);
+
+  // The code agent is on (the pid file names a process of its start script), and its page does not run.
+  rmSync(join(dir, "stopped"));
+  const running = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)", join(dir, "run.sh")], { stdio: "ignore" });
+  t.after(() => running.kill("SIGKILL"));
+  writeFileSync(join(dir, "pid"), `${running.pid}\n`);
+  assert.deepEqual(lines(), [
+    'Code agent "mac-mini-1": on.',
+    `The page: on, at ${pageAddress(47615)}; it does not run now (service.log and ${join(dir, "page.log")} say why).`,
+  ]);
+
+  // A person updated the plugin by hand and did not run stop and start: the start script of the older release runs no
+  // page, while its config.json, with no page keys, means on.
+  writeFileSync(join(dir, "run.sh"), runScript({ dir, folder: m.folder, claude: m.claude, path: m.env.PATH, wake: false }));
+  const { page: _page, pagePort: _pagePort, ...older } = JSON.parse(readFileSync(join(dir, "config.json"), "utf8"));
+  writeFileSync(join(dir, "config.json"), JSON.stringify(older));
+  assert.deepEqual(lines(), [
+    'Code agent "mac-mini-1": on.',
+    `The page: on, at ${pageAddress(47615)}, but the start script of this machine is from an older release, which runs no page. To start the page, run stop, then start --machine mac-mini-1 (a self-update starts it too).`,
+  ]);
+});
+
+test("setup again keeps the page's choice of config.json unless an option changes it", () => {
+  const m = machine();
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, page: false, pagePort: 48001 }, m.env, () => {});
+  const dir = serviceDir(m.env, "mac-mini-1");
+  const saved = () => {
+    const config = JSON.parse(readFileSync(join(dir, "config.json"), "utf8"));
+    return [config.page, config.pagePort];
+  };
+  assert.deepEqual(saved(), [false, 48001]);
+  // The README's way to change the folder or the key: stop, then the setup again with the saved prompt, and no option
+  // of the page.
+  stop("mac-mini-1", m.env, () => {});
+  const again = printedBy((print) => setup({ folder: m.folder, machine: "mac-mini-1", promptFile: join(dir, "prompt.md") }, m.env, print));
+  assert.deepEqual(saved(), [false, 48001]);
+  assert.ok(again.includes(PAGE_OFF), again.join("\n"));
+  assert.ok(!readFileSync(join(dir, "run.sh"), "utf8").includes("start_page"));
+  // An option changes the choice, and the port stays.
+  const on = printedBy((print) => setup({ folder: m.folder, machine: "mac-mini-1", promptFile: join(dir, "prompt.md"), page: true }, m.env, print));
+  assert.deepEqual(saved(), [true, 48001]);
+  assert.ok(on.includes(pageOn(48001)), on.join("\n"));
+});
+
+test("with a node on the start script's PATH that runs node as its child, page.pid names the page that listens, and the stop at the loop's end ends it", { timeout: 60000 }, async (t) => {
+  const m = machine();
+  const port = await freePort();
+  const dir = serviceDir(m.env, "mac-mini-1");
+  const calls = join(m.base, "calls");
+  const seen = join(m.base, "seen");
+  t.after(() => endPages(pageProcesses(port).map((row) => row.pid)));
+  const shimBin = join(m.base, "shim-bin");
+  writeShim(join(shimBin, "node"));
+  writeFileSync(join(m.base, "session-1.sh"), lookAtPage(dir, port, seen));
+  fakeClaude(m.claude, { list: `/bin/cat ${q(m.listFile)}`, session: sessionsWithLines(m.base, dir, 1), calls });
+  setup(
+    { folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt, pagePort: port },
+    withFakeSleep({ ...m, env: { ...m.env, PATH: `${shimBin}:${m.env.PATH}` } }, calls),
+    () => {},
+  );
+  assert.ok(readFileSync(join(dir, "run.sh"), "utf8").includes(`${q(join(shimBin, "node"))} ${q(script)} page --machine`));
+  execFileSync("/bin/bash", [join(dir, "run.sh")], { env: { PATH: "/usr/bin:/bin" }, stdio: "pipe", timeout: 60000 });
+
+  // The session saw node itself in page.pid, not the shim: the page wrote its own process id.
+  const [look] = looks(seen);
+  assert.deepEqual([look.code, look.command], ["200", pageCommand(dir, port)]);
+  // After the loop, no process runs the page: neither node nor the shim, which ends after its child.
+  const until = Date.now() + 5000;
+  while (pageProcesses(port).length > 0 && Date.now() < until) await new Promise((done) => setTimeout(done, 100));
+  assert.deepEqual(pageProcesses(port), []);
+});
+
+test("stop also ends the page that a program in page.pid runs as its child, when that program passes no signal on", async (t) => {
+  const m = machine();
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt }, m.env, () => {});
+  const dir = serviceDir(m.env, "mac-mini-1");
+  const shim = join(m.base, "shim", "node");
+  writeShim(shim);
+  // page.pid names the shim when the start script's write of `$!` comes after the page's own write.
+  const args = ["-e", "setInterval(() => {}, 1000)", "/srv/plugin/scripts/code-agent-service.mjs", "page", "--machine", "mac-mini-1", "--port", "47615"];
+  const wrapper = spawn(shim, args, { stdio: "ignore" });
+  const child = await childOf(wrapper.pid, "page --machine mac-mini-1 --port 47615");
+  t.after(() => endPages([wrapper.pid, child]));
+  writeFileSync(join(dir, "page.pid"), `${wrapper.pid}\n`);
+  stop("mac-mini-1", m.env, () => {});
+  assert.deepEqual([commandOf(wrapper.pid), commandOf(child)], [null, null]);
+});
+
+test("with COLUMNS in the environment, whose width Linux's ps cuts a command line to, status, check-page and stop-page still find the start script and the page that run", async (t) => {
+  const m = machine();
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt }, m.env, () => {});
+  const dir = serviceDir(m.env, "mac-mini-1");
+  const narrow = { ...m.env, COLUMNS: "40" };
+  // The code agent is on: the pid file names a process of its start script.
+  const startScript = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)", join(dir, "run.sh")], { stdio: "ignore" });
+  t.after(() => startScript.kill("SIGKILL"));
+  writeFileSync(join(dir, "pid"), `${startScript.pid}\n`);
+  // page.pid names a program that runs the page as its child (a version manager's shim), and the page listens.
+  const shim = join(m.base, "shim", "node");
+  writeShim(shim);
+  const args = ["-e", "setInterval(() => {}, 1000)", "/srv/plugin/scripts/code-agent-service.mjs", "page", "--machine", "mac-mini-1", "--port", "47615"];
+  const wrapper = spawn(shim, args, { stdio: "ignore" });
+  const child = await childOf(wrapper.pid, "page --machine mac-mini-1 --port 47615");
+  t.after(() => endPages([wrapper.pid, child]));
+  writeFileSync(join(dir, "page.pid"), `${wrapper.pid}\n`);
+  writeFileSync(join(dir, "page.log"), `The page of the code agent "mac-mini-1": ${pageAddress(47615)}\n`);
+  // Contrast: on Linux, ps without -ww cuts each of their command lines to 40 characters, also into a pipe, and so cuts
+  // off the words by which the service knows them. macOS's ps prints the full line into a pipe whatever COLUMNS says,
+  // so on macOS this test passes with or without -ww, and only its run on Linux proves the fix.
+  if (process.platform === "linux") {
+    const cut = (pid) => execFileSync("ps", ["-o", "command=", "-p", String(pid)], { encoding: "utf8", env: narrow }).trimEnd();
+    assert.deepEqual(
+      [cut(startScript.pid), cut(wrapper.pid), cut(child)].map((line) => [line.length, line.includes("run.sh") || line.includes(" page --machine ")]),
+      [[40, false], [40, false], [40, false]],
+    );
+  }
+
+  const run = (words) => spawnSync(process.execPath, [script, ...words], { encoding: "utf8", env: narrow });
+  const said = run(["status", "--machine", "mac-mini-1"]).stdout.split("\n").filter((line) => /^(Code agent|The page)/.test(line));
+  assert.deepEqual(said, ['Code agent "mac-mini-1": on.', `The page: on, at ${pageAddress(47615)}; it runs now.`]);
+  const checked = run(["check-page", "--dir", dir]);
+  assert.deepEqual([checked.status, checked.stdout], [0, ""]);
+  // stop-page ends the program of page.pid and its child, the page (pageChildren).
+  const stopped = run(["stop-page", "--dir", dir]);
+  assert.match(stopped.stdout, new RegExp(`^\\d{4}-\\d\\d-\\d\\dT\\d\\d:\\d\\d:\\d\\dZ the page \\(processes ${wrapper.pid} and ${child}\\) stopped\\.\\n$`));
+  assert.deepEqual([commandOf(wrapper.pid), commandOf(child)], [null, null]);
+});
+
+test("a start script and a page that ended, and whose parent has not read their end yet (a zombie), do not run for status, check-page and stop-page", (t) => {
+  const m = machine();
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt }, m.env, () => {});
+  const dir = serviceDir(m.env, "mac-mini-1");
+  const lines = () => printedBy((print) => status("mac-mini-1", m.env, print)).filter((line) => /^(Code agent|The page)/.test(line));
+  // This test process is the parent of both, and it has no await: it does not read their end.
+  const startScript = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)", join(dir, "run.sh")], { stdio: "ignore" });
+  t.after(() => startScript.kill("SIGKILL"));
+  writeFileSync(join(dir, "pid"), `${startScript.pid}\n`);
+  const page = processWithCommand(t, "mac-mini-1");
+  writeFileSync(join(dir, "page.pid"), `${page.pid}\n`);
+  writeFileSync(join(dir, "page.log"), `The page of the code agent "mac-mini-1": ${pageAddress(47615)}\n`);
+  // Contrast: while they run, the code agent is on and its page runs.
+  assert.deepEqual(lines(), ['Code agent "mac-mini-1": on.', `The page: on, at ${pageAddress(47615)}; it runs now.`]);
+  assert.equal(checkPage({ dir }, () => {}, maskSecrets), 0);
+
+  startScript.kill("SIGKILL");
+  page.kill("SIGKILL");
+  untilZombie(startScript.pid);
+  untilZombie(page.pid);
+  assert.deepEqual(lines(), ['Code agent "mac-mini-1": not running.', ONLY_WHILE_ON(47615)]);
+  assert.equal(checkPage({ dir }, () => {}, maskSecrets), PAGE_NOT_RUNNING);
+  // stop-page finds no page to stop: it prints no line and does not wait.
+  assert.equal(execFileSync(process.execPath, [script, "stop-page", "--dir", dir], { encoding: "utf8", env: m.env }), "");
+  assert.equal(existsSync(join(dir, "page.pid")), false);
+  // Both stayed zombies through each look.
+  assert.deepEqual([processRow(startScript.pid)?.state[0], processRow(page.pid)?.state[0]], ["Z", "Z"]);
+});
+
+// The command line of the page that the start script of 0.6.4 starts, word for word but for its node and its folders.
+// After a self-update's exec, the start script of each later release must stop such a page: keep this text as it is.
+const PAGE_OF_0_6_4 = [
+  "/x/plugins/cache/doable/doable-code-context/0.6.4/scripts/code-agent-service.mjs",
+  "page",
+  "--machine",
+  "mac-mini-1",
+  "--port",
+  "47615",
+  "--pid-file",
+  "/x/home/mac-mini-1/page.pid",
+];
+
+test("the stop-page step of this release ends a page whose command line is the one that 0.6.4's start script gave it", (t) => {
+  const m = machine();
+  setup({ folder: m.folder, machine: "mac-mini-1", promptFile: m.prompt }, m.env, () => {});
+  const dir = serviceDir(m.env, "mac-mini-1");
+  const older = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)", ...PAGE_OF_0_6_4], { stdio: "ignore" });
+  t.after(() => older.kill("SIGKILL"));
+  writeFileSync(join(dir, "page.pid"), `${older.pid}\n`);
+  const printed = execFileSync(process.execPath, [script, "stop-page", "--dir", dir], { encoding: "utf8", env: m.env });
+  assert.match(printed, new RegExp(`^\\d{4}-\\d\\d-\\d\\dT\\d\\d:\\d\\d:\\d\\dZ the page \\(process ${older.pid}\\) stopped\\.\\n$`));
+  assert.equal(commandOf(older.pid), null);
+  assert.equal(existsSync(join(dir, "page.pid")), false);
 });

@@ -9,6 +9,106 @@ All notable changes to Doable Agent Plugins are documented here.
 - Verify template integrity and syntax in CI. Local plugin version remains 0.2.10.
 - Clarify the GitHub integration's repository metadata and model-provider boundary.
 
+## [0.6.4] - 2026-11-27
+
+The code agent's page runs as part of the Always on service, on by default. A person no longer
+keeps a command open for it, and it is on again after a restart of the Mac and after a self-update.
+A machine of 0.6.3 updates itself to 0.6.4 when Doable asks for it, with no person: its start
+script runs 0.6.4's `write-start-script`, which turns the page on (0.6.3's `config.json` has no
+choice for the page). The page also has a new layout: a header that says what the session does
+now, "Needs attention", "Now", and tabs with pages. The session's prompt does not change.
+
+### Added
+
+- The page runs with the service: the start script starts
+  `code-agent-service.mjs page --machine <machine> --port <port>` of its own release, with
+  `--pid-file` and the path of `page.pid`, in the background, next to the serving session, with the
+  start script's `node`. Its output goes to `page.log` in the machine's folder (emptied at each start
+  of the page), and its process id to `page.pid`. The page writes its own process id there too,
+  because the `node` of the start script's PATH can be a program that runs node as its child (for
+  example a version manager's shim); `stop-page` also stops such a program's child that runs the
+  page. Each write of `page.pid` is a rename, so that no reader finds the file empty. Each start
+  script first stops the page that an earlier start script started: also the page of an older
+  release, after a self-update's exec. It stops a process only when the process runs this machine's
+  page command, because a process id can be reused. A start script that starts after `stop` (launchd
+  runs it at each login) starts no page. Before each start of the serving session, the start script
+  checks that the page runs (`check-page`). When it does not, it writes one line to `service.log`
+  with the last lines of `page.log`, masked, and starts it again. A page that cannot start (its port
+  is in use) never stops the session, and its words name the service's steps: `stop`, then `start`
+  with `--page-port`. The page stops when the loop ends, and at `stop` and `remove`.
+- `setup` and `start` take `--page on|off` (default on) and `--page-port <number>` (default 47615),
+  kept in the machine's `config.json`; `start`, and the setup again, without them keep the choice.
+  Each command refuses an option that it does not take: `setup` and `start` refuse the page
+  command's `--port` and name `--page-port`. `setup` prints the page's address, that any account on
+  this computer can open it, and how to turn it off; `start` prints it when it gets one of the
+  options. After the launch, both look at the page, and when it does not run, they say why with the
+  last lines of `page.log`. `status` shows whether the page is on, its address, and whether it runs
+  now; while the code agent is stopped or not running, it says that the page runs only while the
+  code agent runs, and it names a start script of an older release that runs no page.
+- The code agent's page is shorter and easier to read. A header says what the session does now;
+  "Needs attention" shows only what needs a person (a question that waits, Doable's ask for a newer
+  plugin, a session that cannot start, refused calls of the request in progress); "Now" shows the
+  request in progress; and three tabs hold the requests (one line each, newest first, in pages of
+  10, 25 or 50, with status chips and a search), the sessions and `service.log` (in pages). A line
+  opens its details, and the address keeps the tab and the place (`#requests&page=2`). The page
+  reads every 5 seconds only the state and one line of each request (`/data.json`); it reads one
+  request (`/request.json?id=CA-…`), a page of sessions (`/sessions.json`, which gives the page
+  that holds an open session), one session by its id (`/session.json?id=…`), a page of
+  `service.log` (`/log.json`) or the requests whose whole text holds the search's words
+  (`/search.json?q=…`, over the masked text) only while that part is open. Each new route takes
+  only GET, answers only at `127.0.0.1:<port>` or `localhost:<port>`, refuses a parameter that it
+  does not take (`400`), masks as `/data.json` does, and has the same headers. The page follows
+  light or dark mode and works down to a phone's width.
+- The page's header shows whether self-update is on, whether the service's page is on and its
+  address (from `config.json`), and whether the service runs this page ("(this page)") or a person
+  ran it by hand with the page command ("This page runs by hand"). Its note when it cannot reach its
+  server says that the code agent stopped or the page ended, and that the service starts the page
+  again before its next session.
+- The page shows the files that a result names (repository, commit and path), the version that
+  Doable asked for while `update-asked` holds it, and a session that ended at Doable's ask.
+- README ("Always on", "The code agent's page"), TESTING (scenarios 73 and 75), PRIVACY. The manual
+  `page` command stays, for a machine with the page off or for one more page on another port.
+
+### Fixed
+
+- `service.log` holds the exit code of each serving session. The start script wrote `$?` after
+  `$(date ...)` in the same line, so the line said "ended with code 0" for each session, and the
+  page showed that code. The start script now keeps the code on the line after the session.
+- When the session does not start to wait for requests, the setup and `start` say why. They stop
+  the wait at once when the session ended, and say its exit code; while it runs, they still wait 2
+  minutes. Then they give the text of Claude Code's result (for example "Not logged in · Please
+  run /login" when Claude Code is not signed in), or its `errors` when the result has no text
+  (for example a turn that failed while it ran), else the last three lines of the session's
+  output that are not events. They mask that text with the service's mask and cut it after 500
+  characters. Before, they said only that the session did not start to wait in 2 minutes.
+- The setup and `start` refuse at once to run as root (also with `sudo`), and say to run them as
+  a normal user. Claude Code refuses the bypass permission mode for root
+  ("--dangerously-skip-permissions cannot be used with root/sudo privileges"), so a session of
+  root never started. That line of Claude Code is now in `session.jsonl` only when a person runs
+  the start script itself as root. The setup and `start` follow Claude Code's own rule: Claude
+  Code allows root in a sandbox (`IS_SANDBOX=1`, or a `CLAUDE_CODE_BUBBLEWRAP` that is not empty).
+  On a machine without launchd, where the start script gets their environment, they let root
+  through in such a sandbox. On a Mac, the launchd job does not get those values, so they refuse
+  root there in all cases.
+- On the page, the header says "Cannot reach Doable", and "Needs attention" shows the newest failed
+  waits, while each wait for a request fails. A restart shows "Starting" until the new session
+  writes its first event or the start script writes its end, not "Cannot start". A question that no
+  session serves and that got no answer in 24 hours shows as "Probably expired", not as open.
+- README ("Always on", "When the session does not start"), TESTING (scenarios 67 and 74).
+
+### Known limits
+
+- Any account or program on this computer can open the page at any time while the service runs,
+  not only while a person keeps a command open as in 0.6.3.
+- The start script checks the page only before each start of the serving session: a page that
+  ended stays down until the next session starts.
+- A page that a person still runs by hand on port 47615 (as 0.6.3's README said) keeps the
+  service's page from its port: `service.log` says so before each session until the person stops
+  it.
+- Each code agent on one computer, also one of another account, needs its own `--page-port`: with
+  the same port, only the page of the code agent that started first runs. The setup and `start` of
+  the other one say that its page does not run.
+
 ## [0.6.3] - 2026-11-25
 
 The code agent sends no code back, whoever asks. A result says in words what the code does, with file

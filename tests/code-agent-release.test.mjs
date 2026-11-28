@@ -301,7 +301,7 @@ test('the release verifier refuses a skill without a rule that keeps code on the
   });
 });
 
-test('the release verifier refuses a plugin version header that is not the release version, a skill without the end of the session for an update or the rule of the code files, and a README without self-update', () => {
+test('the release verifier refuses a plugin version header that is not the release version, a skill without the end of the session for an update or the rule of the code files, and a README without self-update or without what the page of the service is', () => {
   withReleaseCopy((directory) => {
     const mcp = 'plugins/doable-code-context/.mcp.json';
     const version = JSON.parse(readFileSync(join(directory, 'plugins/doable-code-context/.claude-plugin/plugin.json'), 'utf8')).version;
@@ -335,6 +335,15 @@ test('the release verifier refuses a plugin version header that is not the relea
     for (const part of ['#### Self-update', 'start --machine <machine> --auto-update off']) {
       assert.ok(readFileSync(join(directory, 'README.md'), 'utf8').includes(part));
       const noPart = verifyWith(directory, 'README.md', (text) => text.replaceAll(part, ''));
+      assert.notEqual(noPart.status, 0, `a README without this must fail: ${part}`);
+      assert.ok(noPart.stderr.includes(`README is missing code agent setup: ${part}`), noPart.stderr);
+    }
+
+    // The service runs the page, on by default: who can open it, and when, and how to turn it off. Each phrase may wrap.
+    for (const part of ['They can open it at any time while the service runs.', 'start --machine <machine> --page off']) {
+      const pattern = new RegExp(wrapped(part).source, 'g');
+      assert.match(readFileSync(join(directory, 'README.md'), 'utf8'), pattern);
+      const noPart = verifyWith(directory, 'README.md', (text) => text.replace(pattern, ''));
       assert.notEqual(noPart.status, 0, `a README without this must fail: ${part}`);
       assert.ok(noPart.stderr.includes(`README is missing code agent setup: ${part}`), noPart.stderr);
     }

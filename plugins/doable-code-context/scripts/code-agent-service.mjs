@@ -18,19 +18,27 @@
 // minutes later, not 5. The first start (setup, start) never updates.
 //
 // Usage:
-//   DOABLE_API_KEY=... node code-agent-service.mjs setup --folder DIR --machine NAME --prompt-file FILE [--auto-update on|off]
-//   node code-agent-service.mjs start --machine NAME [--auto-update on|off]
+//   DOABLE_API_KEY=... node code-agent-service.mjs setup --folder DIR --machine NAME --prompt-file FILE [--auto-update on|off] [--page on|off] [--page-port N]
+//   node code-agent-service.mjs start --machine NAME [--auto-update on|off] [--page on|off] [--page-port N]
 //   node code-agent-service.mjs status|stop|remove --machine NAME
 //   node code-agent-service.mjs page --machine NAME [--port N]
 //   node code-agent-service.mjs browser
+// Each command refuses an option that it does not take (COMMAND_OPTIONS): for example the page command takes its port
+// as --port, and setup and start take the page's port as --page-port. setup and start refuse to run as root, except in a
+// sandbox on a machine without launchd (refuseRoot): Claude Code refuses the bypass permission mode for root.
 // The start script runs these (DIR is the machine's folder; --plugin and --scope only with self-update on):
 //   node code-agent-service.mjs update-request --dir DIR --from BYTES [--plugin doable-code-context@MARKETPLACE --scope SCOPE]
 //   node code-agent-service.mjs write-start-script --dir DIR
+//   node code-agent-service.mjs stop-page|check-page --dir DIR
+//   node code-agent-service.mjs page --machine NAME --port N --pid-file DIR/page.pid
 //
 // `page` serves a page at http://127.0.0.1:N/ (N is 47615 unless --port gives another) that other computers cannot open
 // (any account of this computer can): the serving session and the requests that it served, from its files on this
-// computer (code-agent-page.mjs). It runs until Ctrl-C. `browser` prints the Chrome that the person chose in Claude Code: the serving session runs it
-// before it uses the browser (the Skill's "The browser").
+// computer (code-agent-page.mjs). The start script runs it next to the serving session, unless setup or start got
+// `--page off` (N is `--page-port`, else 47615), and starts it again when it ended; `stop` and `remove` stop it. With
+// `--pid-file`, the page writes its own process id to that file, and its messages name the service's steps. A person
+// runs it by hand, until Ctrl-C, for a machine with the page off or on another port. `browser` prints the Chrome that
+// the person chose in Claude Code: the serving session runs it before it uses the browser (the Skill's "The browser").
 //
 // The serving session can use every tool with no permission check, and Claude in Chrome, so that it can open a page in
 // this machine's Chrome, for example the link of a sign-up mail from the request's test inbox. Only the rules of its
@@ -120,6 +128,18 @@ const SCOPES = ["user", "project", "local", "managed"];
 const PLUGIN_ID = /^doable-code-context@[A-Za-z0-9._-]{1,100}$/;
 // Escape sequences of colors in a command's output.
 const COLORS = /\x1b\[[0-9;]*[A-Za-z]/g;
+// The page's port when setup and start get no `--page-port`, and the page command's when it gets no `--port`
+// (code-agent-page.mjs takes it from here).
+export const DEFAULT_PAGE_PORT = 47615;
+// The files of the page that the start script runs, in the machine's folder: its process id, and its output.
+const PAGE_PID = "page.pid";
+const PAGE_LOG = "page.log";
+// The exit code of `check-page` when the page does not run: the start script then starts it again.
+export const PAGE_NOT_RUNNING = 5;
+// How long `check-page` waits for a page that has just started to listen (its address line in page.log) or to end, and
+// how long `stop-page`, `stop` and `remove` wait for the page to end after SIGTERM.
+const PAGE_START_S = 10;
+const PAGE_END_S = 10;
 // Plugin 0.3.0's policy file in the workspace. A session takes its rules from its prompt now, so setup deletes the
 // file: a person who reads it would think that it still applies. The name is built from parts, so that the release
 // verifier's check for texts that name it does not find this file.
@@ -220,23 +240,75 @@ ${comment}  ${shellQuote(node)} ${shellQuote(SCRIPT)} update-request --dir "$dir
 `;
 }
 
-// The start script. `service` is null in a script with no step after a session (the tests of the session's command
-// line). Else it gives `node` (findNode) and the installed plugin to update (`update`, see afterSessionStep).
+function pageAddress(port) {
+  return `http://127.0.0.1:${port}/`;
+}
+
+// The start script's lines for the page (README, "The code agent's page") before its loop. `page` is null with the page
+// off, else the machine's name and the page's port. Each start script first stops the page that an earlier one started
+// (`stop-page`): also the page of an older release, after a self-update's exec. With the page on, it then starts this
+// release's page in the background with the start script's node, unless the stop file is there (launchd runs the start
+// script of a stopped machine at each login): its output goes to page.log, which each start empties, and its process
+// id to page.pid. The page also writes its own process id there (`--pid-file`): the node of the start script's PATH can
+// be a program that runs node as its child (for example a version manager's shim), and then `$!` names that program,
+// not the page. Each write of page.pid is a rename, so that no reader (check-page, stop) finds the file empty. The page
+// finds the machine's folder in DOABLE_CODE_AGENT_HOME, which the environment of launchd does not hold.
+//
+// Keep these in each release: after a self-update's exec, the start script of the new release stops the page that the
+// start script of the old release started. They are the page's process id in page.pid of the machine's folder; the
+// stop-page step before the page starts; a page command line that holds
+// `code-agent-service.mjs page --machine <machine> --port ` (pageCommand); and the keys `page` and `pagePort` of
+// config.json, where a missing key means on and 47615 (pageOf).
+function pageStart(node, dir, page) {
+  const stopEarlier = `${shellQuote(node)} ${shellQuote(SCRIPT)} stop-page --dir "$dir" >> "$dir/service.log" 2>&1\n`;
+  if (page === null) return `# The page is off (--page off): a page that an earlier start script started stops.\n${stopEarlier}`;
+  return `# The page runs next to the serving session, from this release. A page that an earlier start script started stops
+# first: also the page of an older release, after a self-update. After \`stop\` (the stop file), no page starts.
+start_page() {
+  : > "$dir/${PAGE_LOG}"
+  echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) the page starts at ${pageAddress(page.port)}" >> "$dir/service.log"
+  DOABLE_CODE_AGENT_HOME=${shellQuote(dirname(resolve(dir)))} ${shellQuote(node)} ${shellQuote(SCRIPT)} page --machine ${shellQuote(page.machine)} --port ${page.port} --pid-file "$dir/${PAGE_PID}" >> "$dir/${PAGE_LOG}" 2>&1 &
+  echo $! > "$dir/${PAGE_PID}.start"
+  mv -f "$dir/${PAGE_PID}.start" "$dir/${PAGE_PID}"
+  # Else bash writes a line with the page's command to its stderr (service.log under launchd) when the page is stopped.
+  disown
+}
+${stopEarlier}[ -e "$dir/stopped" ] || start_page
+`;
+}
+
+// The start script's step for the page before each session's start, with the page on.
+function pageCheck(node) {
+  return `  # When the page does not run (it ended, or its port is in use), check-page writes why to service.log, and the page
+  # starts again. The session starts in any case.
+  ${shellQuote(node)} ${shellQuote(SCRIPT)} check-page --dir "$dir" >> "$dir/service.log" 2>&1
+  [ $? = ${PAGE_NOT_RUNNING} ] && start_page
+`;
+}
+
+// The start script. `service` is null in a script with no step after a session and no page (the tests of the session's
+// command line). Else it gives `node` (findNode), the installed plugin to update (`update`, see afterSessionStep), and
+// the page (`page`, see pageStart).
 export function runScript({ dir, folder, claude, path, wake, pluginDir = null, service = null }) {
   const plugin = pluginDir ? `--plugin-dir ${shellQuote(pluginDir)} ` : "";
   const wakeLock = wake ? "/usr/bin/caffeinate -i -s " : "";
   // --disallowedTools takes each word after it as a tool name, so an option must come next.
   const disallowed = ASKING_TOOLS.map(shellQuote).join(" ");
+  let start = "";
   let before = "";
   let after = `  [ -e "$dir/stopped" ] && break
   sleep ${RESTART_WAIT_S}
 `;
+  let end = "";
   if (service !== null) {
-    before = `  # The size of the session's output before this session: update-request reads only what this session adds.
+    start = pageStart(service.node, dir, service.page);
+    before = `${service.page === null ? "" : pageCheck(service.node)}  # The size of the session's output before this session: update-request reads only what this session adds.
   from=0
   [ -f "$dir/session.jsonl" ] && from=$(wc -c < "$dir/session.jsonl" | tr -d ' ')
 `;
     after = afterSessionStep(service.node, service.update);
+    // The loop ended (the stop file): the page stops too.
+    end = `${shellQuote(service.node)} ${shellQuote(SCRIPT)} stop-page --dir "$dir" >> "$dir/service.log" 2>&1\n`;
   }
   return `#!/bin/bash
 # Written by doable-code-context's code-agent-service.mjs. It serves Doable requests in ${folder}
@@ -251,15 +323,17 @@ export PATH=${shellQuote(path)}
 # In print mode the MCP servers can connect after the first turn starts; the skill's first call needs Doable's tools.
 export MCP_CONNECTION_NONBLOCKING=false
 cd ${shellQuote(folder)} || exit 1
-while [ ! -e "$dir/stopped" ]; do
+${start}while [ ! -e "$dir/stopped" ]; do
   if [ -f "$dir/session.jsonl" ] && [ "$(wc -c < "$dir/session.jsonl")" -gt ${LOG_MAX_BYTES} ]; then
     mv -f "$dir/session.jsonl" "$dir/session.1.jsonl"
   fi
 ${before}  echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) the serving session starts" >> "$dir/service.log"
   ${wakeLock}${shellQuote(claude)} -p ${plugin}--permission-mode bypassPermissions --chrome --disallowedTools ${disallowed} --output-format stream-json --verbose < "$dir/prompt.md" >> "$dir/session.jsonl" 2>&1
-  echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) the serving session ended with code $?" >> "$dir/service.log"
+  # Kept on the next line: each later command, and each command substitution such as $(date), sets $? again.
+  session_code=$?
+  echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) the serving session ended with code $session_code" >> "$dir/service.log"
 ${after}done
-`;
+${end}`;
 }
 
 export function launchdPlist({ machine, dir }) {
@@ -322,6 +396,7 @@ function scriptEnvironment(script) {
 // the old one by a rename: a start script that runs keeps reading its own file, which does not change. A release at or
 // above the version that Doable asked for removes `update-asked`.
 function writeRunScript(dir, config, update, node) {
+  const page = pageOf(config);
   const script = runScript({
     dir,
     folder: config.folder,
@@ -329,7 +404,7 @@ function writeRunScript(dir, config, update, node) {
     path: config.path,
     wake: config.wake,
     pluginDir: config.pluginDir,
-    service: { node, update },
+    service: { node, update, page: page.on ? { machine: config.machine, port: page.port } : null },
   });
   const next = join(dir, "run.sh.next");
   writeFileSync(next, script, { mode: 0o700 });
@@ -360,6 +435,110 @@ function compareVersions(a, b) {
 function selfUpdateOf(config) {
   if (config.pluginDir) return "development folder";
   return config.autoUpdate === false ? "off" : "on";
+}
+
+// Whether the start script runs the page, and on which port. A config.json of plugin 0.6.3 or older has neither: the
+// page is on there, at its default port, as it is by default.
+function pageOf(config) {
+  return { on: config.page !== false, port: config.pagePort ?? DEFAULT_PAGE_PORT };
+}
+
+// What setup, and start with `--page` or `--page-port`, say about the page. `look` is what they saw of the page after
+// the launch (pageAfterLaunch): null when they launched nothing, else whether the page runs, and why not. start also
+// says it with no option when the page does not run.
+function pageWords(machine, page, look) {
+  if (!page.on) {
+    return `The page is off. To turn it on, run stop, then start --machine ${machine} --page on. To run it by hand until Ctrl-C: node ${SCRIPT} page --machine ${machine}`;
+  }
+  const access = `Other computers cannot open it, but any account or program on this computer can, not only you. To turn it off, run stop, then start --machine ${machine} --page off.`;
+  if (look !== null && !look.runs) {
+    return `The page at ${pageAddress(page.port)} does not run now. ${look.why} The code agent serves all the same, and its start script starts the page again before each session (README, "The code agent's page"). ${access}`;
+  }
+  return `The page: ${pageAddress(page.port)}. It runs while the code agent runs, and stops with it (README, "The code agent's page"). ${access}`;
+}
+
+// Waits `ms` milliseconds: the commands of this script are synchronous.
+function pause(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+// The part of the command line of each page that a start script started for `machine`, of any release: the start
+// script of a later release finds an older release's page by it. Keep it in each release (see pageStart).
+function pageCommand(machine) {
+  return `code-agent-service.mjs page --machine ${machine} --port `;
+}
+
+// The option of ps for the full command line, in each look at one here. Linux's ps cuts each line to the width of
+// COLUMNS when the environment has it, also into a pipe, so a page or a start script that runs would count as ended.
+// -ww (unlimited width) keeps the full line on Linux and on macOS.
+const PS_FULL_WIDTH = "-ww";
+
+// Whether the process `pid` runs the page command of `machine`. A process id can be reused after the page ended (for
+// example after a reboot), so a process with another command line is not the page. A page that ended and whose parent
+// has not read its end yet (a zombie) is not the page either: ps shows no command line for it (`<defunct>` on macOS,
+// `[node] <defunct>` on Linux).
+function runsPage(pid, machine) {
+  let command;
+  try {
+    command = execFileSync("ps", [PS_FULL_WIDTH, "-o", "command=", "-p", String(pid)], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+  } catch (error) {
+    // ps exits with 1 when no process has the pid: the page ended.
+    if (error.status === 1) return false;
+    throw error;
+  }
+  return command.includes(pageCommand(machine));
+}
+
+// The process id of the page that a start script started for `machine` (page.pid), while that process runs this
+// machine's page command (runsPage); else null. Keep page.pid in each release (see pageStart).
+function runningPage(dir, machine) {
+  const file = join(dir, PAGE_PID);
+  if (!existsSync(file)) return null;
+  const pid = readFileSync(file, "utf8").trim();
+  // A file that holds no process id (a write that a crash cut) names no page.
+  if (!/^\d+$/.test(pid)) return null;
+  return runsPage(pid, machine) ? Number(pid) : null;
+}
+
+// The child processes of `pid` that run the page command of `machine`. page.pid can name a program that runs node as
+// its child and passes no signal on (for example a version manager's shim): the page writes its own process id to
+// page.pid, but the start script's write of `$!` can come after it. The child is then the page that listens.
+function pageChildren(pid, machine) {
+  const children = [];
+  const table = execFileSync("ps", ["-A", PS_FULL_WIDTH, "-o", "pid=", "-o", "ppid=", "-o", "command="], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+  for (const line of table.split("\n")) {
+    const row = /^\s*(\d+)\s+(\d+)\s(.*)$/.exec(line);
+    if (row !== null && Number(row[2]) === pid && row[3].includes(pageCommand(machine))) children.push(Number(row[1]));
+  }
+  return children;
+}
+
+// Stops the page that a start script started for `machine` (runningPage), and its child that runs the page command
+// (pageChildren), waits until they ended, and removes page.pid. Returns their process ids: none when no page ran.
+function stopPage(dir, machine) {
+  const pid = runningPage(dir, machine);
+  const pids = pid === null ? [] : [pid, ...pageChildren(pid, machine)];
+  for (const one of pids) {
+    try {
+      process.kill(one, "SIGTERM");
+    } catch (error) {
+      // The process ended after ps looked.
+      if (error.code !== "ESRCH") throw error;
+    }
+  }
+  const until = Date.now() + PAGE_END_S * 1000;
+  while (pids.some((one) => runsPage(one, machine))) {
+    if (Date.now() >= until) {
+      fail(`The page of the code agent "${machine}" (${processWords(pids)}) did not end in ${PAGE_END_S} seconds. End it with: kill -9 ${pids.join(" ")}`);
+    }
+    pause(100);
+  }
+  rmSync(join(dir, PAGE_PID), { force: true });
+  return pids;
+}
+
+function processWords(pids) {
+  return pids.length === 1 ? `process ${pids[0]}` : `processes ${pids.join(" and ")}`;
 }
 
 // The version of this release, from its manifest.
@@ -403,8 +582,13 @@ function failureWords(run, seconds, mask) {
     .filter(Boolean)
     .slice(-3);
   if (lines.length === 0) return `${how}, with no output`;
-  const last = mask(lines.join(" | "));
-  return `${how}; its last lines: ${last.length > 500 ? `${last.slice(0, 500)}…` : last}`;
+  return `${how}; its last lines: ${oneLine(lines, mask)}`;
+}
+
+// `lines` as one line of a message: joined with " | ", masked with `mask`, and cut after 500 characters.
+function oneLine(lines, mask) {
+  const text = mask(lines.join(" | "));
+  return text.length > 500 ? `${text.slice(0, 500)}…` : text;
 }
 
 function samePath(a, b) {
@@ -546,14 +730,15 @@ function useLaunchd(env) {
 }
 
 // The pid of the start script that the `pid` file names, while that script runs (on a machine without launchd), else
-// null. A process that took the pid after the script ended (for example after a reboot) does not count.
+// null. A process that took the pid after the script ended (for example after a reboot) does not count, and neither
+// does the script once it ended and waits for its parent to read its end (a zombie): ps shows no command line for it.
 function runningScript(dir) {
   const pidFile = join(dir, "pid");
   if (!existsSync(pidFile)) return null;
   const pid = readFileSync(pidFile, "utf8").trim();
   let command;
   try {
-    command = execFileSync("ps", ["-o", "command=", "-p", pid], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+    command = execFileSync("ps", [PS_FULL_WIDTH, "-o", "command=", "-p", pid], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
   } catch (error) {
     // ps exits with 1 when no process has the pid: the script ended.
     if (error.status === 1) return null;
@@ -670,14 +855,58 @@ function sessionStart(output) {
   return { permissionMode, waitTool, updateAsked };
 }
 
-function outputSize(dir) {
-  const log = join(dir, "session.jsonl");
-  return existsSync(log) ? statSync(log).size : 0;
+// The text of one result event of Claude Code, as { error, lines }, or null when it has none. A result has its text in
+// `result`: `success` with is_error (for example when Claude Code is not signed in) or an error kind is an error. An
+// error kind can have no `result` and hold its texts in `errors`, for example {"type":"result","subtype":
+// "error_during_execution","is_error":true,"errors":["queryParams builder failed: ..."]}.
+function resultWords(event) {
+  if (typeof event.result === "string" && event.result.trim()) {
+    return { error: event.is_error === true || event.subtype !== "success", lines: [event.result.trim()] };
+  }
+  const errors = Array.isArray(event.errors) ? event.errors.filter((text) => typeof text === "string" && text.trim()).map((text) => text.trim()) : [];
+  return errors.length > 0 ? { error: true, lines: errors } : null;
 }
 
-// The session's output after its first `from` bytes (its size at the launch), which the sessions before the launch
-// wrote, with their own calls. Output that is shorter than `from` is all new: the start script moved the earlier output
-// to session.1.jsonl because it grew too large.
+// Why the session did not start to wait for a request, as its output (`output`, as sessionStart reads it) says it, in a
+// short line masked with `mask`; or null when the output does not say. First the text of Claude Code's last result with
+// a text (resultWords), which Claude Code writes when the turn ends, also when it cannot start the turn (for example
+// "Not logged in · Please run /login" when Claude Code is not signed in). Else the last lines that are no event: an
+// error that Claude Code or another program wrote to stderr, for example Claude Code's refusal of the bypass mode for
+// root, before any event.
+function notWaitingWhy(output, mask) {
+  let result = null;
+  const other = [];
+  for (const raw of output.split("\n")) {
+    const line = raw.replace(COLORS, "").trim();
+    if (!line) continue;
+    let event;
+    try {
+      event = JSON.parse(line);
+    } catch (error) {
+      if (!(error instanceof SyntaxError)) throw error;
+      // A half-written event (it starts with {") is no output of its own.
+      if (!line.startsWith('{"')) other.push(line);
+      continue;
+    }
+    if (event?.type === "result") result = resultWords(event) ?? result;
+  }
+  if (result !== null) return `${result.error ? "Claude Code's error" : "Its last message"}: "${oneLine(result.lines, mask)}".`;
+  if (other.length > 0) return `The last lines of its output: "${oneLine(other.slice(-3), mask)}".`;
+  return null;
+}
+
+// The start script's line in service.log when a session ended, with its exit code (runScript). After the launch, it is
+// the line of the session that the launch started: `stop`, and on a Mac the launch itself (bootout), end an earlier
+// start script together with its session, before that script writes the line.
+const SESSION_END = /^\S+ the serving session ended with code (\d+)$/m;
+
+function sizeOf(file) {
+  return existsSync(file) ? statSync(file).size : 0;
+}
+
+// The text of the file `log` (the session's output, or service.log) after its first `from` bytes (its size at the
+// launch), which the sessions before the launch wrote. Output that is shorter than `from` is all new: the start script
+// moved the earlier output to session.1.jsonl because it grew too large.
 function outputAfter(log, from) {
   let fd;
   try {
@@ -707,32 +936,45 @@ function waitSeconds(env) {
 }
 
 // What the output of the session that the launch started says about its start (sessionStart), once a wait for a request
-// returned or after `seconds`. The Skill's first wait has `wait_seconds: 0`, so it returns at once.
-function waitForStart(dir, from, seconds) {
-  const log = join(dir, "session.jsonl");
+// returned, once the session ended (its line in service.log), or after `seconds`. The Skill's first wait has
+// `wait_seconds: 0`, so it returns at once. `from` holds the sizes of session.jsonl and service.log at the launch. When
+// no wait returned, `ended` is the session's exit code (null while it runs), and `why` what its output says about why
+// (notWaitingWhy, masked with `mask`).
+function waitForStart(dir, from, seconds, mask) {
   const until = Date.now() + seconds * 1000;
   for (;;) {
-    const seen = sessionStart(outputAfter(log, from));
-    if (seen.waitTool !== null || Date.now() >= until) return seen;
+    // service.log first: when it holds the session's end, the session's output is complete.
+    const end = SESSION_END.exec(outputAfter(join(dir, "service.log"), from.log));
+    const output = outputAfter(join(dir, "session.jsonl"), from.output);
+    const seen = sessionStart(output);
+    if (seen.waitTool !== null) return { ...seen, ended: null, why: null };
+    if (end !== null || Date.now() >= until) return { ...seen, ended: end === null ? null : Number(end[1]), why: notWaitingWhy(output, mask) };
     execFileSync("sleep", ["1"]);
   }
 }
 
 // Launches the start script, and waits for the session's start (waitForStart), unless nothing was launched (then
 // `seen` is null).
-function launchAndWait(env, machine, dir) {
+function launchAndWait(env, machine, dir, mask) {
   const seconds = waitSeconds(env);
-  const from = outputSize(dir);
+  const from = { output: sizeOf(join(dir, "session.jsonl")), log: sizeOf(join(dir, "service.log")) };
   const how = launch(env, machine, dir);
-  const seen = env.DOABLE_CODE_AGENT_NO_LAUNCH ? null : waitForStart(dir, from, seconds);
+  const seen = env.DOABLE_CODE_AGENT_NO_LAUNCH ? null : waitForStart(dir, from, seconds, mask);
   return { how, seen };
+}
+
+// What setup and start say when the session did not start to wait for a request: at once when it ended, with its exit
+// code, else after the wait; with why, when its output says it.
+function notWaitingWords({ ended, why }, dir) {
+  const what = ended === null ? "It did not start to wait in 2 minutes." : `The session ended with code ${ended} before it started to wait for requests.`;
+  return [what, why, `Read ${join(dir, "session.jsonl")} and ${join(dir, "service.log")}.`].filter((part) => part !== null).join(" ");
 }
 
 // `selfUpdate` is the machine's self-update: "on", "off" or "development folder" (selfUpdateOf).
 function printStart(seen, dir, print, selfUpdate) {
   if (seen === null) return;
   const { permissionMode, waitTool, updateAsked } = seen;
-  if (waitTool === null) print(`It did not start to wait in 2 minutes. Read ${join(dir, "session.jsonl")} and ${join(dir, "service.log")}.`);
+  if (waitTool === null) print(notWaitingWords(seen, dir));
   // Doable records no machine whose wait it answers with its ask: the session ended, and it is not connected.
   else if (updateAsked !== null) {
     print(`Doable needs the plugin ${updateAsked} on this machine, so the session ended at its first wait for a request. ${ASKED_NEXT[selfUpdate]}`);
@@ -749,8 +991,26 @@ function printStart(seen, dir, print, selfUpdate) {
   }
 }
 
-export function setup(options, env, print = console.log) {
-  const { folder, machine, promptFile, autoUpdate = true } = options;
+// Claude Code refuses the bypass permission mode for root ("--dangerously-skip-permissions cannot be used with root/sudo
+// privileges"), unless its environment has IS_SANDBOX=1 or a CLAUDE_CODE_BUBBLEWRAP that is not empty (a sandbox), so
+// a session that root runs elsewhere ends at once. setup and start refuse first, before they change anything. The
+// start script of a machine without launchd gets their environment (`env`), so there they let root through in such a
+// sandbox. A launchd job does not get it: on a Mac under launchd they refuse root in any case. `uid` is the user id of
+// the process (process.getuid): the tests give one.
+function refuseRoot(command, uid, env) {
+  const sandbox = env.IS_SANDBOX === "1" || Boolean(env.CLAUDE_CODE_BUBBLEWRAP);
+  if (uid === 0 && !(sandbox && !useLaunchd(env))) {
+    fail(
+      `Run ${command} as a normal user, not as root and not with sudo. The session runs in the bypass permission mode, which Claude Code refuses for root, so the session would never start. Use the account that is signed in to Claude Code on the Claude plan.`,
+    );
+  }
+}
+
+// `mask` masks the last lines of page.log and of the session's output that setup prints when the page does not run or
+// the session does not start: main gives the page's mask. `options.uid` is the user id of the process (refuseRoot).
+export function setup(options, env, print = console.log, mask = maskBasic) {
+  const { folder, machine, promptFile, autoUpdate = true, uid = process.getuid() } = options;
+  refuseRoot("setup", uid, env);
   checkMachine(machine);
   const key = env.DOABLE_API_KEY || "";
   if (!ORGANIZATION_KEY.test(key)) {
@@ -765,11 +1025,16 @@ export function setup(options, env, print = console.log) {
   if (ANY_DOABLE_KEY.test(prompt)) fail("The prompt file holds a Doable API key. Take the key out: setup keeps it in its own file.");
   const chosen = chosenBrowser(env);
   const folderPath = resolve(folder);
-  const config = { folder: folderPath, machine, autoUpdate, ...runEnvironment(env) };
+  const dir = serviceDir(env, machine);
+  // The setup again (the README's way to change the folder or the key) keeps the page's choice of config.json unless an
+  // option changes it, as start does: a page that a person turned off or moved stays so.
+  const saved = existsSync(join(dir, "config.json")) ? JSON.parse(readFileSync(join(dir, "config.json"), "utf8")) : {};
+  const page = options.page ?? pageOf(saved).on;
+  const pagePort = options.pagePort ?? pageOf(saved).port;
+  const config = { folder: folderPath, machine, autoUpdate, page, pagePort, ...runEnvironment(env) };
   const node = findNode(config.path);
   const update = pluginToUpdate(config, env);
 
-  const dir = serviceDir(env, machine);
   checkNotRunning(env, machine, dir);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   chmodSync(dir, 0o700);
@@ -789,7 +1054,8 @@ export function setup(options, env, print = console.log) {
     print(`Removed ${RETIRED_POLICY_FILE}: a session takes its rules from its prompt now.`);
   }
 
-  const { how, seen } = launchAndWait(env, machine, dir);
+  const { how, seen } = launchAndWait(env, machine, dir, mask);
+  const look = pageAfterLaunch(dir, config, seen, mask);
   print(`The Doable code agent "${machine}" serves ${folderPath}: ${how}.`);
   // When the session says that it runs in another mode, printStart says so in place of this note.
   if (seen === null || seen.permissionMode === null || seen.permissionMode === "bypassPermissions") print(NO_PERMISSION_CHECK_NOTE);
@@ -797,6 +1063,7 @@ export function setup(options, env, print = console.log) {
   printStart(seen, dir, print, selfUpdateOf(config));
   print(`Its files are in ${dir} (the key is in ${join(dir, "env")}, readable only by you).`);
   print(SELF_UPDATE_WORDS[selfUpdateOf(config)](machine));
+  print(pageWords(machine, pageOf(config), look));
   print(`Status: node ${SCRIPT} status --machine ${machine}`);
   print(`Stop: node ${SCRIPT} stop --machine ${machine}`);
   print(INSTALL_PATH_NOTE);
@@ -817,11 +1084,16 @@ export function stop(machine, env, print = console.log) {
       }
     }
   }
+  // After the start script: it starts no page once the stop file is there, also when launchd runs it at a login. Also
+  // with DOABLE_CODE_AGENT_NO_LAUNCH: the page is not a launch, and the process check stops only this machine's page.
+  stopPage(dir, machine);
   print(`Stopped the code agent "${machine}". Start it again with: start --machine ${machine}`);
 }
 
-// `autoUpdate` is the choice of `--auto-update`, or undefined: start keeps the choice of config.json.
-export function start(machine, env, print = console.log, { autoUpdate } = {}) {
+// `autoUpdate`, `page` and `pagePort` are the choices of `--auto-update`, `--page` and `--page-port`, or undefined:
+// start keeps the choice of config.json. `uid` and `mask` are setup's.
+export function start(machine, env, print = console.log, { autoUpdate, page, pagePort, uid = process.getuid() } = {}, mask = maskBasic) {
+  refuseRoot("start", uid, env);
   checkMachine(machine);
   const dir = serviceDir(env, machine);
   if (!existsSync(join(dir, "config.json"))) fail(`No code agent "${machine}" is set up on this machine: run setup first.`);
@@ -829,6 +1101,8 @@ export function start(machine, env, print = console.log, { autoUpdate } = {}) {
   const chosen = chosenBrowser(env);
   const { config, fromOlderSetup } = savedConfig(dir, env);
   if (autoUpdate !== undefined) config.autoUpdate = autoUpdate;
+  if (page !== undefined) config.page = page;
+  if (pagePort !== undefined) config.pagePort = pagePort;
   const node = findNode(config.path);
   const update = pluginToUpdate(config, env);
   writeConfig(dir, config);
@@ -836,12 +1110,15 @@ export function start(machine, env, print = console.log, { autoUpdate } = {}) {
   // A new command line can fail where the old one worked: the person who starts the session learns, as at setup,
   // whether it waits for requests, in which permission mode it runs (settings can turn the bypass mode off), and
   // whether it waits through the plugin's server.
-  const { how, seen } = launchAndWait(env, machine, dir);
+  const { how, seen } = launchAndWait(env, machine, dir, mask);
+  const look = pageAfterLaunch(dir, config, seen, mask);
   print(`The code agent "${machine}": ${how}.`);
   print(chromeNote(chosen));
   printStart(seen, dir, print, selfUpdateOf(config));
-  // A changed choice says what it does now; `status` and the page always show it.
+  // A changed choice says what it does now; `status` and the page always show it. A page that does not run is said
+  // with no option too.
   if (autoUpdate !== undefined) print(SELF_UPDATE_WORDS[selfUpdateOf(config)](machine));
+  if (page !== undefined || pagePort !== undefined || look?.runs === false) print(pageWords(machine, pageOf(config), look));
   if (fromOlderSetup) {
     print(
       `If the secret rule in ${join(dir, "prompt.md")} has no exception for a new test login's password, add this sentence to it, then run stop and start again: "${PASSWORD_EXCEPTION}"`,
@@ -863,13 +1140,41 @@ export function serviceState(machine, env) {
   return running ? "on" : "not running";
 }
 
-// Whether self-update is "on", "off", or off for a "development folder", from the machine's config.json. `status` prints
-// it, and the page shows it.
-export function selfUpdateState(machine, env) {
+// The machine's config.json. It fails for a machine that is not set up, as the other commands do.
+function setupConfig(machine, env) {
   checkMachine(machine);
   const file = join(serviceDir(env, machine), "config.json");
   if (!existsSync(file)) fail(`No code agent "${machine}" is set up on this machine: run setup first.`);
-  return selfUpdateOf(JSON.parse(readFileSync(file, "utf8")));
+  return JSON.parse(readFileSync(file, "utf8"));
+}
+
+// Whether self-update is "on", "off", or off for a "development folder", from the machine's config.json. `status` prints
+// it, and the page shows it.
+export function selfUpdateState(machine, env) {
+  return selfUpdateOf(setupConfig(machine, env));
+}
+
+// Whether the start script runs the page, and the page's address, from the machine's config.json (pageOf). The page
+// shows it; `status` says it with pageState.
+export function pageSetting(machine, env) {
+  const page = pageOf(setupConfig(machine, env));
+  return { on: page.on, address: pageAddress(page.port) };
+}
+
+// What `status` says about the page, with the code agent's `state` (serviceState). service.log and page.log say why the
+// page does not run only while the code agent is on: it runs only while the code agent runs. A start script of plugin
+// 0.6.3 or older runs no page, while a config.json of that release (no page keys) means on: a person updated the
+// plugin by hand and did not run stop and start.
+function pageState(dir, machine, state) {
+  const page = pageOf(JSON.parse(readFileSync(join(dir, "config.json"), "utf8")));
+  const address = pageAddress(page.port);
+  if (!page.on) return `The page: off. To turn it on, run stop, then start --machine ${machine} --page on.`;
+  if (runningPage(dir, machine) !== null) return `The page: on, at ${address}; it runs now.`;
+  if (!readFileSync(join(dir, "run.sh"), "utf8").includes("start_page")) {
+    return `The page: on, at ${address}, but the start script of this machine is from an older release, which runs no page. To start the page, run stop, then start --machine ${machine} (a self-update starts it too).`;
+  }
+  if (state !== "on") return `The page: on, at ${address}; it runs only while the code agent runs.`;
+  return `The page: on, at ${address}; it does not run now (service.log and ${join(dir, PAGE_LOG)} say why).`;
 }
 
 export function status(machine, env, print = console.log) {
@@ -877,6 +1182,7 @@ export function status(machine, env, print = console.log) {
   const dir = serviceDir(env, machine);
   print(`Code agent "${machine}": ${state}.`);
   print(SELF_UPDATE_WORDS[selfUpdateState(machine, env)](machine));
+  print(pageState(dir, machine, state));
   const asked = askedRelease(dir);
   if (asked !== null) {
     print(`Doable asked for the plugin ${asked} at ${statSync(join(dir, UPDATE_ASKED)).mtime.toISOString()}: service.log says what the start script did.`);
@@ -999,6 +1305,67 @@ export function writeStartScript({ dir }, env) {
   writeRunScript(dir, config, pluginToUpdate(config, env), findNode(config.path));
 }
 
+// `stop-page`: the start script's step at its start and after its loop. It stops the page that a start script started
+// (page.pid), of this release or of another one, and prints a line for service.log when it stopped one.
+export function stopPageStep({ dir }, print) {
+  const config = machineConfig(dir);
+  const pids = stopPage(dir, config.machine);
+  if (pids.length > 0) print(`${logTime()} the page (${processWords(pids)}) stopped.`);
+}
+
+// The page's address line in page.log: the page prints it when it listens.
+const PAGE_LISTENS = /^The page of the code agent ".+": http:\/\/127\.0\.0\.1:\d+\/$/m;
+
+// The last lines of page.log, masked with `mask` (the page's output holds the error that ended it, and can hold
+// another text of a log). Eight lines keep the error's message above a short stack.
+function pageLogEnd(dir, mask) {
+  const file = join(dir, PAGE_LOG);
+  const lines = (existsSync(file) ? readFileSync(file, "utf8") : "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(-8);
+  if (lines.length === 0) return "Its page.log is empty.";
+  return `The last lines of page.log: ${oneLine(lines, mask)}`;
+}
+
+// The process id of the page that the start script started (runningPage) once that page listens (its address line in
+// page.log), or null once it ended. A page that has just started can still end, for example when its port is in use:
+// this waits up to PAGE_START_S seconds for one or the other.
+function settledPage(dir, machine) {
+  const log = join(dir, PAGE_LOG);
+  const until = Date.now() + PAGE_START_S * 1000;
+  let pid = runningPage(dir, machine);
+  while (pid !== null && Date.now() < until && !(existsSync(log) && PAGE_LISTENS.test(readFileSync(log, "utf8")))) {
+    pause(100);
+    pid = runningPage(dir, machine);
+  }
+  return pid;
+}
+
+// What setup and start saw of the page after the launch, for pageWords: null when they launched nothing (then the start
+// script has not run) or the page is off. Else whether the page runs (settledPage), and when it does not, the last
+// lines of page.log, masked with `mask`. When the session's first wait returned, the start script has checked its page
+// before that session's start (check-page), and started it again when it did not run.
+function pageAfterLaunch(dir, config, seen, mask) {
+  if (seen === null || !pageOf(config).on) return null;
+  if (settledPage(dir, config.machine) !== null) return { runs: true };
+  return { runs: false, why: pageLogEnd(dir, mask) };
+}
+
+// `check-page`: the start script's step before each session's start, with the page on. It returns 0 while the page
+// that the start script started (page.pid) runs, once it listens (settledPage). When the page does not run, it prints
+// one line for service.log, with the last lines of page.log masked with `mask`, and returns PAGE_NOT_RUNNING: the start
+// script then starts the page again.
+export function checkPage({ dir }, print, mask) {
+  const config = machineConfig(dir);
+  if (settledPage(dir, config.machine) !== null) return 0;
+  print(
+    `${logTime()} the page at ${pageAddress(pageOf(config).port)} does not run (README, "The code agent's page"); the start script starts it again. ${pageLogEnd(dir, mask)}`,
+  );
+  return PAGE_NOT_RUNNING;
+}
+
 // The version that Doable asked for in the output of a serving session (as sessionStart reads it): the last answer of a
 // wait for a request that returned with no error and that is Doable's ask (updateVersion); null when none is.
 function askedVersion(output) {
@@ -1057,6 +1424,24 @@ export function updateRequest({ dir, from, plugin, scope }, env, print, mask) {
   return ASKED_WAIT;
 }
 
+// The options that each command takes. A command refuses an option of another command, and names the options that it
+// takes: it would not use that option, and the person would think that it did (for example the page command's --port,
+// given to start to move the service's page). main refuses a command that this list does not name.
+const COMMAND_OPTIONS = {
+  setup: ["--folder", "--machine", "--prompt-file", "--auto-update", "--page", "--page-port"],
+  start: ["--machine", "--auto-update", "--page", "--page-port"],
+  status: ["--machine"],
+  stop: ["--machine"],
+  remove: ["--machine"],
+  page: ["--machine", "--port", "--pid-file"],
+  browser: [],
+  "update-request": ["--dir", "--from", "--plugin", "--scope"],
+  "write-start-script": ["--dir"],
+  "stop-page": ["--dir"],
+  "check-page": ["--dir"],
+};
+const KNOWN_OPTIONS = new Set(Object.values(COMMAND_OPTIONS).flat());
+
 export function parseArgs(argv) {
   const [command, ...rest] = argv;
   const options = {};
@@ -1064,13 +1449,22 @@ export function parseArgs(argv) {
   while (i < rest.length) {
     const name = rest[i];
     if (RETIRED_OPTIONS.includes(name)) fail(`${name} is not needed: this release allows every tool and has Chrome on.`);
+    if (!KNOWN_OPTIONS.has(name)) fail(`Unknown option ${name}.`);
+    if (Object.hasOwn(COMMAND_OPTIONS, command) && !COMMAND_OPTIONS[command].includes(name)) {
+      const takes = COMMAND_OPTIONS[command];
+      const pagePort = name === "--port" && takes.includes("--page-port") ? " The page's port is --page-port <number>." : "";
+      fail(`${command} does not take ${name}: it takes ${takes.length === 0 ? "no option" : takes.join(", ")}.${pagePort}`);
+    }
     const value = rest[i + 1];
     if (value === undefined) fail(`${name} needs a value.`);
     if (name === "--folder") options.folder = value;
     else if (name === "--machine") options.machine = value;
     else if (name === "--prompt-file") options.promptFile = value;
-    else if (name === "--port") options.port = portNumber(value);
-    else if (name === "--auto-update") options.autoUpdate = onOrOff(value);
+    else if (name === "--port") options.port = portNumber(name, value);
+    else if (name === "--pid-file") options.pidFile = value;
+    else if (name === "--auto-update") options.autoUpdate = onOrOff(name, value);
+    else if (name === "--page") options.page = onOrOff(name, value);
+    else if (name === "--page-port") options.pagePort = portNumber(name, value);
     else if (name === "--dir") options.dir = value;
     else if (name === "--plugin") options.plugin = value;
     else if (name === "--scope") options.scope = value;
@@ -1081,8 +1475,8 @@ export function parseArgs(argv) {
   return { command, options };
 }
 
-function onOrOff(value) {
-  if (value !== "on" && value !== "off") fail("--auto-update must be on or off.");
+function onOrOff(name, value) {
+  if (value !== "on" && value !== "off") fail(`${name} must be on or off.`);
   return value === "on";
 }
 
@@ -1091,19 +1485,23 @@ function byteCount(value) {
   return Number(value);
 }
 
-// The port of the page's address (`page --port`).
-function portNumber(value) {
+// The port of the page's address (`page --port`, and `--page-port` of setup and start).
+function portNumber(name, value) {
   const port = /^\d{1,5}$/.test(value) ? Number(value) : 0;
-  if (port < 1 || port > 65535) fail("--port must be a whole number from 1 to 65535.");
+  if (port < 1 || port > 65535) fail(`${name} must be a whole number from 1 to 65535.`);
   return port;
 }
 
 async function main() {
   const { command, options } = parseArgs(process.argv.slice(2));
   const env = process.env;
-  if (command === "setup") setup(options, env);
-  else if (command === "stop") stop(options.machine, env);
-  else if (command === "start") start(options.machine, env, console.log, options);
+  if (command === "setup" || command === "start") {
+    // The page's mask for the last lines of page.log that they print, loaded only for these commands, as for `page`.
+    const { maskSecrets } = await import("./code-agent-page.mjs");
+    const mask = (text) => maskSecrets(text);
+    if (command === "setup") setup(options, env, console.log, mask);
+    else start(options.machine, env, console.log, options, mask);
+  } else if (command === "stop") stop(options.machine, env);
   else if (command === "status") status(options.machine, env);
   else if (command === "remove") remove(options.machine, env);
   else if (command === "browser") browser(env);
@@ -1116,7 +1514,12 @@ async function main() {
     const { maskSecrets } = await import("./code-agent-page.mjs");
     process.exitCode = updateRequest(options, env, console.log, (text) => maskSecrets(text));
   } else if (command === "write-start-script") writeStartScript(options, env);
-  else fail("Use setup, status, stop, start, remove, page or browser (see the comment at the top of this file).");
+  else if (command === "stop-page") stopPageStep(options, console.log);
+  else if (command === "check-page") {
+    // The page's mask, loaded only for this command, as for `page`.
+    const { maskSecrets } = await import("./code-agent-page.mjs");
+    process.exitCode = checkPage(options, console.log, (text) => maskSecrets(text));
+  } else fail("Use setup, status, stop, start, remove, page or browser (see the comment at the top of this file).");
 }
 
 // The real path: with a link in the path (a linked ~/.claude), the script must run, not end with no output.
